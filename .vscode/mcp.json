@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "webiste-nuxt-4-nuxt" :{
+      "type": "http",
+      "url": "https://nuxt.com/mcp",
+    },
+    "website-nuxt-4-metals": {
+      "url": "http://localhost:64671/sse",
+      "type": "sse"
+    }
+  }
+}

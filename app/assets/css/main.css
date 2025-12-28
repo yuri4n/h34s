@@ -1,0 +1,36 @@
+@import 'tailwindcss';
+
+@plugin '@tailwindcss/typography';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/aspect-ratio';
+
+@utility font-sans-serif {
+  font-family: 'Alegreya Sans', sans-serif;
+}
+
+@theme {
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-serif: Alegreya, serif;
+  --font-monospace: Inconsolata, monospace;
+}
+
+@layer base {
+  /* html {
+    scroll-behavior: smooth;
+  } */
+
+  body {
+    @apply bg-stone-100 dark:bg-stone-800;
+  }
+
+  .font-sans-serif, .font-serif {
+    font-size-adjust: 0.53;
+  }
+
+  hgroup {
+    @apply font-serif;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-sans-serif;
+  }
+}
