@@ -1,0 +1,24 @@
+meta {
+  name: Scala
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{API_URL}}/api/scala
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "key": {
+      "something": 124124
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
