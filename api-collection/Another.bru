@@ -1,0 +1,22 @@
+meta {
+  name: Another
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{API_URL}}/api/another
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
