@@ -21,6 +21,9 @@
     "dev:scala": "pnpm run dev",
     "build:scala": "pnpm run build"
   },
+  "dependencies": {
+    "h3": "1.15.4"
+  },
   "devDependencies": {
     "@antfu/eslint-config": "^7.4.2",
     "@nuxt/content": "^3.11.2",

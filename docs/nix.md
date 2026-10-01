@@ -17,13 +17,13 @@ See [Build and run](build.md) before starting the server. The current error boun
 
 The shell contains:
 
-| Tool | Pin |
-| --- | --- |
-| Node | 24.19.0 from locked nixpkgs |
-| pnpm | 10.34.5; must match `package.json` |
-| Java | JDK 17 from locked nixpkgs |
-| sbt | Locked nixpkgs launcher; the application uses 1.11.7 from `project/build.properties` |
-| Native build support | Compiler/make from `mkShell`, Python 3, pkg-config, and Git |
+| Tool                 | Pin                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| Node                 | 24.19.0 from locked nixpkgs                                                          |
+| pnpm                 | 10.34.5; must match `package.json`                                                   |
+| Java                 | JDK 17 from locked nixpkgs                                                           |
+| sbt                  | Locked nixpkgs launcher; the application uses 1.11.7 from `project/build.properties` |
+| Native build support | Compiler/make from `mkShell`, Python 3, pkg-config, and Git                          |
 
 `flake.lock` pins nixpkgs revision `c8f90650c15282fa8656a041bfbbd2403997a9a7` and its content hash. The initial lock metadata comes from the `nixpkgs-src` input of [devenv's lockfile at fe20b5c](https://github.com/cachix/devenv/blob/fe20b5cba7ab5e93ae73f956a8d3efc50e1753f4/flake.lock). This project depends directly on nixpkgs, **not** on devenv. Nix validates the content hash when it fetches that input.
 
@@ -38,7 +38,9 @@ nix develop --no-update-lock-file --command bash scripts/ci-build.sh
 
 The first command checks the locked toolchain on the current system. The second installs dependencies, runs Scala tests, checks development-to-production output replacement, builds Nuxt, and exercises the production HTTP regression test. **The HTTP test currently fails on the recovered stream adapter.** Do not interpret a successful toolchain check as a passing application test.
 
-Flake outputs are defined for `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`. These are candidate platforms, not an established support matrix. The first CI target is `x86_64-linux` on Ubuntu 24.04. Nix is not installed on the local macOS x86_64 validation host, so local Nix evaluation, shell execution, and cross-platform checks are **not verified**. CI results are reported in the PR; do not infer success from the workflow configuration alone.
+Flake outputs are defined for `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`. These are candidate platforms, not an established support matrix. The first CI target is `x86_64-linux` on Ubuntu 24.04. The [initial clean-checkout CI run](https://github.com/yuri4n/h34s/actions/runs/36794306347) passed `nix flake check`, entered the shell, installed frontend dependencies, compiled from freshly generated facades, and passed the nine converter tests. Aggregate testing then found an undeclared runtime `h3` dependency, now declared explicitly in `package.json` at the facade's version. See the PR for subsequent results.
+
+Nix is not installed on the local macOS x86_64 validation host, so local Nix evaluation, shell execution, and the other flake platforms are **not verified**. A passing Linux toolchain check is not a passing application or cross-platform check.
 
 ## Dependency updates
 

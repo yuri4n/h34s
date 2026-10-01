@@ -85,7 +85,7 @@ Node runs the application. Java and sbt are build-time tools only. The retained 
 
 - `nuxtsvr / Compile / fastLinkJS` and `fullLinkJS` retain separate default linker directories under `scala-modules/svr/target/`.
 - `nuxtDevLink` and `nuxtProdLink` stage the selected output into ignored `server/.scala/` **after** linking succeeds. Staging replaces the whole directory, so removed modules and files from a previous mode cannot remain there.
-- `server/api/test.ts` keeps its existing import. No route or handler API changes are required.
+- `server/api/test.ts` keeps its existing import. No route or handler API changes are required. `h3` is a direct runtime dependency at **1.15.4**, matching the facade input; linked ESM must not depend on finding a transitive or ancestor-checkout installation.
 - `sbt nuxtsvr/clean` removes the staged directory as well as the module's build output.
 - Compilation no longer includes `-rewrite`. Existing migration and unused-symbol warnings remain; builds do not automatically edit source files.
 - Shared dependencies append to the Scala.js plugin's defaults, preserving its test bridge. This fixes the recovered aggregate `sbt test` linker error instead of bypassing modules with no tests.
