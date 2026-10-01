@@ -2,7 +2,9 @@
 
 A Scala.js toolbox for Nuxt/Nitro server handlers, with developer experience as a first-class requirement.
 
-**Status: recovered playground baseline, not a verified MVP or a published library.** This import preserves the existing ZIO-based implementation for review. It does not introduce a Kyo core, a new handler API, or a production packaging pipeline.
+**Status: buildable ZIO/Scala.js playground, not a verified MVP or a published library.** The build foundation preserves the recovered handler API. Kyo, safe errors, the new examples module, and application packaging remain planned.
+
+**Do not expose the recovered server publicly. Its error boundary can leak internal exception details.**
 
 ## What is here
 
@@ -12,7 +14,7 @@ A Scala.js toolbox for Nuxt/Nitro server handlers, with developer experience as 
 - `app/` and `content/focuses/`: the retained non-CV frontend and shared UI. These are legacy playground content, not the final h34s example application.
 - `build.sbt`, `project/`, and dependency lockfiles: the recovered build inputs, including the ScalablyTyped npm lockfile.
 
-See [the baseline report](docs/baseline.md) for exclusions, validation, and known limitations. Existing scripts are historical build inputs, not a verified quickstart. In particular, the current Scala compiler options include `-rewrite`, and the production output path is not fully wired.
+Start with [Build and run](docs/build.md) for prerequisites, exact commands, the current test scope, and troubleshooting. A [locked Nix development shell](docs/nix.md) provides an alternative to installing the build tools individually. Ordinary compilation no longer rewrites sources, and `pnpm build` stages production Scala.js output before building Nuxt. The [baseline report](docs/baseline.md) records the original import and its limitations.
 
 ## Intended direction
 
