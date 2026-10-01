@@ -1,7 +1,8 @@
 package dev.yuri4n.svr.infrastructure.services.live.postgres
 
+import dev.yuri4n.exts.zioh3.TaskStream
 import dev.yuri4n.svr.model.{FocusItem, FocusItemRow, User}
-import dev.yuri4n.svr.services.{FocusItems, TaskStream}
+import dev.yuri4n.svr.services.FocusItems
 import skunk.Session
 import skunk.codec.all.*
 import skunk.implicits.*

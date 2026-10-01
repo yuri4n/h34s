@@ -2,17 +2,24 @@
   "name": "nuxt-app",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": "10.34.5"
+  },
   "scripts": {
-    "build": "nuxt build",
-    "dev": "nuxt dev",
-    "generate": "nuxt generate",
+    "build": "pnpm run scala:full && nuxt build",
+    "dev": "pnpm run scala:fast && nuxt dev",
+    "generate": "pnpm run scala:full && nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "scala:types": "sbt -Dsbt.supershell=false -batch scalablytypedGenerate",
-    "scala:fast": "sbt -Dsbt.supershell=false -batch fastLinkJS",
-    "scala:full": "sbt -Dsbt.supershell=false -batch fullLinkJS",
-    "dev:scala": "pnpm run scala:fast && nuxt dev",
-    "build:scala": "pnpm run scala:full && nuxt build"
+    "scala:types": "pnpm run scala:facades",
+    "scala:facades": "sbt -Dsbt.supershell=false -batch h3Ext/compile",
+    "scala:fast": "sbt -Dsbt.supershell=false -batch nuxtsvr/nuxtDevLink",
+    "scala:full": "sbt -Dsbt.supershell=false -batch nuxtsvr/nuxtProdLink",
+    "scala:test": "sbt -Dsbt.supershell=false -batch test",
+    "dev:scala": "pnpm run dev",
+    "build:scala": "pnpm run build"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^7.4.2",

@@ -1,5 +1,8 @@
 import org.scalajs.linker.interface.{ESVersion, ModuleKind, OutputPatterns}
 
+lazy val nuxtDevLink  = taskKey[File]("Link Scala.js for development and stage its output for Nuxt")
+lazy val nuxtProdLink = taskKey[File]("Link Scala.js for production and stage its output for Nuxt")
+
 inThisBuild(
   Seq(
     // scalaVersion      := "3.7.4",
@@ -12,7 +15,6 @@ inThisBuild(
       "-Xkind-projector",
       "-source",
       "future-migration",
-      "-rewrite",
     ),
   ),
 )
@@ -20,7 +22,7 @@ inThisBuild(
 lazy val configureCommonJsProject: Project => Project =
   _.enablePlugins(ScalaJSPlugin)
     .settings(
-      libraryDependencies := Seq(
+      libraryDependencies ++= Seq(
         "dev.zio"       %%% "zio-interop-cats"      % "23.1.0.13",
         "dev.zio"       %%% "zio-json"              % "0.7.38",
         "dev.zio"       %%% "zio-schema-derivation" % "1.7.5",
@@ -89,8 +91,8 @@ lazy val h3Ext: Project = (project in file("scala-modules/exts/h3"))
 lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
-    name    := "zio-h3-ext",
-    version := "0.1.0",
+    name                     := "zio-h3-ext",
+    version                  := "0.1.0",
     libraryDependencies ++= Seq(
       "dev.zio"      %%% "zio"              % "2.1.23",
       "dev.zio"      %%% "zio-streams"      % "2.1.23",
@@ -102,6 +104,7 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
       "dev.zio"      %%% "zio-test-sbt"     % "2.1.23" % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    Test / parallelExecution := false,
   )
   .dependsOn(h3Ext, zioJsExt, nativeConverterZIOExt)
 
@@ -158,14 +161,30 @@ lazy val zioMigrationsExt: Project = (project in file("scala-modules/exts/zio-mi
 lazy val nuxtsvr: Project = (project in file("scala-modules/svr"))
   .configure(configureCommonJsProject)
   .settings(
-    name                                                := "nuxtsvr",
-    version                                             := "0.1.0-SNAPSHOT",
-    publish / skip                                      := true,
-    scalaJSUseMainModuleInitializer                     := false,
+    name                            := "nuxtsvr",
+    version                         := "0.1.0-SNAPSHOT",
+    publish / skip                  := true,
+    scalaJSUseMainModuleInitializer := false,
     scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)
       .withOutputPatterns(OutputPatterns.fromJSFile("%s.js"))
       .withESFeatures(_.withESVersion(ESVersion.ES2021))),
-    Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala",
+    nuxtDevLink                     := {
+      (Compile / fastLinkJS).value
+      NuxtScalaBuild.stage(
+        (Compile / fastLinkJS / scalaJSLinkerOutputDirectory).value,
+        (LocalRootProject / baseDirectory).value / "server" / ".scala",
+        streams.value.log,
+      )
+    },
+    nuxtProdLink                    := {
+      (Compile / fullLinkJS).value
+      NuxtScalaBuild.stage(
+        (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
+        (LocalRootProject / baseDirectory).value / "server" / ".scala",
+        streams.value.log,
+      )
+    },
+    cleanFiles += (LocalRootProject / baseDirectory).value / "server" / ".scala",
   )
   .dependsOn(exts)
 

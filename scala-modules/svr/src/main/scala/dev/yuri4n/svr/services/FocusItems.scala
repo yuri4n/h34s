@@ -1,5 +1,6 @@
 package dev.yuri4n.svr.services
 
+import dev.yuri4n.exts.zioh3.TaskStream
 import dev.yuri4n.svr.model.{FocusItem, FocusItemRow, User}
 
 trait FocusItems[F[_]]:

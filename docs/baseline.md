@@ -1,5 +1,7 @@
 # Recovered baseline
 
+This is the historical report for [PR #1](https://github.com/yuri4n/h34s/pull/1), merged after the user's approval. See [Build and run](build.md) for follow-up build fixes and current validation. The findings below describe the import as it was, not the latest build state.
+
 ## Purpose and scope
 
 This is a reviewable source checkpoint for h34s, not a verified MVP or a production release. It imports the existing ZIO-based Scala.js playground without restructuring its Scala modules or choosing the future public API.
