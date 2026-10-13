@@ -213,6 +213,17 @@ Validation of the `Unit` result conversion used a Linux x86_64 container with th
 
 The smoke test cannot see the hidden `ERR_HTTP_HEADERS_SENT`, so `UnitResultSpec`, since replaced by `HandlerResultSpec`, was the regression check for the `undefined` result. <!-- Changed by Claude Code on 2026-10-13: the spec was replaced. --> A debug run of that spec during validation also showed a pre-existing error-boundary defect that this change does not fix: `mkHandler` matches an `ErrorResponse` as a plain `Throwable` first, so `ZHandler.failWith(404, "missing")` reaches the client as status 500 with the body `{"errors":[null]}`. The stream boundary follow-up changes that path.
 
+<!-- Changed by Claude Code on 2026-10-13: validation record for the handler result rule. -->
+Validation of the handler result rule used the same Linux x86_64 container, the locked Nix shell, and the Maven Central mirror. `scripts/ci-build.sh` passed end to end on the committed tree, after the stream boundary fix was merged into this branch:
+
+- Frozen pnpm installation: passed.
+- Aggregate `pnpm run scala:test`: passed, 41 tests in five suites. `HandlerResultSpec` runs 16 tests against a fake h3 event, including the two compile-time checks through `scala.compiletime.testing.typeCheckErrors`; `SendStreamBoundarySpec` runs 13 through a real h3 server on a loopback port.
+- Development and production linking and both staging checks: passed, with 6 staged files and removal of the injected stale development file.
+- `pnpm build`: completed, including Nitro bundling. The build did not modify tracked files.
+- Production HTTP smoke tests: passed. `/api/test` returned status 200 with `abc`, and `/api/test-stream-failure` ended with a transport error while the server kept serving.
+
+The example application's handler, which fetches and then ends with `sendNoContent`, is covered by a fake-event test only: a bare h3 app has no `event.$fetch`, and no test starts Nitro. The compile-time checks and the `Unit` exclusion hold where the result type is known at the call site; see **Handler results** for the helper bound they need.
+
 <!-- Changed by Claude Code on 2026-10-13: validation record for the stream failure and disconnect handling. -->
 Validation of the stream failure and disconnect handling used a Linux x86_64 container with the locked Nix shell: JDK 17, Node 24.19.0, and pnpm 10.34.5. Maven Central rate-limited the container again, so sbt and coursier resolved through a Maven Central mirror. The run used `scripts/ci-build.sh`, the same script as CI.
 
