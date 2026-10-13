@@ -14,7 +14,9 @@ import scala.scalajs.js.annotation.JSExportTopLevel
 // handled event. The string form made h3 treat it as a response body: h3 tried to set
 // `content-type` after the headers were sent, Node threw `ERR_HTTP_HEADERS_SENT`, and Nitro hid
 // the error because the event was already handled. The client still received `abc` either way,
-// so this is a cleanup that removes a hidden error, not the transport fix.
+// so this is a cleanup that removes a hidden error, not the transport fix. Keep the `ntcvzio`
+// import: with another `NativeConverter[Unit]` in scope the hidden error returns, and no current
+// test detects it.
 @JSExportTopLevel("default", "test")
 val handler = defineEventHandler:
     ZHandler.sendStream(ZStream("a", "b", "c"))
