@@ -54,21 +54,23 @@ object UnitResultSpec extends ZIOSpecDefault:
       },
       test("an ErrorResponse from a Unit handler still produces an error body, not undefined") {
         // Only the success value goes through `ResultConverter`; the error boundary builds its own
-        // body. This test checks that the `Unit` instance does not reach that body. The body's
-        // messages and the status code belong to the error boundary, which currently matches
-        // `ErrorResponse` as a plain `Throwable` first and replaces its messages; the stream
-        // boundary follow-up changes that path and tests it.
-        for result <- invoke(mkHandler[Unit](h = ZHandler.failWith(404, "missing")))
+        // body. This test checks that the `Unit` instance does not reach that body and that the
+        // status and messages survive. (Changed by Claude Code on 2026-10-13: asserts the status and
+        // body now that the error boundary matches `ErrorResponse` first.)
+        val event = fakeEvent()
+        for result <- invoke(mkHandler[Unit](h = ZHandler.failWith(404, "missing")), event)
         yield assertTrue(
-          !js.isUndefined(result),
-          js.Array.isArray(result.asInstanceOf[js.Dynamic].errors),
+          event.node.res.statusCode.asInstanceOf[Int] == 404,
+          js.JSON.stringify(result) == """{"errors":["missing"]}""",
         )
       },
     ) @@ TestAspect.timeout(10.seconds)
 
-    /** A minimal h3 event. `setResponseStatus` writes to `node.res`; the tests read nothing else. */
+    /** A minimal h3 event. The error boundary reads `handled`, `setResponseStatus` writes to
+      * `node.res`, and the tests read nothing else.
+      */
     private def fakeEvent(): js.Dynamic =
-      js.Dynamic.literal(node = js.Dynamic.literal(res = js.Dynamic.literal()))
+      js.Dynamic.literal(handled = false, node = js.Dynamic.literal(res = js.Dynamic.literal()))
 
     /** Calls the h3 handler with `event` and returns the value its promise resolves to. */
     private def invoke(handler: CommonEvHandler, event: js.Dynamic = fakeEvent()): Task[js.Any] =

@@ -105,8 +105,9 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     Test / parallelExecution := false,
-    // Changed by Claude Code on 2026-10-13: tests that reach `mkHandler` link the `h3` facade's
-    // `@JSImport`, which the default `NoModule` kind cannot link. Link the test module as CommonJS.
+    // Changed by Claude Code on 2026-10-13: the result and boundary tests reach `mkHandler`, which
+    // links the `h3` facade's `@JSImport`, and the boundary tests also import `node:http` at run
+    // time. The default `NoModule` kind cannot link an import, so the test module links as CommonJS.
     // Node reads `.js` files under this repository as ES modules because package.json sets
     // "type": "module", so the output keeps the `.cjs` suffix. Consumers link the published IR with
     // their own settings; this changes only this project's test run.
