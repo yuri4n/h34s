@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.zioh3
 
-import dev.yuri4n.exts.h3.CommonEvHandler
+import dev.yuri4n.exts.h3.{CommonEvHandler, H3Event1}
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.*
 import zio.test.*
@@ -19,7 +19,8 @@ import scala.scalajs.js
   * compile-time rejection of `Unit`, with and without `ntcvzio.given`; and the two runtime guards
   * in `deliver`. `mkHandler` links the `h3` facade's import, so the zio-h3 test build links
   * CommonJS modules; see `build.sbt`. `SendStreamBoundarySpec` covers the same rule through a real
-  * h3 server.
+  * h3 server. Changed by Claude Code on 2026-10-13: three tests for `send` joined the suite: the
+  * after-sent warning, the compile-time rejection of `Unit`, and the failure for a non-body value.
   */
 object HandlerResultSpec extends ZIOSpecDefault:
 
@@ -93,7 +94,70 @@ object HandlerResultSpec extends ZIOSpecDefault:
             """{"errors":["The handler finished without sending a response."]}""",
         )
       },
+      // Created by Claude Code on 2026-10-13: the three tests below pin `send`. The first builds
+      // the effect before the response is marked as sent, so it also checks that `send` reads the
+      // response state when the effect runs. The fake response has no `end` or `setHeader`, so a
+      // write attempt would fail loudly instead of passing.
+      test("send after the response was sent writes nothing, warns once, and keeps the proof") {
+        val event   = fakeEvent()
+        val sending = SH3Event(event.asInstanceOf[H3Event1]).send("late")
+        event.handled = true
+        captureWarnings(sending).map: (proof, warnings) =>
+            assertTrue(
+              proof.toString == "Responded",
+              js.isUndefined(event.node.res.statusCode),
+              warnings == List(
+                "[zio-h3] send was called after the response was sent. Nothing was written.",
+              ),
+            )
+      },
+      test("send(()) does not compile, even with a NativeConverter[Unit] in scope") {
+        import dev.yuri4n.exts.ntcvzio.given
+        val errors = typeCheckErrors("ZHandler.send(())")
+        assertTrue(
+          errors.nonEmpty,
+          errors.exists(_.message.contains("send cannot send Unit")),
+          js.isUndefined(summon[NativeConverter[Unit]].toNative(())),
+        )
+      },
+      test("send fails before writing for a non-body value and names the operation to use") {
+        given NativeConverter[Passthrough] with
+            extension (value: Passthrough) def toNative: js.Any = value.native
+
+            override def fromNative(parseState: ParseState): Passthrough = Passthrough(js.undefined)
+
+        val event    = fakeEvent()
+        val response = Passthrough(js.Dynamic.newInstance(js.Dynamic.global.Response)("x"))
+        for result <- invoke(mkHandler(h = ZHandler.send(response)), event)
+        yield assertTrue(
+          event.node.res.statusCode.asInstanceOf[Int] == 500,
+          js.JSON.stringify(result) ==
+            """{"errors":["send received a Web Response. Use respondWith for it."]}""",
+        )
+      },
     ) @@ TestAspect.timeout(10.seconds)
+
+    /** A body whose converter returns the wrapped native value unchanged, so a test can hand `send`
+      * any JavaScript value. Created by Claude Code on 2026-10-13.
+      */
+    private final case class Passthrough(native: js.Any)
+
+    /** Runs `effect` with `console.warn` replaced by a recorder and returns the result together
+      * with the first argument of each warning. The original `console.warn` comes back afterwards,
+      * whether `effect` succeeds or fails. Created by Claude Code on 2026-10-13.
+      */
+    private def captureWarnings[A](effect: Task[A]): Task[(A, List[String])] =
+        val console  = js.Dynamic.global.console
+        val original = console.warn
+        val lines    = scala.collection.mutable.ListBuffer.empty[String]
+        val record   = js.Any.fromFunction1 { (message: js.Any) =>
+            lines += message.toString
+            ()
+        }
+        val install = ZIO.succeed(console.warn = record)
+        val restore = ZIO.succeed(console.warn = original)
+        ZIO.acquireReleaseWith(install)(_ => restore)(_ => effect).map(a => (a, lines.toList))
+    end captureWarnings
 
     /** A minimal h3 event. `deliver` and the error boundary read `handled`, `setResponseStatus`
       * writes to `node.res`, and the tests read nothing else.

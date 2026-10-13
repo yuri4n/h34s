@@ -11,11 +11,16 @@ import org.scalajs.dom.Response
 import typings.h3.mod.{
   EventHandlerObject,
   EventHandlerRequest,
+  MIMES,
+  MimeType,
   defineEventHandler as h3DefineEventHandler,
   getQuery as h3GetQuery,
   getRouterParams as h3GetRouterParams,
+  isStream as h3IsStream,
+  isWebResponse as h3IsWebResponse,
   parseCookies as h3ParseCookies,
   readBody as h3ReadBody,
+  send as h3Send,
   sendNoContent as h3SendNoContent,
   sendStream as h3SendStream,
   setResponseStatus as h3SetResponseStatus,
@@ -26,9 +31,11 @@ import zio.prelude.NonEmptyList
 import zio.stream.{Stream, ZStream}
 import zio.{Cause, IO, Promise, RIO, Runtime, Task, UIO, URIO, Unsafe, ZIO, ZLayer}
 
+import scala.annotation.implicitNotFound
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
+import scala.util.NotGiven
 import scala.util.control.NoStackTrace
 
 import NativeConverter.given
@@ -107,6 +114,72 @@ final case class SH3Event(private val event: H3Event1):
           ZIO
             .attempt(status.fold(h3SendNoContent(event))(h3SendNoContent(event, _)))
             .as(Responded.value)
+
+    /** Converts `body` with its `NativeConverter`, sends it as the response body, and returns the
+      * proof that the response was sent.
+      *
+      * Created by Claude Code on 2026-10-13.
+      *
+      * This is the eager form of finishing a handler with a body value. `send(dto)` writes what h3
+      * writes for a handler that returns `dto`, and its result is the same [[Responded]] proof that
+      * `sendStream` returns, so one handler can branch between a body and a stream. The native
+      * value goes out the way h3's `handleHandlerResponse` sends a returned value:
+      *   - `null`, for example from `None`, ends the response with no body: status 204, or the
+      *     non-200 status the handler set before.
+      *   - A string goes out unchanged with the content type `text/html`.
+      *   - A boolean, a number, a plain object, or an array goes out as its `JSON.stringify` text
+      *     with the content type `application/json`. A `BigInt` goes out as its decimal digits,
+      *     also as JSON. The JSON is compact; the spacing h3 adds in debug mode does not apply.
+      *   - A typed array or a `Buffer` goes out as raw bytes with no content type.
+      *
+      * A content type the handler set before this call stays, because h3 sets one only when the
+      * response has none. The response state is read when the effect runs, not when this method
+      * builds it.
+      *
+      * Some values are not bodies. The effect fails before anything is written, with a
+      * [[SH3Event.UnsendableBodyError]], and `mkHandler` answers with the usual error response:
+      * `undefined`, which h3 cannot send; a Web `Response` or a stream, which have their own
+      * operations, [[respondWith]] and [[sendStream]]; and a function or a symbol. `Unit` is
+      * rejected at compile time with the message on the `notUnit` parameter; use [[sendNoContent]]
+      * to end the response without a body.
+      *
+      * If the response already started, nothing is written: this logs one `[zio-h3]` warning, and
+      * the proof is still true, because the response was sent.
+      */
+    def send[A: NativeConverter](body: A)(using
+        @implicitNotFound(SH3Event.notUnitMessage) notUnit: NotGiven[A =:= Unit],
+    ): Task[Responded] =
+      ZIO.suspendSucceed:
+          if event.handled then
+              ZIOH3.Console
+                .warn("[zio-h3] send was called after the response was sent. Nothing was written.")
+                .ignore
+                .as(Responded.value)
+          else ZIO.attempt(body.toNative).flatMap(sendNative).as(Responded.value)
+
+    /** Writes one converted value through h3 with the dispatch of h3's `handleHandlerResponse`.
+      * See [[send]] for the rules. Created by Claude Code on 2026-10-13.
+      */
+    private def sendNative(native: js.Any): Task[Unit] =
+        def write(data: js.Any, mime: MimeType) = ZIO.fromPromiseJS(h3Send(event, data, mime))
+        def unsendable(message: String)         = ZIO.fail(SH3Event.UnsendableBodyError(message))
+        if native == null then ZIO.attempt(h3SendNoContent(event))
+        else if js.isUndefined(native) then
+            unsendable("send cannot send undefined as the response body.")
+        else if h3IsWebResponse(native) then
+            unsendable("send received a Web Response. Use respondWith for it.")
+        else if h3IsStream(native) then unsendable("send received a stream. Use sendStream for it.")
+        else if js.DynamicImplicits.truthValue(native.asInstanceOf[js.Dynamic].buffer) then
+            ZIO.fromPromiseJS(h3Send(event, native))
+        else
+            js.typeOf(native) match
+              case "string"                        => write(native, MIMES.html)
+              case "object" | "boolean" | "number" => write(js.JSON.stringify(native), MIMES.json)
+              case "bigint"                        => write(native.toString, MIMES.json)
+              case other                           =>
+                unsendable(s"send cannot send a $other as the response body.")
+        end if
+    end sendNative
 
     def setResponseStatus(status: Int): Task[Unit] =
       ZIO.attempt(
@@ -238,6 +311,19 @@ object SH3Event:
     final case class MissingRouterParamError(paramName: String) extends SafeError:
         val message: String = s"Missing router parameter: $paramName"
 
+    /** A value that [[SH3Event.send]] cannot write as a body. The message names the value and,
+      * where one exists, the operation to use instead. Created by Claude Code on 2026-10-13.
+      */
+    final case class UnsendableBodyError(message: String) extends SafeError:
+        override def getMessage: String = message
+
+    /** The compiler message for `send(())`. A `NativeConverter[Unit]` exists in `ntcvzio`, so the
+      * compiler needs this extra rule to reject the call. Created by Claude Code on 2026-10-13.
+      */
+    final val notUnitMessage =
+      "send cannot send Unit: there is nothing to write. To end the response without a body, " +
+        "use sendNoContent."
+
 type ZHandler[-R, +E, +A] = ZIO[SH3Event & R, E, A]
 type Handler[+E, +A]      = ZHandler[Any, E, A]
 type TaskHandler[+A]      = Handler[Throwable, A]
@@ -312,6 +398,16 @@ object ZHandler:
       */
     def sendNoContent(status: Int): TaskHandler[Responded] =
       ZIO.serviceWithZIO[SH3Event](_.sendNoContent(status))
+
+    /** Converts `body` with its `NativeConverter` and sends it as the response body. The result is
+      * the proof that the response was sent, the same one `sendStream` returns, so a handler can
+      * branch between the two. See [[SH3Event.send]] for the content types, the values that fail,
+      * and the after-sent warning. Created by Claude Code on 2026-10-13.
+      */
+    def send[A: NativeConverter](body: A)(using
+        @implicitNotFound(SH3Event.notUnitMessage) notUnit: NotGiven[A =:= Unit],
+    ): TaskHandler[Responded] =
+      ZIO.serviceWithZIO[SH3Event](_.send(body))
 
     def `$fetch`[A: NativeConverter](url: String): TaskHandler[A] =
       ZIO.serviceWithZIO[SH3Event](_.`$fetch`[A](url))

@@ -9,13 +9,15 @@ import scala.util.NotGiven
 /** Converts the value a handler finishes with into the value that `mkHandler` returns to h3.
   *
   * Created by Claude Code on 2026-10-13. Changed by Claude Code on 2026-10-13: `Unit` is no longer
-  * a valid result; [[Responded]] takes its place.
+  * a valid result; [[Responded]] takes its place. Changed again by Claude Code on 2026-10-13:
+  * `send` joined the operations that return the proof, and the message names it for a handler
+  * whose branches have different result types.
   *
   * h3 reads the value a handler returns. `undefined` means "the response was already written".
   * `null` means "no content", status 204. Every other value becomes the response body. A handler
   * therefore finishes in one of two ways, and the compiler checks which one it is:
-  *   - with a [[Responded]] value, which only `sendStream`, `respondWith`, and `sendNoContent`
-  *     return. It converts to `undefined`.
+  *   - with a [[Responded]] value, which only `send`, `sendStream`, `respondWith`, and
+  *     `sendNoContent` return. It converts to `undefined`.
   *   - with a body value `A` that has a `NativeConverter[A]` in scope. `None` converts to `null`.
   *
   * `Unit` is rejected on purpose, even when a `NativeConverter[Unit]` is in scope, for example
@@ -32,9 +34,11 @@ import scala.util.NotGiven
 @implicitNotFound(
   "The handler finishes with ${A}, and zio-h3 cannot send that as a response. " +
     "If the handler already wrote the response, end it with the call that did so: " +
-    "ZHandler.sendStream, ZHandler.respondWith, and ZHandler.sendNoContent return Responded, " +
-    "so do not `yield ()` after them. To send ${A} as the body, provide a NativeConverter[${A}], " +
-    "for example with `derives NativeConverter` on a case class",
+    "ZHandler.send, ZHandler.sendStream, ZHandler.respondWith, and ZHandler.sendNoContent " +
+    "return Responded, so do not `yield ()` after them. To send ${A} as the body, provide a " +
+    "NativeConverter[${A}], for example with `derives NativeConverter` on a case class. " +
+    "If one branch sends and another returns a body, send the body with ZHandler.send so that " +
+    "every branch returns Responded",
 )
 trait ResultConverter[A]:
     def toNative(a: A): js.Any

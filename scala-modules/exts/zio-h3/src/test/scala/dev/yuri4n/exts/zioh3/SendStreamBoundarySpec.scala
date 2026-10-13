@@ -1,6 +1,7 @@
 package dev.yuri4n.exts.zioh3
 
 import dev.yuri4n.exts.h3.CommonEvHandler
+import org.getshaka.nativeconverter.NativeConverter
 import org.getshaka.nativeconverter.NativeConverter.given
 import org.scalajs.dom
 import zio.*
@@ -151,7 +152,54 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
             body     <- text(response)
         yield assertTrue(status(response) == 200, body == "abc")
       },
+      // Created by Claude Code on 2026-10-13: the two tests below pin `send`. One handler branches
+      // between a body and a stream, because both calls return the proof, and each kind of body
+      // leaves with the content type that h3 gives a returned value. h3 sets no content type for a
+      // stream or for no content, so those two headers are absent.
+      test("a handler can branch between send and sendStream, each path with its own content type") {
+        val handler = defineEventHandler:
+            ZHandler.getQuery.flatMap: query =>
+                if query.get("mode").contains("body") then ZHandler.send(Dto("small", 1))
+                else ZHandler.sendStream(ZStream("a", "b", "c"))
+        for
+            url        <- serve(handler)
+            body       <- fetch(s"$url?mode=body")
+            bodyText   <- text(body)
+            stream     <- fetch(url)
+            streamText <- text(stream)
+        yield assertTrue(
+          status(body) == 200,
+          bodyText == """{"name":"small","count":1}""",
+          contentType(body) == "application/json",
+          status(stream) == 200,
+          streamText == "abc",
+          contentType(stream) == null,
+        )
+      },
+      test("send writes a string as text/html and None as 204 with no body") {
+        val handler = defineEventHandler:
+            ZHandler.getQuery.flatMap: query =>
+                if query.get("mode").contains("none") then ZHandler.send(Option.empty[String])
+                else ZHandler.send("hello")
+        for
+            url        <- serve(handler)
+            string     <- fetch(url)
+            stringText <- text(string)
+            none       <- fetch(s"$url?mode=none")
+            noneText   <- text(none)
+        yield assertTrue(
+          status(string) == 200,
+          stringText == "hello",
+          contentType(string) == "text/html",
+          status(none) == 204,
+          noneText == "",
+          contentType(none) == null,
+        )
+      },
     ) @@ TestAspect.withLiveClock @@ TestAspect.sequential @@ TestAspect.timeout(30.seconds)
+
+    /** A small body for the branching test. Created by Claude Code on 2026-10-13. */
+    private final case class Dto(name: String, count: Int) derives NativeConverter
 
     /** Serves `handler` at every path of an h3 app on a loopback port and returns the base URL. The
       * server closes with the test's scope.
@@ -191,4 +239,10 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
       ZIO.fromPromiseJS(response.text().asInstanceOf[js.Promise[String]])
 
     private def status(response: js.Dynamic): Int = response.status.asInstanceOf[Int]
+
+    /** The `content-type` response header, or `null` when the response has none. Created by Claude
+      * Code on 2026-10-13.
+      */
+    private def contentType(response: js.Dynamic): String =
+      response.headers.get("content-type").asInstanceOf[String]
 end SendStreamBoundarySpec
