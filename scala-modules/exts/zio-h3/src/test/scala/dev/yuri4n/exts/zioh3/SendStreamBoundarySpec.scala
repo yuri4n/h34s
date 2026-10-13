@@ -90,9 +90,11 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
           interrupted.isDefined,
         )
       },
-      // Created by Claude Code on 2026-10-13: the three tests below pin the handler result rule
-      // through a real h3 server: a no-content ending, a body ending, and a body returned after the
-      // stream was sent, which `deliver` drops.
+      // Created by Claude Code on 2026-10-13: the tests below pin the handler result rule through a
+      // real h3 server: no-content endings with the default, an explicit, and an earlier status; a
+      // Web Response ending, with a complete body and with a body that fails late; `None` and body
+      // value endings; and a second send or a value after the response was sent, which the toolbox
+      // drops.
       test("sendNoContent answers 204 with an empty body") {
         val handler = defineEventHandler(ZHandler.sendNoContent)
         for
@@ -100,6 +102,41 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
             response <- fetch(url)
             body     <- text(response)
         yield assertTrue(status(response) == 204, body == "")
+      },
+      test("sendNoContent with a status answers that status, and keeps an earlier non-200 status") {
+        val explicit = defineEventHandler(ZHandler.sendNoContent(205))
+        val earlier  = defineEventHandler(ZHandler.setResponseStatus(202) *> ZHandler.sendNoContent)
+        for
+            url1  <- serve(explicit)
+            res1  <- fetch(url1)
+            body1 <- text(res1)
+            url2  <- serve(earlier)
+            res2  <- fetch(url2)
+            body2 <- text(res2)
+        yield assertTrue(status(res1) == 205, body1 == "", status(res2) == 202, body2 == "")
+      },
+      test("respondWith sends a Web Response with its status and body") {
+        val response = js.Dynamic
+          .newInstance(js.Dynamic.global.Response)("hi", js.Dynamic.literal(status = 201))
+          .asInstanceOf[dom.Response]
+        val handler  = defineEventHandler(ZHandler.respondWith(response))
+        for
+            url      <- serve(handler)
+            res      <- fetch(url)
+            body     <- text(res)
+        yield assertTrue(status(res) == 201, body == "hi")
+      },
+      test("a bare None and an empty Option answer 204 with an empty body") {
+        val bare  = defineEventHandler(ZIO.succeed(None))
+        val typed = defineEventHandler(ZIO.succeed(Option.empty[String]))
+        for
+            url1  <- serve(bare)
+            res1  <- fetch(url1)
+            body1 <- text(res1)
+            url2  <- serve(typed)
+            res2  <- fetch(url2)
+            body2 <- text(res2)
+        yield assertTrue(status(res1) == 204, body1 == "", status(res2) == 204, body2 == "")
       },
       test("a body value answers 200 with that body") {
         val handler = defineEventHandler(ZIO.succeed("hello"))
@@ -142,6 +179,16 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
             response <- fetch(url)
             body     <- text(response).either
         yield assertTrue(status(response) == 200, body.isLeft)
+      },
+      test("a second sendStream writes nothing and the first streamed response stands") {
+        val handler = defineEventHandler(
+          ZHandler.sendStream(ZStream("a", "b", "c")) *> ZHandler.sendStream(ZStream("d")),
+        )
+        for
+            url      <- serve(handler)
+            response <- fetch(url)
+            body     <- text(response)
+        yield assertTrue(status(response) == 200, body == "abc")
       },
       test("a body returned after sendStream is dropped and the streamed response stands") {
         val handler = defineEventHandler(ZHandler.sendStream(ZStream("a", "b", "c")).as("late"))

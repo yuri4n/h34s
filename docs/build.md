@@ -40,7 +40,7 @@ If you use Corepack, enable its pnpm shim with `corepack enable pnpm`. Corepack 
    ```
 
    <!-- Changed by Claude Code on 2026-10-13: test count after the handler result rule tests. -->
-   Expect **30 passing tests** in five suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host. The `SendStreamBoundarySpec` suite starts h3 on loopback ports and imports `h3` at run time, so it needs the installed dependencies from step 1.
+   Expect **41 passing tests** in five suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host. The `SendStreamBoundarySpec` suite starts h3 on loopback ports and imports `h3` at run time, so it needs the installed dependencies from step 1.
 
 3. Start development:
 
@@ -80,7 +80,7 @@ What happens at the edges of a stream:
 
 - **The source fails before the first chunk.** No headers were sent yet. The handler answers with status 500 and the body `{"errors":["<message>"]}`. This is the existing, unsafe error boundary; see the last bullet below.
 - **The source fails after the first chunk.** The status and the chunks sent so far are already with the client, so no error body can follow. The server destroys the response socket. The client receives an incomplete chunked body and its HTTP client reports a transport error; Node's `fetch` rejects `response.text()` with `TypeError: terminated`. The server logs one `[zio-h3]` line with the failure messages and keeps serving. Before this change, the response stayed open until the client, a proxy, or the operating system closed the connection.
-- **The client disconnects before the stream ends.** Node emits `close` on the response. `sendStream` interrupts the source stream at its next element, its finalizers run, and the handler finishes with `Unit`. Before this change, the ZIO stream ran to its end and its later writes were dropped.
+- **The client disconnects before the stream ends.** Node emits `close` on the response. `sendStream` interrupts the source stream at its next element, its finalizers run, and the `sendStream` call succeeds with its `Responded` result, because the response is over for everyone. <!-- Changed by Claude Code on 2026-10-13: the result is Responded, not Unit. --> Before this change, the ZIO stream ran to its end and its later writes were dropped.
 - **The handler fails with an `ErrorResponse`**, for example through `ZHandler.failWith(404, ...)`. The response keeps the status the handler set and carries the handler's messages. Before this change, the error boundary matched that failure as a plain `Throwable`, set status 500, and sent `{"errors":[null]}`.
 
 The `/api/test` route demonstrates a finite stream of strings and `/api/test-stream-failure` demonstrates a late failure. Neither demonstrates the following, and this change did not alter them:
@@ -108,17 +108,39 @@ Node runs the application. Java and sbt are build-time tools only. The retained 
 h3 reads the value a handler returns: `undefined` means that the response was already written, `null` means no content, and any other value becomes the response body. The toolbox turns that protocol into a rule the compiler checks. A handler finishes in one of two ways:
 
 - **With the result of the call that sent the response.** `ZHandler.sendStream`, `ZHandler.respondWith`, and `ZHandler.sendNoContent` return a `Responded` value, the proof that the response was sent. `defineEventHandler` converts it to `undefined`. Handler code never names the type; it ends with the call.
-- **With a body value.** Any `A` with a `NativeConverter[A]` in scope, for example a case class with `derives NativeConverter`, a `String`, or an `Option`. `None` becomes `null`, which h3 answers with status 204.
+- **With a body value.** Any `A` with a `NativeConverter[A]` in scope, for example a case class with `derives NativeConverter`, a `String`, or an `Option`. `None` becomes `null`, which h3 answers with status 204, and `Some(a)` becomes the body `a`. This holds for a bare `None` or `Some(a)` as well as for a value typed `Option[A]`.
 
-A handler that finishes with `Unit` does not compile, with or without `import dev.yuri4n.exts.ntcvzio.given`. The compiler message names both endings. Before this change, such a handler reached h3 with no response: Nitro's preemptive router answered an empty 204, and a bare h3 app answered 404 as if the route did not exist, neither of them on purpose. A handler that always fails, for example one that ends with `ZHandler.failWith`, needs no type argument.
+A handler that finishes with `Unit` does not compile, with or without `import dev.yuri4n.exts.ntcvzio.given`. The compiler message names both endings. Before this change, such a handler reached h3 with no response: Nitro's preemptive router answered an empty 204, and a bare h3 app answered 404 as if the route did not exist, neither of them on purpose. A handler that always fails, for example one that ends with `ZHandler.failWith`, needs no type argument. The check runs where the result type is known. A helper that wraps `defineEventHandler` and takes the handler's result type as a type parameter must use the bound `[A: ResultConverter]`, not `[A: NativeConverter]`; with the latter, `A` is abstract inside the helper and the `Unit` exclusion cannot see it, so a `Unit` handler passes to the runtime guard below and answers 500.
 
 Two cases stay with the runtime, because the compiler cannot see them. `mkHandler` checks both before the value reaches h3:
 
 - A value returned after the response was sent, for example `ZHandler.sendStream(s).as(dto)`, is dropped. The server logs one `[zio-h3]` warning, and the client receives the response the handler already sent. Before this change, h3 tried to write a second body and Node raised an `ERR_HTTP_HEADERS_SENT` that Nitro hid.
-- A value that converts to `undefined` while nothing was written answers 500 with the body `{"errors":["The handler finished without sending a response."]}`. The server logs a `[zio-h3]` error line and the usual `Response status set to 500` line. Without this guard, Nitro would answer an empty 204 and a bare h3 app a 404.
-- `ZHandler.sendNoContent` after the response was sent writes nothing and logs one `[zio-h3]` warning. `ZHandler.respondWith` with a `Response` whose streamed body fails after its first chunk ends the response the same way a failing `sendStream` does.
+- A value that converts to `undefined` while nothing was written answers 500 with the body `{"errors":["The handler finished without sending a response."]}`. The server logs a `[zio-h3]` error line and the usual `Response status set to 500` line. Without this guard, Nitro would answer an empty 204 and a bare h3 app a 404. If the connection is already closed, nothing is sent and the server logs a `[zio-h3]` warning instead.
+
+Two more guards live in the sending calls themselves. `ZHandler.sendStream` or `ZHandler.sendNoContent` after the response was sent writes nothing and logs one `[zio-h3]` warning. `ZHandler.respondWith` with a `Response` whose streamed body fails after its first chunk ends the response the same way a failing `sendStream` does.
 
 `HandlerResultSpec` checks the rule and both guards against a fake h3 event, including the compile-time rejection of `Unit`. `SendStreamBoundarySpec` checks the no-content, body, and body-after-stream cases through a real h3 server.
+
+The idiomatic endings, in handler code:
+
+```scala
+// A streamed response: the handler ends with the call that sends it.
+val export = defineEventHandler:
+    ZHandler.readBody[Command].flatMap(cmd => ZHandler.sendStream(rows(cmd)))
+
+// A body value: the handler ends with the value, and its NativeConverter does the rest.
+val greet = defineEventHandler:
+    for
+        name <- ZHandler.getRouterParam("name")
+        user <- ZIO.serviceWithZIO[Users](_.find(name))
+    yield Greeting(user)                               // case class Greeting(...) derives NativeConverter
+
+// No body: the handler ends with sendNoContent.
+val ping = defineEventHandler:
+    ZHandler.`$fetch`[Unit]("hi") *> ZHandler.sendNoContent
+```
+
+Make the sending call the last step of the handler, and do not fork it. A second send, for example `sendStream` after `sendStream`, or `sendNoContent` after either, writes nothing and logs one `[zio-h3]` warning with the request's method and path. An effect that runs after the send and fails is logged the same way, but the client already has the response. `ZHandler.sendNoContent` takes no parentheses; `ZHandler.sendNoContent(205)` sets the status.
 
 A handler cannot branch between a streamed response and a body value in one program: `if small then ZIO.succeed(dto) else ZHandler.sendStream(big)` has the type `Dto | Responded`, which has no conversion. Use two routes, or send the small body through `ZHandler.respondWith` with a Web `Response`. An eager `ZHandler.send(dto)` for that case is a possible follow-up.
 
@@ -139,7 +161,7 @@ Use `pnpm build`, not a direct `nuxt build`, for the complete pipeline. Direct N
 
 ## Troubleshooting
 
-<!-- Changed by Claude Code on 2026-10-13: added the row about a streaming route that never finishes. -->
+<!-- Changed by Claude Code on 2026-10-13: added the row about a streaming route that never finishes, then the two rows about the handler result rule. -->
 | Symptom                                                   | Action                                                                                                                                                                                     |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | pnpm reports an unsupported version                       | Use Node 24 and pnpm 10.34.5. With Corepack, run it from the checkout so it reads `package.json`.                                                                                          |
@@ -150,7 +172,7 @@ Use `pnpm build`, not a direct `nuxt build`, for the complete pipeline. Direct N
 | sbt reports a Java heap error                             | Increase the launcher's heap, for example `JAVA_OPTS='-Xmx2G -Xss4M' pnpm build`.                                                                                                          |
 | A streaming client reports a terminated or incomplete body    | The source stream failed after the first chunk. The server ended the response on purpose; see **Stream transport**. Look for the `[zio-h3]` line in the server log, which carries the failure messages, and reproduce the failure in a converter test. |
 | A route answers 500 with `The handler finished without sending a response.` | The handler's result converted to `undefined` while nothing was written. End the handler with `ZHandler.sendNoContent` or with the call that sends the response; see **Handler results**. |
-| The server logs `The handler returned a value after the response was sent` | The handler returned a value after `sendStream` or `respondWith`. The client received the sent response and the value was dropped. End the handler with that call instead; see **Handler results**. |
+| The server logs `the handler returned a value after the response was sent` | The handler returned a value after `sendStream` or `respondWith`. The client received the sent response and the value was dropped. End the handler with that call instead; see **Handler results**. |
 | Nuxt typed-router warns `No routes defined`               | This is an inherited frontend warning. It does not establish that the API route is missing; use the production smoke test to check it. Frontend route typing remains a separate follow-up. |
 
 Do not put secrets in build files or generated source. Keep environment files, database credentials, and mutable data out of Git and future package/Nix build inputs.
@@ -189,7 +211,7 @@ Validation of the `Unit` result conversion used a Linux x86_64 container with th
 - `pnpm build`: completed, including Nitro bundling. The build did not modify tracked files.
 - Production HTTP smoke test: passed. `/api/test` returned status 200 with the body `abc`.
 
-The smoke test cannot see the hidden `ERR_HTTP_HEADERS_SENT`, so `UnitResultSpec` is the regression check for the `undefined` result. A debug run of that spec during validation also showed a pre-existing error-boundary defect that this change does not fix: `mkHandler` matches an `ErrorResponse` as a plain `Throwable` first, so `ZHandler.failWith(404, "missing")` reaches the client as status 500 with the body `{"errors":[null]}`. The stream boundary follow-up changes that path.
+The smoke test cannot see the hidden `ERR_HTTP_HEADERS_SENT`, so `UnitResultSpec`, since replaced by `HandlerResultSpec`, was the regression check for the `undefined` result. <!-- Changed by Claude Code on 2026-10-13: the spec was replaced. --> A debug run of that spec during validation also showed a pre-existing error-boundary defect that this change does not fix: `mkHandler` matches an `ErrorResponse` as a plain `Throwable` first, so `ZHandler.failWith(404, "missing")` reaches the client as status 500 with the body `{"errors":[null]}`. The stream boundary follow-up changes that path.
 
 <!-- Changed by Claude Code on 2026-10-13: validation record for the stream failure and disconnect handling. -->
 Validation of the stream failure and disconnect handling used a Linux x86_64 container with the locked Nix shell: JDK 17, Node 24.19.0, and pnpm 10.34.5. Maven Central rate-limited the container again, so sbt and coursier resolved through a Maven Central mirror. The run used `scripts/ci-build.sh`, the same script as CI.
