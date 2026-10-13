@@ -60,7 +60,9 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
         yield assertTrue(status(response) == 200, body.isLeft)
       },
       test("an ErrorResponse from the handler keeps its status and messages") {
-        val handler = defineEventHandler[Unit](ZHandler.failWith(404, "missing"))
+        // Changed by Claude Code on 2026-10-13: no type argument; an always-failing handler infers
+        // `Responded`.
+        val handler = defineEventHandler(ZHandler.failWith(404, "missing"))
         for
             url      <- serve(handler)
             response <- fetch(url)
@@ -86,6 +88,33 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
           !first.done.asInstanceOf[Boolean],
           interrupted.isDefined,
         )
+      },
+      // Created by Claude Code on 2026-10-13: the three tests below pin the handler result rule
+      // through a real h3 server: a no-content ending, a body ending, and a body returned after the
+      // stream was sent, which `deliver` drops.
+      test("sendNoContent answers 204 with an empty body") {
+        val handler = defineEventHandler(ZHandler.sendNoContent)
+        for
+            url      <- serve(handler)
+            response <- fetch(url)
+            body     <- text(response)
+        yield assertTrue(status(response) == 204, body == "")
+      },
+      test("a body value answers 200 with that body") {
+        val handler = defineEventHandler(ZIO.succeed("hello"))
+        for
+            url      <- serve(handler)
+            response <- fetch(url)
+            body     <- text(response)
+        yield assertTrue(status(response) == 200, body == "hello")
+      },
+      test("a body returned after sendStream is dropped and the streamed response stands") {
+        val handler = defineEventHandler(ZHandler.sendStream(ZStream("a", "b", "c")).as("late"))
+        for
+            url      <- serve(handler)
+            response <- fetch(url)
+            body     <- text(response)
+        yield assertTrue(status(response) == 200, body == "abc")
       },
     ) @@ TestAspect.withLiveClock @@ TestAspect.sequential @@ TestAspect.timeout(30.seconds)
 

@@ -16,6 +16,7 @@ import typings.h3.mod.{
   getRouterParams as h3GetRouterParams,
   parseCookies as h3ParseCookies,
   readBody as h3ReadBody,
+  sendNoContent as h3SendNoContent,
   sendStream as h3SendStream,
   setResponseStatus as h3SetResponseStatus,
 }
@@ -52,18 +53,41 @@ extension (j: js.Any) def fromNative_[A: NativeConverter]: Task[A] = ZIO.attempt
 final case class SH3Event(private val event: H3Event1):
     export event.{context, handled, headers, method, node, path, toJSON, web}
 
-    def respondWith(response: Response): Task[Unit] =
+    /** Sends a Web `Response` and returns the proof that the response was sent.
+      *
+      * Changed by Claude Code on 2026-10-13: returns [[Responded]] instead of `Unit`.
+      */
+    def respondWith(response: Response): Task[Responded] =
       respondWithZIO(ZIO.succeed(response))
 
+    // Changed by Claude Code on 2026-10-13: returns `Responded` instead of `Unit`.
     def respondWithZIO[E](
         response: IO[E, Response],
-    )(using toT: E <:< Throwable): IO[E | Throwable, Unit] =
-      response.toPromiseJS.flatMap: promise =>
-          ZIO.fromFuture: //
-              implicit ec =>
-                  event
-                    .respondWith(promise.asInstanceOf[PromiseLike[Response]])
-                    .toFuture
+    )(using toT: E <:< Throwable): IO[E | Throwable, Responded] =
+        val sent: IO[E | Throwable, Unit] =
+          response.toPromiseJS.flatMap: promise =>
+              ZIO.fromFuture: //
+                  implicit ec =>
+                      event
+                        .respondWith(promise.asInstanceOf[PromiseLike[Response]])
+                        .toFuture
+        sent.as(Responded.value)
+    end respondWithZIO
+
+    /** Ends the response with no body and returns the proof that the response was sent.
+      *
+      * Created by Claude Code on 2026-10-13.
+      *
+      * h3 writes the head and ends the response at once. Without a status, h3 uses 204 unless the
+      * handler set another non-200 status before, which h3 keeps. If the response already started,
+      * h3 does nothing, and the proof is still true: the response was sent.
+      */
+    def sendNoContent: Task[Responded] =
+      ZIO.attempt(h3SendNoContent(event)).as(Responded.value)
+
+    /** Ends the response with no body and the given status. See [[sendNoContent]]. */
+    def sendNoContent(status: Int): Task[Responded] =
+      ZIO.attempt(h3SendNoContent(event, status)).as(Responded.value)
 
     def setResponseStatus(status: Int): Task[Unit] =
       ZIO.attempt(
@@ -117,23 +141,23 @@ final case class SH3Event(private val event: H3Event1):
       *     `mkHandler` logs it without writing anything.
       *   - The client disconnects before the stream ends: Node emits `close` on the response, the
       *     source stream is interrupted at its next element, and its finalizers run. This effect
-      *     then succeeds with `Unit`, because the response is over for everyone.
+      *     then succeeds with [[Responded]], because the response is over for everyone.
       *
       * Remaining limits of this transport:
       *   - Each native chunk reaches Node's `response.write` unchanged, so it must be a string, a
       *     `Buffer`, or a `Uint8Array`. The compiler does not check this.
       *   - h3 sets no `Content-Type` for a streamed body. Set it before this call if clients need
       *     one.
-      *   - The handler must finish with `Unit` after this call. The toolbox converts `()` to
-      *     JavaScript `undefined` through [[ResultConverter]]; handler code imports nothing for
-      *     this, and a `NativeConverter[Unit]` in scope does not change it. h3 treats any other
-      *     result as a response body and fails with `ERR_HTTP_HEADERS_SENT` after the headers were
-      *     sent. (Changed by Claude Code on 2026-10-13: this bullet.)
+      *   - Finish the handler with the value this method returns. It is a [[Responded]] proof,
+      *     which `mkHandler` turns into `undefined`; h3 then writes nothing more. A handler that
+      *     ends with `()` after this call does not compile, and a body value returned after this
+      *     call is dropped with a `[zio-h3]` warning instead of reaching Node. (Changed by Claude
+      *     Code on 2026-10-13: this bullet.)
       *   - The source runs eagerly. Web Streams backpressure does not reach it.
       */
     def sendStream[A: NativeConverter](
         stream: TaskStream[A],
-    ): Task[Unit] =
+    ): Task[Responded] =
       for
           runtime                <- ZIO.runtime
           given ExecutionContext <- ZIO.executor.map(_.asExecutionContext)
@@ -143,7 +167,7 @@ final case class SH3Event(private val event: H3Event1):
           _                      <- ZIO
                                       .fromPromiseJS(h3SendStream(event, readable))
                                       .tapError(_ => terminateStartedResponse)
-      yield ()
+      yield Responded.value // Changed by Claude Code on 2026-10-13: the proof, not `()`.
 
     /** Registers `callback` to run once when the Node response closes. Node emits `close` after a
       * normal end and after a client disconnect. Environments without a Node response object, such
@@ -248,8 +272,27 @@ object ZHandler:
       * Changed by Claude Code on 2026-10-13: added this scaladoc, then pointed it at the failure
       * and disconnect behavior.
       */
-    def sendStream[A: NativeConverter](stream: TaskStream[A]): TaskHandler[Unit] =
+    def sendStream[A: NativeConverter](stream: TaskStream[A]): TaskHandler[Responded] =
       ZIO.serviceWithZIO[SH3Event](_.sendStream(stream))
+
+    /** Sends a Web `Response`. The result is the proof that the response was sent; finish the
+      * handler with it. Created by Claude Code on 2026-10-13.
+      */
+    def respondWith(response: Response): TaskHandler[Responded] =
+      ZIO.serviceWithZIO[SH3Event](_.respondWith(response))
+
+    /** Ends the response with no body, status 204 unless the handler set another one. The result
+      * is the proof that the response was sent; finish the handler with it. See
+      * [[SH3Event.sendNoContent]]. Created by Claude Code on 2026-10-13.
+      */
+    def sendNoContent: TaskHandler[Responded] =
+      ZIO.serviceWithZIO[SH3Event](_.sendNoContent)
+
+    /** Ends the response with no body and the given status. See [[SH3Event.sendNoContent]].
+      * Created by Claude Code on 2026-10-13.
+      */
+    def sendNoContent(status: Int): TaskHandler[Responded] =
+      ZIO.serviceWithZIO[SH3Event](_.sendNoContent(status))
 
     def `$fetch`[A: NativeConverter](url: String): TaskHandler[A] =
       ZIO.serviceWithZIO[SH3Event](_.`$fetch`[A](url))
@@ -315,21 +358,54 @@ private def errorResponse(cause: Cause[HandlerFailure]): URIO[SH3Event, js.Any] 
             case Right(_)               => ZIO.succeed(body)
       end if
 
+/** Checks a successful handler result against the response state and returns what h3 receives.
+  *
+  * Created by Claude Code on 2026-10-13. The compiler makes sure that a handler finishes with a
+  * [[Responded]] proof or with a body value. It cannot see whether `sendStream` ran before a body
+  * was returned, or whether a proof is honest. This step closes those two gaps at run time:
+  *   - The response already started and the value is a body: no second body can follow. This logs
+  *     one `[zio-h3]` warning and returns `undefined`, which h3 ignores for a handled event. The
+  *     client receives the response the handler already sent.
+  *   - The response did not start and the value is `undefined`: nothing was written, and h3 would
+  *     answer 404 as if the route did not exist. This logs an error, sets status 500, and returns an
+  *     `ErrorResponse` body that names the cause.
+  *   - Otherwise the value goes to h3 unchanged. `null` is a body here: h3 answers it with 204.
+  */
+private def deliver(native: js.Any): URIO[SH3Event, js.Any] =
+  ZHandler.getEvent.flatMap: event =>
+      val noBody = js.isUndefined(native)
+      if event.handled && !noBody then
+          ZIOH3.Console
+            .warn(
+              "[zio-h3] The handler returned a body after the response was sent. The body was" +
+                " dropped. End the handler with the call that sent the response.",
+            )
+            .ignore
+            .as(js.undefined.asInstanceOf[js.Any])
+      else if !event.handled && noBody then
+          val message = "The handler finished without sending a response."
+          ZIOH3.Console
+            .error("[zio-h3] " + message + " Status 500 was sent instead of h3's 404.")
+            .ignore *> event.setResponseStatus(500).orDie.as(ErrorResponse(NonEmptyList(message)).toNative)
+      else ZIO.succeed(native)
+
 /** Wraps a ZIO handler as an h3 event handler function.
   *
   * Changed by Claude Code on 2026-10-13: the result conversion goes through [[ResultConverter]].
-  * A handler that finishes with `Unit` resolves to JavaScript `undefined`, which h3 reads as "no
-  * body". Any other result converts through its `NativeConverter`, as before. Handler code imports
-  * nothing for either case.
+  * A handler that finishes with a [[Responded]] proof resolves to JavaScript `undefined`, which h3
+  * reads as "the response was written". Any other result converts through its `NativeConverter`.
+  * A handler that finishes with `Unit` does not compile. Handler code imports nothing for this.
+  * [[deliver]] then checks the converted value against the response state.
   */
 def mkHandler[A: ResultConverter](
     runtime: Runtime[Any] = Runtime.default,
     h: Handler[ErrorResponse | ::[Throwable] | Throwable, A],
 )(using ec: ExecutionContext): CommonEvHandler =
     // Changed by Claude Code on 2026-10-13: every failure, defect, and interruption goes through
-    // `errorResponse`, which checks the response state before it writes anything.
+    // `errorResponse`, which checks the response state before it writes anything; every success
+    // goes through `deliver`, which does the same for the result.
     val handled: URIO[SH3Event, js.Any] =
-      h.map(summon[ResultConverter[A]].toNative).catchAllCause(errorResponse)
+      h.map(summon[ResultConverter[A]].toNative).flatMap(deliver).catchAllCause(errorResponse)
 
     js.Any
       .fromFunction1 { (event: H3Event1) =>
