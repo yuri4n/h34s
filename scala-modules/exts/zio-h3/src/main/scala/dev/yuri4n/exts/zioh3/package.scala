@@ -3,7 +3,7 @@ package dev.yuri4n.exts.zioh3
 import dev.yuri4n.exts.h3.given
 import dev.yuri4n.exts.h3.{AnyEvHandlerRes, CommonEvHandler, H3Event1}
 import dev.yuri4n.exts.ntcvzio.given
-import dev.yuri4n.exts.zioh3.streamconversion.toReadableStreamReader
+import dev.yuri4n.exts.zioh3.streamconversion.toReadableStream
 import org.getshaka.nativeconverter.{NativeConverter, fromNative}
 import org.scalablytyped.runtime.StringDictionary
 import org.scalajs.dom
@@ -101,13 +101,29 @@ final case class SH3Event(private val event: H3Event1):
           .mapError(_ => SH3Event.MissingRouterParamError(paramName)),
       )
 
+    /** Sends a ZIO stream as the HTTP response body.
+      *
+      * Changed by Claude Code on 2026-10-13: h3 receives the Web `ReadableStream`, not its reader.
+      *
+      * h3 pipes the stream into the Node response and ends the response when the stream closes.
+      * Current limits of this transport:
+      *   - Each native chunk reaches Node's `response.write` unchanged, so it must be a string, a
+      *     `Buffer`, or a `Uint8Array`. The compiler does not check this.
+      *   - h3 sets no `Content-Type` for a streamed body. Set it before this call if clients need
+      *     one.
+      *   - The handler must finish with `Unit` after this call. h3 treats any other result as a
+      *     response body and fails with `ERR_HTTP_HEADERS_SENT` after the headers were sent.
+      *   - If the source fails after the first chunk, h3 does not end the response. The client
+      *     waits until the connection closes.
+      *   - A client disconnect does not cancel the stream. The source runs to its end.
+      */
     def sendStream[A: NativeConverter](
         stream: TaskStream[A],
     ): Task[Unit] =
       for
           runtime                <- ZIO.runtime
           given ExecutionContext <- ZIO.executor.map(_.asExecutionContext)
-          _                      <- ZIO.fromPromiseJS(h3SendStream(event, stream.toReadableStreamReader(runtime)))
+          _                      <- ZIO.fromPromiseJS(h3SendStream(event, stream.toReadableStream(runtime)))
       yield ()
 
     def `$fetch`[A: NativeConverter](url: String): Task[A] =
@@ -170,6 +186,11 @@ object ZHandler:
         val message: String                             = "Failed to get router parameters"
         override val maybeUnderlying: Option[Throwable] = Some(underlying)
 
+    /** Sends `stream` as the response body. See [[SH3Event.sendStream]] for the accepted chunk
+      * types and the current limits.
+      *
+      * Changed by Claude Code on 2026-10-13: added this scaladoc.
+      */
     def sendStream[A: NativeConverter](stream: TaskStream[A]): TaskHandler[Unit] =
       ZIO.serviceWithZIO[SH3Event](_.sendStream(stream))
 

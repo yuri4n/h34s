@@ -63,5 +63,50 @@ object StreamConversionSpec extends ZIOSpecDefault:
         for values <- readAllAs[Item](reader)
         yield assertTrue(values.map(_.value) == List(1, 2, 3))
       },
-    )
+    ) + transportSuite
+
+    // Created by Claude Code on 2026-10-13. These tests check that the converter returns a
+    // pipeable Web ReadableStream and that it delivers every chunk through `pipeTo`, the way h3
+    // 1.x `sendStream` consumes it. They do not call `SH3Event.sendStream`; the production smoke
+    // test in scripts/smoke-build.test.mjs is the regression check for that boundary.
+    private def transportSuite = suite("taskStreamToReadableStream")(
+      test("returns a Web ReadableStream, not a reader") {
+        val readable = taskStreamToReadableStream(ZStream.fromIterable(List("a", "b", "c")))
+        val dynamic  = readable.asInstanceOf[js.Dynamic]
+        for values <- readAllAs[String](readable.getReader())
+        yield assertTrue(
+          js.typeOf(dynamic.pipeTo) == "function",
+          js.typeOf(dynamic.getReader) == "function",
+          values == List("a", "b", "c"),
+        )
+      },
+      test("pipes every chunk into a WritableStream the way h3 sends a response") {
+        val received = scala.collection.mutable.ListBuffer.empty[String]
+        val sink     = js.Dynamic.literal(
+          write = js.Any.fromFunction1 { (chunk: js.Any) =>
+              received += chunk.asInstanceOf[String]
+              ()
+          },
+        )
+        val writable = js.Dynamic.newInstance(js.Dynamic.global.WritableStream)(sink)
+        val readable = taskStreamToReadableStream(ZStream.fromIterable(List("a", "b", "c")))
+        for _ <- ZIO.fromPromiseJS(
+              readable.asInstanceOf[js.Dynamic].pipeTo(writable).asInstanceOf[js.Promise[Unit]],
+            )
+        yield assertTrue(received.toList == List("a", "b", "c"))
+      },
+      test("a failing source rejects the pipe instead of completing it") {
+        val sink     = js.Dynamic.literal(write = js.Any.fromFunction1((_: js.Any) => ()))
+        val writable = js.Dynamic.newInstance(js.Dynamic.global.WritableStream)(sink)
+        val failing: TaskStream[String] =
+          ZStream("a") ++ ZStream.fail(new Exception("source failed"))
+        val readable = taskStreamToReadableStream(failing)
+        for result <- ZIO
+              .fromPromiseJS(
+                readable.asInstanceOf[js.Dynamic].pipeTo(writable).asInstanceOf[js.Promise[Unit]],
+              )
+              .either
+        yield assertTrue(result.left.exists(_.getMessage == "source failed"))
+      },
+    ) @@ TestAspect.timeout(10.seconds)
 end StreamConversionSpec

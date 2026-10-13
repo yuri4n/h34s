@@ -13,7 +13,8 @@ pnpm run scala:test
 pnpm build
 ```
 
-See [Build and run](build.md) before starting the server. The current error boundary is unsafe for public use, and the retained HTTP streaming route has a documented runtime failure.
+<!-- Changed by Claude Code on 2026-10-13: the streaming route no longer has a known failure. -->
+See [Build and run](build.md) before starting the server. The current error boundary is unsafe for public use. The retained HTTP streaming route serves a finite stream of strings; [Stream transport](build.md#stream-transport) lists its limits.
 
 The shell contains:
 
@@ -36,7 +37,8 @@ nix flake check --no-update-lock-file
 nix develop --no-update-lock-file --command bash scripts/ci-build.sh
 ```
 
-The first command checks the locked toolchain on the current system. The second installs dependencies, runs Scala tests, checks development-to-production output replacement, builds Nuxt, and exercises the production HTTP regression test. **The HTTP test currently fails on the recovered stream adapter.** Do not interpret a successful toolchain check as a passing application test.
+<!-- Changed by Claude Code on 2026-10-13: the HTTP test no longer fails. -->
+The first command checks the locked toolchain on the current system. The second installs dependencies, runs Scala tests, checks development-to-production output replacement, builds Nuxt, and exercises the production HTTP regression test. The HTTP test passes with the stream transport fix; see [Build and run](build.md) for its scope. Do not interpret a successful toolchain check as a passing application test.
 
 Flake outputs are defined for `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`. These are candidate platforms, not an established support matrix. The first CI target is `x86_64-linux` on Ubuntu 24.04. The [initial clean-checkout CI run](https://github.com/yuri4n/h34s/actions/runs/36794306347) passed `nix flake check`, entered the shell, installed frontend dependencies, compiled from freshly generated facades, and passed the nine converter tests. Aggregate testing then found an undeclared runtime `h3` dependency, now declared explicitly in `package.json` at the facade's version. See the PR for subsequent results.
 
