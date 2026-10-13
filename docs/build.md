@@ -39,8 +39,8 @@ If you use Corepack, enable its pnpm shim with `corepack enable pnpm`. Corepack 
    pnpm run scala:test
    ```
 
-   <!-- Changed by Claude Code on 2026-10-13: test count after the handler result rule tests. -->
-   Expect **30 passing tests** in five suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host. The `SendStreamBoundarySpec` suite starts h3 on loopback ports and imports `h3` at run time, so it needs the installed dependencies from step 1.
+   <!-- Changed by Claude Code on 2026-10-13: test count after the `send` tests. -->
+   Expect **37 passing tests** in five suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host. The `SendStreamBoundarySpec` suite starts h3 on loopback ports and imports `h3` at run time, so it needs the installed dependencies from step 1.
 
 3. Start development:
 
@@ -107,7 +107,7 @@ Node runs the application. Java and sbt are build-time tools only. The retained 
 
 h3 reads the value a handler returns: `undefined` means that the response was already written, `null` means no content, and any other value becomes the response body. The toolbox turns that protocol into a rule the compiler checks. A handler finishes in one of two ways:
 
-- **With the result of the call that sent the response.** `ZHandler.sendStream`, `ZHandler.respondWith`, and `ZHandler.sendNoContent` return a `Responded` value, the proof that the response was sent. `defineEventHandler` converts it to `undefined`. Handler code never names the type; it ends with the call.
+- **With the result of the call that sent the response.** <!-- Changed by Claude Code on 2026-10-13: `send` joined the list. --> `ZHandler.send`, `ZHandler.sendStream`, `ZHandler.respondWith`, and `ZHandler.sendNoContent` return a `Responded` value, the proof that the response was sent. `defineEventHandler` converts it to `undefined`. Handler code never names the type; it ends with the call.
 - **With a body value.** Any `A` with a `NativeConverter[A]` in scope, for example a case class with `derives NativeConverter`, a `String`, or an `Option`. `None` becomes `null`, which h3 answers with status 204.
 
 A handler that finishes with `Unit` does not compile, with or without `import dev.yuri4n.exts.ntcvzio.given`. The compiler message names both endings. Before this change, such a handler reached h3 with no response: Nitro's preemptive router answered an empty 204, and a bare h3 app answered 404 as if the route did not exist, neither of them on purpose. A handler that always fails, for example one that ends with `ZHandler.failWith`, needs no type argument.
@@ -120,7 +120,16 @@ Two cases stay with the runtime, because the compiler cannot see them. `mkHandle
 
 `HandlerResultSpec` checks the rule and both guards against a fake h3 event, including the compile-time rejection of `Unit`. `SendStreamBoundarySpec` checks the no-content, body, and body-after-stream cases through a real h3 server.
 
-A handler cannot branch between a streamed response and a body value in one program: `if small then ZIO.succeed(dto) else ZHandler.sendStream(big)` has the type `Dto | Responded`, which has no conversion. Use two routes, or send the small body through `ZHandler.respondWith` with a Web `Response`. An eager `ZHandler.send(dto)` for that case is a possible follow-up.
+<!-- Changed by Claude Code on 2026-10-13: the branch limitation became the `send` idiom. -->
+A handler that sends on one path and returns a body on another has a union result type. `if small then ZIO.succeed(dto) else ZHandler.sendStream(big)` has the type `Dto | Responded`, and the compiler rejects it with the message above. Send the body eagerly instead. `ZHandler.send(dto)` converts `dto` with its `NativeConverter`, writes it the way h3 writes a returned value, and returns the same `Responded` proof as `sendStream`, so both paths have one type:
+
+```scala
+ZHandler.getQuery.flatMap: query =>
+    if query.contains("small") then ZHandler.send(dto)
+    else ZHandler.sendStream(big)
+```
+
+`send` follows h3's rules for a returned value. A string goes out as `text/html`. A boolean, a number, or an object goes out as compact JSON with `application/json`. `None` ends the response with status 204. A typed array goes out as raw bytes with no content type. A content type the handler set before the call stays. Three cases are not bodies. `send(())` does not compile, and the message points to `sendNoContent`. A converted value that is `undefined`, a Web `Response`, or a stream fails the handler before anything is written, with a message that names `respondWith` or `sendStream` where one applies. `send` after the response was sent writes nothing and logs one `[zio-h3]` warning, like `sendNoContent`. `SendStreamBoundarySpec` checks the branching handler and the content types through a real h3 server. `HandlerResultSpec` checks the warning, the compile error, and the failure with a fake event.
 
 ### How linking works
 
@@ -200,5 +209,14 @@ Validation of the stream failure and disconnect handling used a Linux x86_64 con
 - `pnpm build`: completed, including Nitro bundling.
 - Production HTTP smoke test: both tests passed. The failing route answered 200, its body ended with `TypeError: terminated`, and `/api/test` answered `abc` afterwards.
 - The build did not modify tracked files.
+
+<!-- Changed by Claude Code on 2026-10-13: validation record for the `send` operation. -->
+Validation of the `send` operation used a Linux x86_64 container with the locked Nix shell: JDK 17, Node 24.19.0, and pnpm 10.34.5. sbt and coursier resolved through the Maven Central mirror, as before. `scripts/ci-build.sh` passed end to end on the committed tree:
+
+- Frozen pnpm installation: passed.
+- Aggregate `pnpm run scala:test`: passed, 37 tests, including the two branching and content-type tests in `SendStreamBoundarySpec` and the three `send` tests in `HandlerResultSpec`.
+- Development and production linking and both staging checks: passed, including removal of the injected stale development file.
+- `pnpm build`: completed, including Nitro bundling. The build did not modify tracked files.
+- Production HTTP smoke test: both tests passed.
 
 The finite-stream tests do not establish correct backpressure, stream resource lifetimes beyond interruption, or error redaction. PostgreSQL operations, generated TypeScript DTOs, browser rendering, accessibility, and deployment remain unverified. Those need focused implementation and tests before the MVP can be called ready.
