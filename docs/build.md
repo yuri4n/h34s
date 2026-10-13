@@ -39,8 +39,8 @@ If you use Corepack, enable its pnpm shim with `corepack enable pnpm`. Corepack 
    pnpm run scala:test
    ```
 
-   <!-- Changed by Claude Code on 2026-10-13: test count after the Unit result and stream boundary tests. -->
-   Expect **23 passing tests** in five suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host. The `SendStreamBoundarySpec` suite starts h3 on loopback ports and imports `h3` at run time, so it needs the installed dependencies from step 1.
+   <!-- Changed by Claude Code on 2026-10-13: test count after the handler result rule tests. -->
+   Expect **30 passing tests** in five suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host. The `SendStreamBoundarySpec` suite starts h3 on loopback ports and imports `h3` at run time, so it needs the installed dependencies from step 1.
 
 3. Start development:
 
@@ -87,7 +87,7 @@ The `/api/test` route demonstrates a finite stream of strings and `/api/test-str
 
 - The source stream runs eagerly when the `ReadableStream` starts. It does not wait for `pull` requests, so Web Streams backpressure does not apply.
 - Each native chunk goes to Node's `response.write` unchanged, so it must be a string, a `Buffer`, or a `Uint8Array`. The compiler does not check this. Any other value fails at runtime: as the first chunk it returns a 500 response with Node's error message, and after the first chunk it ends the response like any other late failure.
-- After `sendStream`, the handler must finish with `Unit`. <!-- Changed by Claude Code on 2026-10-13: the Unit conversion moved into the toolbox. --> `defineEventHandler` converts `()` to JavaScript `undefined` itself, through `ResultConverter`; handler code imports no converter for this, and a `NativeConverter[Unit]` in scope does not change it. `UnitResultSpec` checks that conversion. Any other result makes h3 raise an `ERR_HTTP_HEADERS_SENT` that Nitro hides and that no current test detects.
+- After `sendStream`, finish the handler with its result. <!-- Changed by Claude Code on 2026-10-13: the handler result rule replaced the Unit convention. --> `sendStream` returns a `Responded` value, the proof that the response was sent, and `defineEventHandler` converts it to JavaScript `undefined`, so h3 writes nothing more. A handler that ends with `()` does not compile; see **Handler results** below. A body value returned after the stream is dropped with a `[zio-h3]` warning, and the streamed response stands. `HandlerResultSpec` and `SendStreamBoundarySpec` check both.
 - Nitro's in-process fetch, which SSR `useFetch` and `$fetch` use, does not pipe the stream. h3 hands it to `new Response(...)`, where only `Uint8Array` chunks are readable. That path has no Node socket, so the disconnect handling above does not apply to it.
 - The error boundary is unchanged. A failure before the first chunk returns a 500 response that can expose the exception message, and a defect keeps the status the handler had set.
 
@@ -100,6 +100,26 @@ node .output/server/index.mjs
 ```
 
 Node runs the application. Java and sbt are build-time tools only. The retained frontend includes native npm dependencies: build on the same OS/architecture as the intended runtime. This is a build smoke check, not approval for public deployment or a portable packaged release.
+
+### Handler results
+
+<!-- Created by Claude Code on 2026-10-13: the handler result rule, after the structural fix. -->
+
+h3 reads the value a handler returns: `undefined` means that the response was already written, `null` means no content, and any other value becomes the response body. The toolbox turns that protocol into a rule the compiler checks. A handler finishes in one of two ways:
+
+- **With the result of the call that sent the response.** `ZHandler.sendStream`, `ZHandler.respondWith`, and `ZHandler.sendNoContent` return a `Responded` value, the proof that the response was sent. `defineEventHandler` converts it to `undefined`. Handler code never names the type; it ends with the call.
+- **With a body value.** Any `A` with a `NativeConverter[A]` in scope, for example a case class with `derives NativeConverter`, a `String`, or an `Option`. `None` becomes `null`, which h3 answers with status 204.
+
+A handler that finishes with `Unit` does not compile, with or without `import dev.yuri4n.exts.ntcvzio.given`. The compiler message names both endings. Before this change, such a handler reached h3 with no response, and h3 answered 404 as if the route did not exist. A handler that always fails, for example one that ends with `ZHandler.failWith`, needs no type argument.
+
+Two cases stay with the runtime, because the compiler cannot see them. `mkHandler` checks both before the value reaches h3:
+
+- A body value returned after the response was sent, for example `ZHandler.sendStream(s).as(dto)`, is dropped. The server logs one `[zio-h3]` warning, and the client receives the response the handler already sent. Before this change, h3 tried to write a second body and Node raised an `ERR_HTTP_HEADERS_SENT` that Nitro hid.
+- A value that converts to `undefined` while nothing was written answers 500 with the body `{"errors":["The handler finished without sending a response."]}` and one `[zio-h3]` error line, instead of h3's 404.
+
+`HandlerResultSpec` checks the rule and both guards against a fake h3 event, including the compile-time rejection of `Unit`. `SendStreamBoundarySpec` checks the no-content, body, and body-after-stream cases through a real h3 server.
+
+A handler cannot branch between a streamed response and a body value in one program: `if small then ZIO.succeed(dto) else ZHandler.sendStream(big)` has the type `Dto | Responded`, which has no conversion. Use two routes, or send the small body through `ZHandler.respondWith` with a Web `Response`. An eager `ZHandler.send(dto)` for that case is a possible follow-up.
 
 ### How linking works
 
@@ -128,6 +148,8 @@ Use `pnpm build`, not a direct `nuxt build`, for the complete pipeline. Direct N
 | `Expected one nuxtsvr-opt directory`                      | Old Scala versions may have left multiple target directories. Remove only the obsolete generated directories under `scala-modules/svr/target/`, then rebuild.                              |
 | sbt reports a Java heap error                             | Increase the launcher's heap, for example `JAVA_OPTS='-Xmx2G -Xss4M' pnpm build`.                                                                                                          |
 | A streaming client reports a terminated or incomplete body    | The source stream failed after the first chunk. The server ended the response on purpose; see **Stream transport**. Look for the `[zio-h3]` line in the server log, which carries the failure messages, and reproduce the failure in a converter test. |
+| A route answers 500 with `The handler finished without sending a response.` | The handler's result converted to `undefined` while nothing was written. End the handler with `ZHandler.sendNoContent` or with the call that sends the response; see **Handler results**. |
+| The server logs `The handler returned a body after the response was sent` | The handler returned a value after `sendStream` or `respondWith`. The client received the sent response and the value was dropped. End the handler with that call instead; see **Handler results**. |
 | Nuxt typed-router warns `No routes defined`               | This is an inherited frontend warning. It does not establish that the API route is missing; use the production smoke test to check it. Frontend route typing remains a separate follow-up. |
 
 Do not put secrets in build files or generated source. Keep environment files, database credentials, and mutable data out of Git and future package/Nix build inputs.
@@ -161,7 +183,7 @@ Validation of the stream transport fix used a Linux x86_64 container with the lo
 Validation of the `Unit` result conversion used a Linux x86_64 container with the locked Nix shell: JDK 17.0.20, Node 24.19.0, and pnpm 10.34.5. Maven Central rate-limited the container again, so sbt and coursier resolved through a Maven Central mirror; the versions are unchanged. `scripts/ci-build.sh` passed end to end on the committed tree:
 
 - Frozen pnpm installation: passed.
-- Aggregate `pnpm run scala:test`: passed, 18 tests in four suites, including the five tests in `UnitResultSpec`. The zio-h3 test module now links as CommonJS (`main.cjs`) and imports `h3` at run time.
+- Aggregate `pnpm run scala:test`: passed, 18 tests in four suites, including the five tests in `UnitResultSpec` (since replaced by `HandlerResultSpec`). The zio-h3 test module now links as CommonJS (`main.cjs`) and imports `h3` at run time.
 - Development and production linking and both staging checks: passed, including removal of the injected stale development file.
 - `pnpm build`: completed, including Nitro bundling. The build did not modify tracked files.
 - Production HTTP smoke test: passed. `/api/test` returned status 200 with the body `abc`.
