@@ -144,8 +144,9 @@ final case class SH3Event(private val event: H3Event1):
           runtime                <- ZIO.runtime
           given ExecutionContext <- ZIO.executor.map(_.asExecutionContext)
           clientClosed           <- Promise.make[Nothing, Unit]
-          _                      <- ZIO.attempt(onResponseClose(() => completeFromJS(runtime, clientClosed)))
-          readable                = stream.interruptWhen(clientClosed.await).toReadableStream(runtime)
+          _                      <- onResponseClose(() => completeFromJS(runtime, clientClosed))
+          source                  = stream.interruptWhen(clientClosed.await)
+          readable                = source.toReadableStream(runtime)
           _                      <- ZIO
                                       .fromPromiseJS(h3SendStream(event, readable))
                                       .tapError(_ => terminateStartedResponse)
@@ -157,12 +158,12 @@ final case class SH3Event(private val event: H3Event1):
       *
       * Created by Claude Code on 2026-10-13.
       */
-    private def onResponseClose(callback: () => Unit): Unit =
-        val res = event.node.res.asInstanceOf[js.Dynamic]
-        if js.typeOf(res.once) == "function" then
-            res.once("close", js.Any.fromFunction0(callback))
-            ()
-    end onResponseClose
+    private def onResponseClose(callback: () => Unit): Task[Unit] =
+      ZIO.attempt:
+          val res = event.node.res.asInstanceOf[js.Dynamic]
+          if js.typeOf(res.once) == "function" then
+              res.once("close", js.Any.fromFunction0(callback))
+              ()
 
     /** Completes `promise` from a JavaScript callback. `Promise.succeed` finishes synchronously, so
       * `unsafe.run` does not block on Scala.js.
