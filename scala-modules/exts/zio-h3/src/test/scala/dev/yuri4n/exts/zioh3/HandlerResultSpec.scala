@@ -79,7 +79,12 @@ object HandlerResultSpec extends ZIOSpecDefault:
         for result <- invoke(mkHandler(h = ZIO.succeed("late")), fakeEvent(handled = true))
         yield assertTrue(js.isUndefined(result))
       },
-      test("a proof without a response becomes a 500 error body, not a 404") {
+      test("sendNoContent after the response was sent writes nothing and keeps the proof") {
+        val event = fakeEvent(handled = true)
+        for result <- invoke(mkHandler(h = ZHandler.sendNoContent), event)
+        yield assertTrue(js.isUndefined(result), js.isUndefined(event.node.res.statusCode))
+      },
+      test("a proof without a response becomes a 500 error body, not a silent 204 or 404") {
         val event = fakeEvent()
         for result <- invoke(mkHandler(h = responded), event)
         yield assertTrue(

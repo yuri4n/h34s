@@ -2,6 +2,7 @@ package dev.yuri4n.exts.zioh3
 
 import dev.yuri4n.exts.h3.CommonEvHandler
 import org.getshaka.nativeconverter.NativeConverter.given
+import org.scalajs.dom
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
@@ -107,6 +108,33 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
             response <- fetch(url)
             body     <- text(response)
         yield assertTrue(status(response) == 200, body == "hello")
+      },
+      test("respondWith sends a Web Response, and a late failure of its streamed body ends the response") {
+        // The body streams one chunk, pauses so h3 writes it, then fails. The response must end with
+        // a transport error, like a failing `sendStream`, instead of staying open.
+        def failingBody(): js.Any =
+          js.Dynamic.newInstance(js.Dynamic.global.ReadableStream)(
+            js.Dynamic.literal(
+              start = js.Any.fromFunction1 { (controller: js.Dynamic) =>
+                  controller.enqueue(js.Dynamic.newInstance(js.Dynamic.global.TextEncoder)().encode("a"))
+                  js.Dynamic.global.setTimeout(
+                    js.Any.fromFunction0(() => controller.error(js.Error("late body"))),
+                    50,
+                  )
+                  ()
+              },
+            ),
+          )
+        val handler = defineEventHandler(
+          ZHandler.respondWith(
+            js.Dynamic.newInstance(js.Dynamic.global.Response)(failingBody()).asInstanceOf[dom.Response],
+          ),
+        )
+        for
+            url      <- serve(handler)
+            response <- fetch(url)
+            body     <- text(response).either
+        yield assertTrue(status(response) == 200, body.isLeft)
       },
       test("a body returned after sendStream is dropped and the streamed response stands") {
         val handler = defineEventHandler(ZHandler.sendStream(ZStream("a", "b", "c")).as("late"))

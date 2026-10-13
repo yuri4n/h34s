@@ -20,8 +20,8 @@ import scala.util.NotGiven
   *
   * `Unit` is rejected on purpose, even when a `NativeConverter[Unit]` is in scope, for example
   * from `dev.yuri4n.exts.ntcvzio.given`. A handler that ends with `()` either sent nothing, which
-  * h3 would answer with a 404, or sent a response and then discarded the proof. Both are compile
-  * errors with the message below.
+  * a bare h3 app answers with 404 and Nitro's preemptive router with an empty 204, or sent a
+  * response and then discarded the proof. Both are compile errors with the message below.
   *
   * The companion object provides the instances, and the compiler finds them without an import.
   * The `Responded` instance is more specific than the generic one, so a `NativeConverter[Responded]`

@@ -60,7 +60,13 @@ final case class SH3Event(private val event: H3Event1):
     def respondWith(response: Response): Task[Responded] =
       respondWithZIO(ZIO.succeed(response))
 
-    // Changed by Claude Code on 2026-10-13: returns `Responded` instead of `Unit`.
+    /** Sends a Web `Response` produced by an effect and returns the proof that the response was
+      * sent.
+      *
+      * Changed by Claude Code on 2026-10-13: returns [[Responded]] instead of `Unit`, and a
+      * `Response` whose streamed body fails after its first chunk now ends the response the same
+      * way `sendStream` does: the socket is destroyed and this effect fails with the error.
+      */
     def respondWithZIO[E](
         response: IO[E, Response],
     )(using toT: E <:< Throwable): IO[E | Throwable, Responded] =
@@ -71,7 +77,7 @@ final case class SH3Event(private val event: H3Event1):
                       event
                         .respondWith(promise.asInstanceOf[PromiseLike[Response]])
                         .toFuture
-        sent.as(Responded.value)
+        sent.tapError(_ => terminateStartedResponse).as(Responded.value)
     end respondWithZIO
 
     /** Ends the response with no body and returns the proof that the response was sent.
@@ -80,14 +86,27 @@ final case class SH3Event(private val event: H3Event1):
       *
       * h3 writes the head and ends the response at once. Without a status, h3 uses 204 unless the
       * handler set another non-200 status before, which h3 keeps. If the response already started,
-      * h3 does nothing, and the proof is still true: the response was sent.
+      * nothing is written: this logs one `[zio-h3]` warning, and the proof is still true, because
+      * the response was sent.
       */
     def sendNoContent: Task[Responded] =
-      ZIO.attempt(h3SendNoContent(event)).as(Responded.value)
+      noContent(None)
 
     /** Ends the response with no body and the given status. See [[sendNoContent]]. */
     def sendNoContent(status: Int): Task[Responded] =
-      ZIO.attempt(h3SendNoContent(event, status)).as(Responded.value)
+      noContent(Some(status))
+
+    // Created by Claude Code on 2026-10-13: the shared body of the two `sendNoContent` forms.
+    private def noContent(status: Option[Int]): Task[Responded] =
+      if event.handled then
+          ZIOH3.Console
+            .warn("[zio-h3] sendNoContent was called after the response was sent. Nothing was written.")
+            .ignore
+            .as(Responded.value)
+      else
+          ZIO
+            .attempt(status.fold(h3SendNoContent(event))(h3SendNoContent(event, _)))
+            .as(Responded.value)
 
     def setResponseStatus(status: Int): Task[Unit] =
       ZIO.attempt(
@@ -366,8 +385,9 @@ private def errorResponse(cause: Cause[HandlerFailure]): URIO[SH3Event, js.Any] 
   *   - The response already started and the value is a body: no second body can follow. This logs
   *     one `[zio-h3]` warning and returns `undefined`, which h3 ignores for a handled event. The
   *     client receives the response the handler already sent.
-  *   - The response did not start and the value is `undefined`: nothing was written, and h3 would
-  *     answer 404 as if the route did not exist. This logs an error, sets status 500, and returns an
+  *   - The response did not start and the value is `undefined`: nothing was written. A bare h3 app
+  *     would answer 404 as if the route did not exist, and Nitro's preemptive router would answer an
+  *     empty 204, both without a trace. This logs an error, sets status 500, and returns an
   *     `ErrorResponse` body that names the cause.
   *   - Otherwise the value goes to h3 unchanged. `null` is a body here: h3 answers it with 204.
   */
@@ -377,16 +397,15 @@ private def deliver(native: js.Any): URIO[SH3Event, js.Any] =
       if event.handled && !noBody then
           ZIOH3.Console
             .warn(
-              "[zio-h3] The handler returned a body after the response was sent. The body was" +
+              "[zio-h3] The handler returned a value after the response was sent. The value was" +
                 " dropped. End the handler with the call that sent the response.",
             )
             .ignore
             .as(js.undefined.asInstanceOf[js.Any])
       else if !event.handled && noBody then
           val message = "The handler finished without sending a response."
-          ZIOH3.Console
-            .error("[zio-h3] " + message + " Status 500 was sent instead of h3's 404.")
-            .ignore *> event.setResponseStatus(500).orDie.as(ErrorResponse(NonEmptyList(message)).toNative)
+          ZIOH3.Console.error("[zio-h3] " + message + " Answering 500.").ignore *>
+            event.setResponseStatus(500).orDie.as(ErrorResponse(NonEmptyList(message)).toNative)
       else ZIO.succeed(native)
 
 /** Wraps a ZIO handler as an h3 event handler function.

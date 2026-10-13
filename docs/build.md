@@ -110,12 +110,13 @@ h3 reads the value a handler returns: `undefined` means that the response was al
 - **With the result of the call that sent the response.** `ZHandler.sendStream`, `ZHandler.respondWith`, and `ZHandler.sendNoContent` return a `Responded` value, the proof that the response was sent. `defineEventHandler` converts it to `undefined`. Handler code never names the type; it ends with the call.
 - **With a body value.** Any `A` with a `NativeConverter[A]` in scope, for example a case class with `derives NativeConverter`, a `String`, or an `Option`. `None` becomes `null`, which h3 answers with status 204.
 
-A handler that finishes with `Unit` does not compile, with or without `import dev.yuri4n.exts.ntcvzio.given`. The compiler message names both endings. Before this change, such a handler reached h3 with no response, and h3 answered 404 as if the route did not exist. A handler that always fails, for example one that ends with `ZHandler.failWith`, needs no type argument.
+A handler that finishes with `Unit` does not compile, with or without `import dev.yuri4n.exts.ntcvzio.given`. The compiler message names both endings. Before this change, such a handler reached h3 with no response: Nitro's preemptive router answered an empty 204, and a bare h3 app answered 404 as if the route did not exist, neither of them on purpose. A handler that always fails, for example one that ends with `ZHandler.failWith`, needs no type argument.
 
 Two cases stay with the runtime, because the compiler cannot see them. `mkHandler` checks both before the value reaches h3:
 
-- A body value returned after the response was sent, for example `ZHandler.sendStream(s).as(dto)`, is dropped. The server logs one `[zio-h3]` warning, and the client receives the response the handler already sent. Before this change, h3 tried to write a second body and Node raised an `ERR_HTTP_HEADERS_SENT` that Nitro hid.
-- A value that converts to `undefined` while nothing was written answers 500 with the body `{"errors":["The handler finished without sending a response."]}` and one `[zio-h3]` error line, instead of h3's 404.
+- A value returned after the response was sent, for example `ZHandler.sendStream(s).as(dto)`, is dropped. The server logs one `[zio-h3]` warning, and the client receives the response the handler already sent. Before this change, h3 tried to write a second body and Node raised an `ERR_HTTP_HEADERS_SENT` that Nitro hid.
+- A value that converts to `undefined` while nothing was written answers 500 with the body `{"errors":["The handler finished without sending a response."]}`. The server logs a `[zio-h3]` error line and the usual `Response status set to 500` line. Without this guard, Nitro would answer an empty 204 and a bare h3 app a 404.
+- `ZHandler.sendNoContent` after the response was sent writes nothing and logs one `[zio-h3]` warning. `ZHandler.respondWith` with a `Response` whose streamed body fails after its first chunk ends the response the same way a failing `sendStream` does.
 
 `HandlerResultSpec` checks the rule and both guards against a fake h3 event, including the compile-time rejection of `Unit`. `SendStreamBoundarySpec` checks the no-content, body, and body-after-stream cases through a real h3 server.
 
@@ -149,7 +150,7 @@ Use `pnpm build`, not a direct `nuxt build`, for the complete pipeline. Direct N
 | sbt reports a Java heap error                             | Increase the launcher's heap, for example `JAVA_OPTS='-Xmx2G -Xss4M' pnpm build`.                                                                                                          |
 | A streaming client reports a terminated or incomplete body    | The source stream failed after the first chunk. The server ended the response on purpose; see **Stream transport**. Look for the `[zio-h3]` line in the server log, which carries the failure messages, and reproduce the failure in a converter test. |
 | A route answers 500 with `The handler finished without sending a response.` | The handler's result converted to `undefined` while nothing was written. End the handler with `ZHandler.sendNoContent` or with the call that sends the response; see **Handler results**. |
-| The server logs `The handler returned a body after the response was sent` | The handler returned a value after `sendStream` or `respondWith`. The client received the sent response and the value was dropped. End the handler with that call instead; see **Handler results**. |
+| The server logs `The handler returned a value after the response was sent` | The handler returned a value after `sendStream` or `respondWith`. The client received the sent response and the value was dropped. End the handler with that call instead; see **Handler results**. |
 | Nuxt typed-router warns `No routes defined`               | This is an inherited frontend warning. It does not establish that the API route is missing; use the production smoke test to check it. Frontend route typing remains a separate follow-up. |
 
 Do not put secrets in build files or generated source. Keep environment files, database credentials, and mutable data out of Git and future package/Nix build inputs.
