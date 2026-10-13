@@ -19,7 +19,9 @@ import scala.scalajs.js
   * inference for an always-failing handler; the example application's program; the compile-time
   * rejection of `Unit`, with and without `ntcvzio.given`; the runtime guards in `deliver`,
   * including the warning they log; and the no-op of `sendStream` and `sendNoContent` after the
-  * response was sent, read when the effect runs. `mkHandler` links the `h3` facade's import, so the
+  * response was sent, read when the effect runs. Four tests pin the error body for a `SafeError`
+  * failure, a defect with and without a message, and an interruption (Changed by Claude Code on
+  * 2026-10-13: this sentence and those tests). `mkHandler` links the `h3` facade's import, so the
   * zio-h3 test build links CommonJS modules; see `build.sbt`. `SendStreamBoundarySpec` covers the
   * same rule through a real h3 server.
   */
@@ -95,6 +97,39 @@ object HandlerResultSpec extends ZIOSpecDefault:
           js.JSON.stringify(result) == """{"errors":["missing"]}""",
         )
       },
+      // Created by Claude Code on 2026-10-13: the next four tests pin the error body text.
+      test("a SafeError failure answers 500 with its message, not null") {
+        val event = fakeEvent()
+        for result <- invoke(mkHandler(h = ZHandler.getRouterParam("id")), event)
+        yield assertTrue(
+          event.node.res.statusCode.asInstanceOf[Int] == 500,
+          js.JSON.stringify(result) == """{"errors":["Missing router parameter: id"]}""",
+        )
+      },
+      test("a defect with a message reports it and leaves the status unchanged") {
+        val event = fakeEvent()
+        for result <- invoke(mkHandler(h = ZIO.die(new RuntimeException("boom"))), event)
+        yield assertTrue(
+          js.isUndefined(event.node.res.statusCode),
+          js.JSON.stringify(result) == """{"errors":["boom"]}""",
+        )
+      },
+      test("a defect without a message reports its class name, not null") {
+        val event = fakeEvent()
+        for result <- invoke(mkHandler(h = ZIO.die(new IllegalStateException())), event)
+        yield assertTrue(
+          js.isUndefined(event.node.res.statusCode),
+          js.JSON.stringify(result) == """{"errors":["java.lang.IllegalStateException"]}""",
+        )
+      },
+      test("an interrupted handler reports the interruption and leaves the status unchanged") {
+        val event = fakeEvent()
+        for result <- invoke(mkHandler(h = ZIO.interrupt), event)
+        yield assertTrue(
+          js.isUndefined(event.node.res.statusCode),
+          js.JSON.stringify(result) == """{"errors":["The handler was interrupted."]}""",
+        )
+      },
       test("a handler that finishes with Unit does not compile, and the message names both endings") {
         val viaMkHandler = typeCheckErrors("mkHandler(h = ZIO.unit)")
         val viaDefine    = typeCheckErrors("defineEventHandler(ZIO.unit)")
@@ -151,14 +186,16 @@ object HandlerResultSpec extends ZIOSpecDefault:
     ) @@ TestAspect.timeout(10.seconds)
 
     /** A minimal h3 event. `deliver` and the error boundary read `handled`, the log lines read
-      * `method` and `path`, `setResponseStatus` writes to `node.res`, and the tests read nothing
-      * else.
+      * `method` and `path`, `setResponseStatus` writes to `node.res`, h3's `getRouterParams` reads
+      * `context.params` (Changed by Claude Code on 2026-10-13: added for the `SafeError` test),
+      * and the tests read nothing else.
       */
     private def fakeEvent(handled: Boolean = false): js.Dynamic =
       js.Dynamic.literal(
         handled = handled,
         method = "GET",
         path = "/fake",
+        context = js.Dynamic.literal(params = js.Dynamic.literal()),
         node = js.Dynamic.literal(res = js.Dynamic.literal()),
       )
 

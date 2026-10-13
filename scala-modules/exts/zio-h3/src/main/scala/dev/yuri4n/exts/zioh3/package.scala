@@ -364,6 +364,27 @@ trait SafeError extends NoStackTrace:
   */
 private type HandlerFailure = ErrorResponse | ::[Throwable] | Throwable
 
+/** The error body text for an interrupted handler. The message ZIO builds names fiber ids, which
+  * change from run to run; this text does not. Created by Claude Code on 2026-10-13.
+  */
+private val interruptedMessage: String = "The handler was interrupted."
+
+/** Reads the text that the error body carries for one failure.
+  *
+  * Created by Claude Code on 2026-10-13. A `SafeError` keeps its text in `message` and passes
+  * nothing to the `Throwable` constructor, so `getMessage()` returns `null` for it. The body for a
+  * `MissingRouterParamError` or a `GetRouterParamsError` therefore read `{"errors":[null]}`. A
+  * `SafeError` now reports its `message`, the text that was designed to be shown. An
+  * `ErrorResponse` reports its own messages. Any other throwable reports `getMessage()` when it
+  * has one and its class name otherwise, so the list never holds `null`. This exposes no new
+  * exception text: the `getMessage()` of an unsafe error reached the client before this change,
+  * and the safe/unsafe error boundary is a separate follow-up.
+  */
+private def failureMessage(t: Throwable): String = t match
+  case safe: SafeError    => safe.message
+  case err: ErrorResponse => err.errors.toList.mkString("; ")
+  case other              => Option(other.getMessage()).getOrElse(other.getClass.getName)
+
 /** Turns a failed handler into what h3 receives.
   *
   * Created by Claude Code on 2026-10-13. `mkHandler` used three nested `catch` steps before. They
@@ -373,8 +394,12 @@ private type HandlerFailure = ErrorResponse | ::[Throwable] | Throwable
   *
   * When the response has not started, this returns the `ErrorResponse` body that h3 serializes:
   *   - An `ErrorResponse` keeps the status the handler set and its own messages.
-  *   - A `Throwable` or a non-empty list of them sets status 500 and reports their messages.
-  *   - A defect or an interruption reports its message. The status is unchanged, as before.
+  *   - A `Throwable` or a non-empty list of them sets status 500 and reports their messages as
+  *     [[failureMessage]] reads them, so a `SafeError` reports its `message`. (Changed by Claude
+  *     Code on 2026-10-13: this bullet.)
+  *   - A defect reports its message the same way. An interruption reports a fixed text, because
+  *     the message ZIO builds for it names fiber ids. The status is unchanged, as before. (Changed
+  *     by Claude Code on 2026-10-13: this bullet.)
   *
   * When the response has started, for example because `sendStream` wrote its first chunk before
   * the source failed, no second body can follow. This logs the failure and returns `undefined`,
@@ -383,13 +408,16 @@ private type HandlerFailure = ErrorResponse | ::[Throwable] | Throwable
 private def errorResponse(cause: Cause[HandlerFailure]): URIO[SH3Event, js.Any] =
   ZHandler.getEvent.flatMap: event =>
       val failure = cause.failureOrCause
+      // Changed by Claude Code on 2026-10-13: every entry comes from `failureMessage`, so a
+      // `SafeError` reports its `message` and no entry is `null`. An interruption has a fixed text.
       val messages: NonEmptyList[String] = failure match
         case Left(err: ErrorResponse) => err.errors
         case Left(errs: ::[?])        =>
           val throwables = errs.asInstanceOf[::[Throwable]]
-          NonEmptyList(throwables.head.getMessage(), throwables.tail.map(_.getMessage())*)
-        case Left(t: Throwable)       => NonEmptyList(t.getMessage())
-        case Right(defect)            => NonEmptyList(defect.squash.getMessage())
+          NonEmptyList(failureMessage(throwables.head), throwables.tail.map(failureMessage)*)
+        case Left(t: Throwable)       => NonEmptyList(failureMessage(t))
+        case Right(defects)           =>
+          NonEmptyList(defects.defects.headOption.fold(interruptedMessage)(failureMessage))
 
       if event.handled then
           // Changed by Claude Code on 2026-10-13: the line names the request's method and path.

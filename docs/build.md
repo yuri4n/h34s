@@ -39,8 +39,8 @@ If you use Corepack, enable its pnpm shim with `corepack enable pnpm`. Corepack 
    pnpm run scala:test
    ```
 
-   <!-- Changed by Claude Code on 2026-10-13: test count after the handler result rule tests. -->
-   Expect **41 passing tests** in five suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host. The `SendStreamBoundarySpec` suite starts h3 on loopback ports and imports `h3` at run time, so it needs the installed dependencies from step 1.
+   <!-- Changed by Claude Code on 2026-10-13: test count after the handler result rule tests, then after the error body tests. -->
+   Expect **45 passing tests** in five suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host. The `SendStreamBoundarySpec` suite starts h3 on loopback ports and imports `h3` at run time, so it needs the installed dependencies from step 1.
 
 3. Start development:
 
@@ -119,6 +119,16 @@ Two cases stay with the runtime, because the compiler cannot see them. `mkHandle
 
 Two more guards live in the sending calls themselves. `ZHandler.sendStream` or `ZHandler.sendNoContent` after the response was sent writes nothing and logs one `[zio-h3]` warning. `ZHandler.respondWith` with a `Response` whose streamed body fails after its first chunk ends the response the same way a failing `sendStream` does.
 
+<!-- Created by Claude Code on 2026-10-13: the error body paragraph, after the SafeError message fix. -->
+A handler that fails before the response starts answers with the body `{"errors":[...]}`. No entry in that list is `null`:
+
+- An `ErrorResponse`, for example from `ZHandler.failWith(404, "missing")`, keeps the status the handler set and carries its own messages.
+- A `SafeError`, for example the `MissingRouterParamError` that `ZHandler.getRouterParam` raises, answers 500 with its `message`: `{"errors":["Missing router parameter: id"]}`. Before this change the body read `{"errors":[null]}`, because a `SafeError` keeps its text in `message` and passes nothing to the `Throwable` constructor. The status stays 500, as for every other failure that is not an `ErrorResponse`; a 400 for a missing router parameter is a separate decision.
+- Any other failure answers 500 with the exception message, or with the exception's class name when it has no message, for example `java.lang.IllegalStateException`.
+- A defect reports its message the same way, and an interrupted handler reports `The handler was interrupted.`. Both leave the status as the handler set it, as before.
+
+This change exposes no new exception text. The message of an unsafe exception reached the client before it, and the separate safe/unsafe error boundary is still a follow-up; see the warning at the top of this guide.
+
 `HandlerResultSpec` checks the rule and both guards against a fake h3 event, including the compile-time rejection of `Unit`. `SendStreamBoundarySpec` checks the no-content, body, and body-after-stream cases through a real h3 server.
 
 The idiomatic endings, in handler code:
@@ -161,7 +171,7 @@ Use `pnpm build`, not a direct `nuxt build`, for the complete pipeline. Direct N
 
 ## Troubleshooting
 
-<!-- Changed by Claude Code on 2026-10-13: added the row about a streaming route that never finishes, then the two rows about the handler result rule. -->
+<!-- Changed by Claude Code on 2026-10-13: added the row about a streaming route that never finishes, then the two rows about the handler result rule, then the two rows about error bodies. -->
 | Symptom                                                   | Action                                                                                                                                                                                     |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | pnpm reports an unsupported version                       | Use Node 24 and pnpm 10.34.5. With Corepack, run it from the checkout so it reads `package.json`.                                                                                          |
@@ -173,6 +183,8 @@ Use `pnpm build`, not a direct `nuxt build`, for the complete pipeline. Direct N
 | A streaming client reports a terminated or incomplete body    | The source stream failed after the first chunk. The server ended the response on purpose; see **Stream transport**. Look for the `[zio-h3]` line in the server log, which carries the failure messages, and reproduce the failure in a converter test. |
 | A route answers 500 with `The handler finished without sending a response.` | The handler's result converted to `undefined` while nothing was written. End the handler with `ZHandler.sendNoContent` or with the call that sends the response; see **Handler results**. |
 | The server logs `the handler returned a value after the response was sent` | The handler returned a value after `sendStream` or `respondWith`. The client received the sent response and the value was dropped. End the handler with that call instead; see **Handler results**. |
+| A route answers 500 with `{"errors":["Missing router parameter: <name>"]}` | The handler called `ZHandler.getRouterParam` for a parameter that the route file name does not define, for example `[id].ts`. Check the route file name and the parameter name; see **Handler results** for the error body rule. <!-- Created by Claude Code on 2026-10-13: this row. --> |
+| An error body carries a class name such as `java.lang.IllegalStateException` | The failure had no message, so the body carries its class name instead of `null`. Find the throw site in the server log and give the exception a message, or fail with `ZHandler.failWith` and a status. <!-- Created by Claude Code on 2026-10-13: this row. --> |
 | Nuxt typed-router warns `No routes defined`               | This is an inherited frontend warning. It does not establish that the API route is missing; use the production smoke test to check it. Frontend route typing remains a separate follow-up. |
 
 Do not put secrets in build files or generated source. Keep environment files, database credentials, and mutable data out of Git and future package/Nix build inputs.
