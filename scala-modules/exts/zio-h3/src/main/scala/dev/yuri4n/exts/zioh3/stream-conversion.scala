@@ -19,7 +19,8 @@ import scala.scalajs.js.JSConverters.*
   * It does not wait for `pull` requests, so Web Streams backpressure does not apply. A failure in
   * the source stream rejects the `start` promise, which puts the `ReadableStream` into the errored
   * state. Cancelling the `ReadableStream` interrupts the ZIO fiber that runs the source stream.
-  * h3 1.15 `sendStream` never cancels it, so a client disconnect does not interrupt the fiber.
+  * h3 1.15 `sendStream` never cancels it. `SH3Event.sendStream` therefore interrupts the source
+  * itself when the Node response closes; see its documentation.
   *
   * When the result goes to a Node HTTP response, each native chunk must be a value that
   * `response.write` accepts: a string, a `Buffer`, or a `Uint8Array`. Objects are not encoded.

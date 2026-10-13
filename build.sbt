@@ -105,6 +105,12 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     Test / parallelExecution := false,
+    // Changed by Claude Code on 2026-10-13: the boundary tests reach h3 and `node:http` at run
+    // time, so the linked test module must be able to import them. Node reads `.js` files under
+    // this repository as ES modules because package.json sets "type": "module"; the `.cjs` suffix
+    // keeps the CommonJS output loadable. Consumers link the published IR with their own settings.
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
+      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
   )
   .dependsOn(h3Ext, zioJsExt, nativeConverterZIOExt)
 
