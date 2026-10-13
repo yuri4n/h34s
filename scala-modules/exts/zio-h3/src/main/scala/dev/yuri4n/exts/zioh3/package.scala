@@ -111,10 +111,12 @@ final case class SH3Event(private val event: H3Event1):
       *     `Buffer`, or a `Uint8Array`. The compiler does not check this.
       *   - h3 sets no `Content-Type` for a streamed body. The toolbox has no header helper yet;
       *     set it through `event.node.res` before this call if clients need one.
-      *   - The handler must finish with `Unit`, and must not fail, after this call. Keep the
-      *     `NativeConverter[Unit]` from `dev.yuri4n.exts.ntcvzio` in scope; it converts `()` to
-      *     JavaScript `undefined`. h3 treats any other result, including the error object built
-      *     from a failure, as a second response body and fails with `ERR_HTTP_HEADERS_SENT`.
+      *   - The handler must finish with `Unit`, and must not fail, after this call. The toolbox
+      *     converts `()` to JavaScript `undefined` through [[ResultConverter]]; handler code
+      *     imports nothing for this, and a `NativeConverter[Unit]` in scope does not change it.
+      *     h3 treats any other result, including the error object built from a failure, as a
+      *     second response body and fails with `ERR_HTTP_HEADERS_SENT`. (Changed by Claude Code
+      *     on 2026-10-13: this bullet.)
       *   - If the source fails after the first chunk, h3 does not end the response. The client
       *     waits until the connection closes. Node sends the headers with the first chunk, even an
       *     empty string.
@@ -212,12 +214,19 @@ trait SafeError extends NoStackTrace:
     val message: String
     val maybeUnderlying: Option[Throwable] = None
 
-def mkHandler[A: NativeConverter](
+/** Wraps a ZIO handler as an h3 event handler function.
+  *
+  * Changed by Claude Code on 2026-10-13: the result conversion goes through [[ResultConverter]].
+  * A handler that finishes with `Unit` resolves to JavaScript `undefined`, which h3 reads as "no
+  * body". Any other result converts through its `NativeConverter`, as before. Handler code imports
+  * nothing for either case.
+  */
+def mkHandler[A: ResultConverter](
     runtime: Runtime[Any] = Runtime.default,
     h: Handler[ErrorResponse | ::[Throwable] | Throwable, A],
 )(using ec: ExecutionContext): CommonEvHandler =
     val handled =
-      h.map(_.toNative)
+      h.map(summon[ResultConverter[A]].toNative)
         .catchSome:
             case t: Throwable =>
               ZHandler.failWith(500, t.getMessage())
@@ -248,12 +257,18 @@ def mkHandler[A: NativeConverter](
       .asInstanceOf[CommonEvHandler]
 end mkHandler
 
-def defineEventHandler[A: NativeConverter](
+/** Defines an h3 event handler from a ZIO handler with the default runtime. See [[mkHandler]] for
+  * the result conversion and the error boundary.
+  *
+  * Changed by Claude Code on 2026-10-13: `A` needs a [[ResultConverter]], not a `NativeConverter`.
+  */
+def defineEventHandler[A: ResultConverter](
     h: Handler[ErrorResponse | ::[Throwable] | Throwable, A],
 )(using ec: ExecutionContext): CommonEvHandler =
   defineEventHandler(Runtime.default, h)
 
-def defineEventHandler[A: NativeConverter](
+// Changed by Claude Code on 2026-10-13: `A` needs a `ResultConverter`, not a `NativeConverter`.
+def defineEventHandler[A: ResultConverter](
     runtime: Runtime[Any],
     h: Handler[ErrorResponse | ::[Throwable] | Throwable, A],
 )(using ec: ExecutionContext): CommonEvHandler =
