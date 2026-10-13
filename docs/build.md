@@ -39,8 +39,8 @@ If you use Corepack, enable its pnpm shim with `corepack enable pnpm`. Corepack 
    pnpm run scala:test
    ```
 
-   <!-- Changed by Claude Code on 2026-10-13: test count after the transport and cancel tests. -->
-   Expect **13 passing tests** in three suites. sbt runs the two spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host.
+   <!-- Changed by Claude Code on 2026-10-13: test count after the Unit result tests. -->
+   Expect **18 passing tests** in four suites. sbt runs the zio-h3 spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host.
 
 3. Start development:
 
@@ -81,13 +81,13 @@ The `/api/test` route demonstrates a finite stream of strings. It does not demon
 - The source stream runs eagerly when the `ReadableStream` starts. It does not wait for `pull` requests, so Web Streams backpressure does not apply. A slow client does not slow the source; converted chunks wait in the stream's queue in memory.
 - Each native chunk goes to Node's `response.write` unchanged, so it must be a string, a `Buffer`, or a `Uint8Array`. The compiler does not check this. Any other value fails at runtime: as the first chunk it returns a 500 response with Node's error message, and after the first chunk it leaves the response open.
 - h3 sets no `Content-Type` for a streamed body. The toolbox has no header helper yet; set the header through `event.node.res` before `sendStream` if clients need one.
-- After `sendStream`, the handler must finish with `Unit` and must not fail, with `import dev.yuri4n.exts.ntcvzio.given` in scope. Otherwise h3 raises an `ERR_HTTP_HEADERS_SENT` that Nitro hides and that no current test detects.
+- After `sendStream`, the handler must finish with `Unit` and must not fail. <!-- Changed by Claude Code on 2026-10-13: the Unit conversion moved into the toolbox. --> `defineEventHandler` converts `()` to JavaScript `undefined` itself, through `ResultConverter`; handler code imports no converter for this, and a `NativeConverter[Unit]` in scope does not change it. `UnitResultSpec` checks that conversion. Any other result, including the error body built from a failure, makes h3 raise an `ERR_HTTP_HEADERS_SENT` that Nitro hides and that no current test detects.
 - If the source fails after h3 writes the first chunk, the status stays 200 and the server does not end the response. The client receives the chunks sent so far and then waits until it, a proxy, or the operating system closes the connection. Node sends the headers with the first chunk, even an empty string. The server log shows one line, `Response status set to 500`, and not the failure's message.
 - A client disconnect does not stop the source stream. h3 1.15 does not cancel the `ReadableStream` when the response closes, so the ZIO stream runs to its end and its later writes are dropped.
 - Nitro's in-process fetch, which SSR `useFetch` and `$fetch` use, does not pipe the stream. h3 hands it to `new Response(...)`, where only `Uint8Array` chunks are readable.
 - The error boundary is unchanged. A failure before the first chunk returns a 500 response that can expose the exception message.
 
-Ending the response on a late failure, cancelling the source on disconnect, backpressure, chunk encoding, a response-header helper, supplying the `Unit` conversion inside the toolbox, and the safe-error boundary are separate follow-ups.
+Ending the response on a late failure, cancelling the source on disconnect, backpressure, chunk encoding, a response-header helper, and the safe-error boundary are separate follow-ups.
 
 To start that output yourself:
 
@@ -152,5 +152,16 @@ Validation of the stream transport fix used a Linux x86_64 container with the lo
 - Production HTTP smoke test: passed. A manual request to the built server returned status 200 with the chunked body `abc`. Nitro does not log errors for an already-handled event, so a quiet server log is not evidence on its own.
 - The build did not modify tracked files.
 - Development server: `pnpm dev` on a loopback port served `/api/test` with status 200 and the chunked body `abc`.
+
+<!-- Changed by Claude Code on 2026-10-13: validation record for the Unit result conversion. -->
+Validation of the `Unit` result conversion used a Linux x86_64 container with the locked Nix shell: JDK 17.0.20, Node 24.19.0, and pnpm 10.34.5. Maven Central rate-limited the container again, so sbt and coursier resolved through a Maven Central mirror; the versions are unchanged. `scripts/ci-build.sh` passed end to end on the committed tree:
+
+- Frozen pnpm installation: passed.
+- Aggregate `pnpm run scala:test`: passed, 18 tests in four suites, including the five tests in `UnitResultSpec`. The zio-h3 test module now links as CommonJS (`main.cjs`) and imports `h3` at run time.
+- Development and production linking and both staging checks: passed, including removal of the injected stale development file.
+- `pnpm build`: completed, including Nitro bundling. The build did not modify tracked files.
+- Production HTTP smoke test: passed. `/api/test` returned status 200 with the body `abc`.
+
+The smoke test cannot see the hidden `ERR_HTTP_HEADERS_SENT`, so `UnitResultSpec` is the regression check for the `undefined` result. A debug run of that spec during validation also showed a pre-existing error-boundary defect that this change does not fix: `mkHandler` matches an `ErrorResponse` as a plain `Throwable` first, so `ZHandler.failWith(404, "missing")` reaches the client as status 500 with the body `{"errors":[null]}`. The stream boundary follow-up changes that path.
 
 The finite-stream tests do not establish correct backpressure, cancellation, stream resource lifetimes, or error redaction. PostgreSQL operations, generated TypeScript DTOs, browser rendering, accessibility, and deployment remain unverified. Those need focused implementation and tests before the MVP can be called ready.
