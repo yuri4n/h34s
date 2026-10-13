@@ -110,16 +110,23 @@ object SendStreamBoundarySpec extends ZIOSpecDefault:
         yield assertTrue(status(response) == 200, body == "hello")
       },
       test("respondWith sends a Web Response, and a late failure of its streamed body ends the response") {
-        // The body streams one chunk, pauses so h3 writes it, then fails. The response must end with
-        // a transport error, like a failing `sendStream`, instead of staying open.
+        // The body streams one chunk and then fails. The response must end with a transport error,
+        // like a failing `sendStream`, instead of staying open. The failure must come after h3 wrote
+        // the chunk, or it is an ordinary failure before the headers and the test checks the wrong
+        // path. A timer is not reliable under load, so the stream fails from `pull`: the Web Streams
+        // runtime calls `pull` only after the consumer took the first chunk, and the next macrotask
+        // runs after h3's `write` for it, so the headers are sent by then.
         def failingBody(): js.Any =
           js.Dynamic.newInstance(js.Dynamic.global.ReadableStream)(
             js.Dynamic.literal(
               start = js.Any.fromFunction1 { (controller: js.Dynamic) =>
                   controller.enqueue(js.Dynamic.newInstance(js.Dynamic.global.TextEncoder)().encode("a"))
+                  ()
+              },
+              pull = js.Any.fromFunction1 { (controller: js.Dynamic) =>
                   js.Dynamic.global.setTimeout(
                     js.Any.fromFunction0(() => controller.error(js.Error("late body"))),
-                    50,
+                    0,
                   )
                   ()
               },
