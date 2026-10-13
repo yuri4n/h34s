@@ -39,7 +39,8 @@ If you use Corepack, enable its pnpm shim with `corepack enable pnpm`. Corepack 
    pnpm run scala:test
    ```
 
-   Expect **12 passing tests** in three suites. sbt runs the two spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host.
+   <!-- Changed by Claude Code on 2026-10-13: test count after the transport and cancel tests. -->
+   Expect **13 passing tests** in three suites. sbt runs the two spec files one after the other, because the recovered Scala.js/ZIO test runner hung when they ran concurrently on the validation host.
 
 3. Start development:
 
@@ -47,7 +48,8 @@ If you use Corepack, enable its pnpm shim with `corepack enable pnpm`. Corepack 
    pnpm dev
    ```
 
-   This links Scala.js for development before starting Nuxt. Use the local URL printed by Nuxt. The retained `/api/test` route streams `abc`. See **Stream transport** below for what this route does and does not demonstrate.
+   <!-- Changed by Claude Code on 2026-10-13: the streaming route works under pnpm dev; its limits moved to "Stream transport". -->
+   This links Scala.js for development before starting Nuxt. Use the local URL printed by Nuxt. The retained `/api/test` route streams `abc`; a request through the development server returned status 200 with that body during validation. See **Stream transport** below for what this route does and does not demonstrate.
 
 Nuxt watches TypeScript and Vue files. `pnpm dev` does **not** watch Scala files automatically. In another terminal, run:
 
@@ -65,6 +67,7 @@ node scripts/check-scala-output.mjs production
 node --test scripts/smoke-build.test.mjs
 ```
 
+<!-- Changed by Claude Code on 2026-10-13: the smoke test passes and is the regression check for the stream boundary. -->
 `pnpm build` runs `nuxtsvr/nuxtProdLink` before Nuxt. A failed Scala compile or link stops the build; it does not fall back to development output. The staging check compares every emitted file and its contents with the production linker output. The smoke test starts the built Nitro server on loopback, requests the Scala route, checks the intended `abc` response, and stops the process. It needs no database or secrets. Successful compilation does not establish a working HTTP stream; the smoke test does, for a finite stream of strings.
 
 ### Stream transport
@@ -75,14 +78,16 @@ node --test scripts/smoke-build.test.mjs
 
 The `/api/test` route demonstrates a finite stream of strings. It does not demonstrate the following, and the fix did not change them:
 
-- The source stream runs eagerly when the `ReadableStream` starts. It does not wait for `pull` requests, so Web Streams backpressure does not apply.
+- The source stream runs eagerly when the `ReadableStream` starts. It does not wait for `pull` requests, so Web Streams backpressure does not apply. A slow client does not slow the source; converted chunks wait in the stream's queue in memory.
 - Each native chunk goes to Node's `response.write` unchanged, so it must be a string, a `Buffer`, or a `Uint8Array`. The compiler does not check this. Any other value fails at runtime: as the first chunk it returns a 500 response with Node's error message, and after the first chunk it leaves the response open.
-- If the source fails after h3 writes the first chunk, the status stays 200 and the server does not end the response. The client receives the chunks sent so far and then waits until it, a proxy, or the operating system closes the connection. Nitro logs nothing, because the event is already handled.
+- h3 sets no `Content-Type` for a streamed body. The toolbox has no header helper yet; set the header through `event.node.res` before `sendStream` if clients need one.
+- After `sendStream`, the handler must finish with `Unit` and must not fail, with `import dev.yuri4n.exts.ntcvzio.given` in scope. Otherwise h3 raises an `ERR_HTTP_HEADERS_SENT` that Nitro hides and that no current test detects.
+- If the source fails after h3 writes the first chunk, the status stays 200 and the server does not end the response. The client receives the chunks sent so far and then waits until it, a proxy, or the operating system closes the connection. Node sends the headers with the first chunk, even an empty string. The server log shows one line, `Response status set to 500`, and not the failure's message.
 - A client disconnect does not stop the source stream. h3 1.15 does not cancel the `ReadableStream` when the response closes, so the ZIO stream runs to its end and its later writes are dropped.
 - Nitro's in-process fetch, which SSR `useFetch` and `$fetch` use, does not pipe the stream. h3 hands it to `new Response(...)`, where only `Uint8Array` chunks are readable.
 - The error boundary is unchanged. A failure before the first chunk returns a 500 response that can expose the exception message.
 
-Ending the response on a late failure, cancelling the source on disconnect, backpressure, chunk encoding, and the safe-error boundary are separate follow-ups.
+Ending the response on a late failure, cancelling the source on disconnect, backpressure, chunk encoding, a response-header helper, supplying the `Unit` conversion inside the toolbox, and the safe-error boundary are separate follow-ups.
 
 To start that output yourself:
 
@@ -109,6 +114,7 @@ Use `pnpm build`, not a direct `nuxt build`, for the complete pipeline. Direct N
 
 ## Troubleshooting
 
+<!-- Changed by Claude Code on 2026-10-13: added the row about a streaming route that never finishes. -->
 | Symptom                                                   | Action                                                                                                                                                                                     |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | pnpm reports an unsupported version                       | Use Node 24 and pnpm 10.34.5. With Corepack, run it from the checkout so it reads `package.json`.                                                                                          |
@@ -117,7 +123,7 @@ Use `pnpm build`, not a direct `nuxt build`, for the complete pipeline. Direct N
 | A production build picked up a development change         | Stop the Scala watcher before building. Do not share one checkout's staging directory between concurrent builds.                                                                           |
 | `Expected one nuxtsvr-opt directory`                      | Old Scala versions may have left multiple target directories. Remove only the obsolete generated directories under `scala-modules/svr/target/`, then rebuild.                              |
 | sbt reports a Java heap error                             | Increase the launcher's heap, for example `JAVA_OPTS='-Xmx2G -Xss4M' pnpm build`.                                                                                                          |
-| A streaming route sends part of its data and never finishes | The source stream failed after the first chunk. The current transport does not end the response in that case; see **Stream transport**. Reproduce the failure in a converter test and check the handler's log. Ending the response on failure is a planned follow-up. |
+| A streaming route sends part of its data and never finishes | The source stream failed after the first chunk. The current transport does not end the response in that case; see **Stream transport**. The server log shows only `Response status set to 500`, not the failure's message. Reproduce the failure in a converter test. Ending the response on failure is a planned follow-up. |
 | Nuxt typed-router warns `No routes defined`               | This is an inherited frontend warning. It does not establish that the API route is missing; use the production smoke test to check it. Frontend route typing remains a separate follow-up. |
 
 Do not put secrets in build files or generated source. Keep environment files, database credentials, and mutable data out of Git and future package/Nix build inputs.
@@ -133,16 +139,18 @@ Local validation uses macOS x86_64, JDK 17.0.16, Node 24.17.0, and pnpm 10.34.5.
 - Production HTTP smoke test: failed with the stream-adapter error. The stream transport fix, validated below, resolved it.
 - Nix and clean CI: see [Nix development toolchain](nix.md) and the PR's actual check results.
 
+<!-- Changed by Claude Code on 2026-10-13: the Unit converter sentence at the end of this paragraph. -->
 The build fixes two recovered `TaskStream` imports that prevented the application from compiling. It does not change service behavior. Running the inherited npm facade build normalized five redundant `peer: true` flags in its lockfile; package versions, integrity hashes, and dependency edges are unchanged. npm also reports 39 vulnerabilities in that inherited development-tool graph (14 moderate, 23 high, 2 critical); no automatic audit fix or dependency upgrade was applied. The experimental database services, peer-version warnings, error leakage, and frontend typed-router warning remain outside these changes. The stream transport fix also removed the duplicate `NativeConverter[Unit]` from the test handler. Its string result reached h3 after the stream ended and raised a hidden `ERR_HTTP_HEADERS_SENT`; the smoke test passed either way, so that part is a cleanup, not the fix.
 
 <!-- Changed by Claude Code on 2026-10-13: validation record for the stream transport fix. -->
 Validation of the stream transport fix used a Linux x86_64 container with the locked Nix shell: JDK 17.0.20, Node 24.19.0, and pnpm 10.34.5. Maven Central rate-limited the container, so sbt and coursier resolved through a Maven Central mirror. That changes where the artifacts came from, not which versions were used.
 
 - Frozen pnpm installation: passed.
-- Aggregate `pnpm run scala:test`: passed, 12 tests, including the three new transport tests.
+- Aggregate `pnpm run scala:test`: passed, 12 tests, including the three new transport tests. A later run with the cancel test: 13 tests passed.
 - Development and production linking and both staging checks: passed, including removal of the injected stale development file.
 - `pnpm build`: completed, including Nitro bundling.
 - Production HTTP smoke test: passed. A manual request to the built server returned status 200 with the chunked body `abc`. Nitro does not log errors for an already-handled event, so a quiet server log is not evidence on its own.
 - The build did not modify tracked files.
+- Development server: `pnpm dev` on a loopback port served `/api/test` with status 200 and the chunked body `abc`.
 
 The finite-stream tests do not establish correct backpressure, cancellation, stream resource lifetimes, or error redaction. PostgreSQL operations, generated TypeScript DTOs, browser rendering, accessibility, and deployment remain unverified. Those need focused implementation and tests before the MVP can be called ready.

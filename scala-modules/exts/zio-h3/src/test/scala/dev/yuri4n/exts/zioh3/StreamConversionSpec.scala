@@ -66,9 +66,10 @@ object StreamConversionSpec extends ZIOSpecDefault:
     ) + transportSuite
 
     // Created by Claude Code on 2026-10-13. These tests check that the converter returns a
-    // pipeable Web ReadableStream and that it delivers every chunk through `pipeTo`, the way h3
-    // 1.x `sendStream` consumes it. They do not call `SH3Event.sendStream`; the production smoke
-    // test in scripts/smoke-build.test.mjs is the regression check for that boundary.
+    // pipeable Web ReadableStream, that it delivers every chunk through `pipeTo`, the way h3 1.x
+    // `sendStream` consumes it, and that cancelling the stream interrupts the source fiber. They
+    // do not call `SH3Event.sendStream`; the production smoke test in scripts/smoke-build.test.mjs
+    // is the regression check for that boundary.
     private def transportSuite = suite("taskStreamToReadableStream")(
       test("returns a Web ReadableStream, not a reader") {
         val readable = taskStreamToReadableStream(ZStream.fromIterable(List("a", "b", "c")))
@@ -108,5 +109,16 @@ object StreamConversionSpec extends ZIOSpecDefault:
               .either
         yield assertTrue(result.left.exists(_.getMessage == "source failed"))
       },
+      // Created by Claude Code on 2026-10-13: pins the cancel contract stated in the scaladoc.
+      test("cancelling the stream interrupts the source fiber") {
+        for
+            done  <- Promise.make[Nothing, Unit]
+            source = ZStream.repeatZIO(Clock.sleep(10.millis).as("x")).ensuring(done.succeed(()))
+            reader = taskStreamToReadableStream(source).getReader()
+            first <- ZIO.fromPromiseJS(reader.read())
+            _     <- ZIO.fromPromiseJS(reader.asInstanceOf[js.Dynamic].cancel().asInstanceOf[js.Promise[Unit]])
+            _     <- done.await.timeoutFail(new Exception("source fiber was not interrupted"))(5.seconds)
+        yield assertTrue(!first.done)
+      } @@ TestAspect.withLiveClock,
     ) @@ TestAspect.timeout(10.seconds)
 end StreamConversionSpec

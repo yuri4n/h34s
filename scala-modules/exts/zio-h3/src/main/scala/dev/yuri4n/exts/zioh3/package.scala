@@ -109,13 +109,18 @@ final case class SH3Event(private val event: H3Event1):
       * Current limits of this transport:
       *   - Each native chunk reaches Node's `response.write` unchanged, so it must be a string, a
       *     `Buffer`, or a `Uint8Array`. The compiler does not check this.
-      *   - h3 sets no `Content-Type` for a streamed body. Set it before this call if clients need
-      *     one.
-      *   - The handler must finish with `Unit` after this call. h3 treats any other result as a
-      *     response body and fails with `ERR_HTTP_HEADERS_SENT` after the headers were sent.
+      *   - h3 sets no `Content-Type` for a streamed body. The toolbox has no header helper yet;
+      *     set it through `event.node.res` before this call if clients need one.
+      *   - The handler must finish with `Unit`, and must not fail, after this call. Keep the
+      *     `NativeConverter[Unit]` from `dev.yuri4n.exts.ntcvzio` in scope; it converts `()` to
+      *     JavaScript `undefined`. h3 treats any other result, including the error object built
+      *     from a failure, as a second response body and fails with `ERR_HTTP_HEADERS_SENT`.
       *   - If the source fails after the first chunk, h3 does not end the response. The client
-      *     waits until the connection closes.
+      *     waits until the connection closes. Node sends the headers with the first chunk, even an
+      *     empty string.
       *   - A client disconnect does not cancel the stream. The source runs to its end.
+      *   - Nitro's in-process fetch, which SSR `useFetch` and `$fetch` use, does not pipe the
+      *     stream. h3 hands it to `new Response(...)`, where only `Uint8Array` chunks are readable.
       */
     def sendStream[A: NativeConverter](
         stream: TaskStream[A],
