@@ -48,6 +48,7 @@ These notes record the user's intended direction. They are not a description of 
 - The user wants modules to be independently deliverable and usable, with a smart compatibility strategy for converters and integrations.
 - The current interpretation is separately publishable/consumable library artifacts, not separate deployed services; confirm if runtime deployment separation is intended.
 - Kyo is a first-class independent integration, not a mandatory runtime beneath ZIO. Kyo-only consumers should not need ZIO, and ZIO-only consumers should not need Kyo.
+- The user explicitly selected current Kyo with required tooling updates over an older Kyo release chosen only to retain the existing compiler pin. Keep the effect modules independently consumable and record compiler, linker, and build-JDK requirements in the compatibility profile. Validate existing ZIO behavior when shared build tooling changes.
 - Application services, database configuration, and example DTOs belong in examples, not mandatory core dependencies.
 - Final module boundaries, naming, release/version policy, and converter compatibility rules remain design decisions to agree on.
 
