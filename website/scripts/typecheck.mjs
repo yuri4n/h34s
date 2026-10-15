@@ -1,45 +1,58 @@
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 
-// `nuxt typecheck` for a Docus site.
-//
-// Docus 5.13.0 ships its source (.ts and .vue files), so vue-tsc also checks
-// the Docus files, and it finds 8 errors in them (node_modules/docus: OgImage
-// components, useSeo.ts, two module augmentations). They are not ours to fix.
-// This script prints the full output and fails only when an error is in a
-// file outside node_modules (this site and the library layers).
-// Copy it to a new docs site with the `typecheck` script of package.json.
+// Docus 5.13.0 ships source with these known upstream diagnostics. Keep the
+// exception tied to exact files, positions, and codes. New dependency or
+// application diagnostics fail, as do interrupted or crashed checks.
+const known = new Map([
+  ['app/composables/useSeo.ts(37,53):2339', 1],
+  ['app/composables/useSeo.ts(139,41):2339', 1],
+  ['app/composables/useSeo.ts(172,5):2322', 1],
+  ['app/composables/useSeo.ts(221,5):2322', 1],
+  ['modules/assistant/index.ts(171,16):2664', 2],
+  ['modules/skills/index.ts(154,16):2664', 2],
+])
 
-const ERROR_LINE = /^(\S[^(]*)\(\d+,\d+\): error TS\d+/
+const ERROR_LINE = /^(\S[^(]*)\((\d+,\d+)\): error TS(\d+)/
 
 const result = spawnSync('nuxt', ['typecheck'], { encoding: 'utf8' })
 
-if (result.error) {
-  console.error(`typecheck: cannot run nuxt: ${result.error.message}`)
+if (result.error || result.signal) {
+  console.error('typecheck: process failed.', result.error || result.signal)
   process.exit(1)
 }
 
 const output = `${result.stdout}${result.stderr}`
 process.stdout.write(output)
 
-const files = output
+const diagnostics = output
   .split('\n')
   .map(line => ERROR_LINE.exec(line))
   .filter(match => match !== null)
-  .map(match => match[1])
-const ours = files.filter(file => !file.includes('node_modules/'))
-const theirs = files.length - ours.length
+const unexpected = diagnostics.filter(([, file, position, code]) => {
+  const upstream = /node_modules\/docus\/(.+)$/.exec(file)
+  if (!upstream || !file.includes('docus@5.13.0_'))
+    return true
+  const key = `${upstream[1]}(${position}):${code}`
+  const remaining = known.get(key) ?? 0
+  known.set(key, remaining - 1)
+  return remaining <= 0
+})
 
-if (ours.length > 0) {
-  console.error(`typecheck: ${ours.length} error(s) outside node_modules.`)
+if (unexpected.length > 0) {
+  console.error(`typecheck: ${unexpected.length} unexpected diagnostic(s).`)
   process.exit(1)
 }
 
-if (result.status !== 0 && files.length === 0) {
+const fatal = /FATAL ERROR|ERR_[A-Z_]+|^\s*ERROR\b/m.test(output)
+  || output.split('\n').some(line => /error TS\d+/.test(line)
+    && !ERROR_LINE.test(line))
+const expectedFailure = result.status === 2 && diagnostics.length > 0
+if (fatal || (result.status !== 0 && !expectedFailure)) {
   console.error(`typecheck: nuxt typecheck failed (exit ${result.status}).`)
-  process.exit(result.status ?? 1)
+  process.exit(result.status || 1)
 }
 
-if (theirs > 0)
-  console.log(`typecheck: ignored ${theirs} error line(s) in node_modules.`)
-console.log('typecheck: no errors outside node_modules.')
+if (diagnostics.length > 0)
+  console.log(`typecheck: ${diagnostics.length} known Docus diagnostics.`)
+console.log('typecheck: no application, shared-layer, or new upstream errors.')

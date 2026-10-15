@@ -85,8 +85,7 @@ const guides = [
 
 <template>
   <div class="home-page">
-    <a class="skip-content" href="#main-content">Skip to content</a>
-    <section id="main-content" class="home-hero" aria-labelledby="hero-title">
+    <section class="home-hero" aria-labelledby="hero-title">
       <div class="hero-copy">
         <NuxtLink class="preview-note" to="/reference/status">
           <span class="status-dot" aria-hidden="true" />

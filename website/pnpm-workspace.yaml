@@ -1,11 +1,11 @@
-packages:
-  - vendor/yuri4n.dev/layers/docs
-  - vendor/yuri4n.dev/packages/eslint-config
-
 blockExoticSubdeps: true
 minimumReleaseAge: 1440
 trustPolicy: no-downgrade
 trustPolicyIgnoreAfter: 525600
+
+packages:
+  - vendor/yuri4n.dev/layers/docs
+  - vendor/yuri4n.dev/packages/eslint-config
 
 overrides:
   eslint-flat-config-utils: ^3.2.0
