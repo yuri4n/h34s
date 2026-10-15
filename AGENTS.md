@@ -17,10 +17,12 @@ These notes record the user's intended direction. They are not a description of 
 - Do not make ordinary handlers configure conversion plumbing, construct transport objects, or manually import generated server files.
 - Avoid introducing a large framework or a mandatory build-system overhaul before the basic handler API is satisfactory.
 
-## Preserve the ZIO API philosophy
+## Agreed effect architecture and ZIO API philosophy
 
-- Keep ZIO as an optional integration with the same application-facing API style and operations as the existing wrappers. Preserve existing call sites where practical; explicitly identify necessary error-typing changes.
-- The ZIO integration should delegate to the Kyo-backed toolbox, rather than become a separate HTTP implementation or require application code to switch effect systems.
+- Keep one repository with separately consumable modules: thin native h3 bindings, an idiomatic ZIO API, and a first-class Kyo API.
+- ZIO is the primary documented developer experience. ZIO handlers use the ZIO runtime; Kyo handlers use the Kyo runtime. Keep effect-specific dependencies out of the native h3 bindings.
+- Share native transport contracts and behavior tests. Do not translate arbitrary ZIO programs into Kyo or introduce a mandatory dual-runtime bridge. A shared Kyo core is only a future option after explicit interoperability, cancellation, and lifecycle validation.
+- Preserve existing call sites where practical; explicitly identify necessary error-typing changes.
 - Application handlers should remain ordinary ZIO programs using `for` comprehensions, `ZIO.service`, typed errors, and streams.
 - The desired application entry point is `AppHandler.define: ...`.
 - `AppHandler` belongs to the example/application, not the reusable toolbox. It should be a thin composition over a library entry point such as `ZHandler.define`, supplying application-specific services, resources, and policy.
@@ -45,14 +47,14 @@ These notes record the user's intended direction. They are not a description of 
 
 - The user wants modules to be independently deliverable and usable, with a smart compatibility strategy for converters and integrations.
 - The current interpretation is separately publishable/consumable library artifacts, not separate deployed services; confirm if runtime deployment separation is intended.
-- Kyo should be the core effect system; ZIO should remain optional for Kyo-only consumers.
+- Kyo is a first-class independent integration, not a mandatory runtime beneath ZIO. Kyo-only consumers should not need ZIO, and ZIO-only consumers should not need Kyo.
 - Application services, database configuration, and example DTOs belong in examples, not mandatory core dependencies.
 - Final module boundaries, naming, release/version policy, and converter compatibility rules remain design decisions to agree on.
 
 ## Previously requested capabilities
 
 - An unpublished `examples` module demonstrating a Nuxt frontend consuming Scala.js server handlers, a displayed stream, generated TypeScript types, and database writes.
-- The database example runs inside Scala.js/Nitro using **Skunk**, not Doobie/JDBC or a separate JVM service.
+- The database example runs inside Scala.js/Nitro using **Skunk**. The user reconfirmed Skunk after discussing Doobie: Doobie/JDBC would require a JVM backend. Models, database configuration, service layers, and AppHandler environment composition belong in the application modules.
 - Scala-to-TypeScript generation using **scala-ts**. Distinguish this from ScalablyTyped, which generates Scala facades from TypeScript.
 - Improved code generation and Nuxt imports, potentially through an sbt plugin and Nuxt integration, without making endpoint authors manage the plumbing.
 - Distinct public-safe errors and an unsafe `Throwable` channel. Only explicitly approved safe error data may be displayed; internal exceptions, causes, and defects must not leak to clients.
