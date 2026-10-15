@@ -12,7 +12,6 @@ inThisBuild(
       "-Xkind-projector",
       "-source",
       "future-migration",
-      "-rewrite",
     ),
   ),
 )
@@ -102,6 +101,13 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
       "dev.zio"      %%% "zio-test-sbt"     % "2.1.23" % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
+      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
+    Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(
+      org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
+        "NODE_PATH" -> ((h3Ext / crossTarget).value / "scalajs-bundler" / "main" / "node_modules").getAbsolutePath,
+      )),
+    ),
   )
   .dependsOn(h3Ext, zioJsExt, nativeConverterZIOExt)
 
