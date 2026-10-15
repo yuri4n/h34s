@@ -43,22 +43,31 @@ if (result.error || result.signal)
   fail(`process failed: ${result.error || result.signal}`)
 
 const rawOutput = `${result.stdout}${result.stderr}`
-process.stdout.write(rawOutput)
 const output = stripVTControlCharacters(rawOutput)
-
-const diagnostics = output
-  .split('\n')
-  .map(line => ERROR_LINE.exec(line))
-  .filter(match => match !== null)
-const unexpected = diagnostics.filter(([, file, position, code]) => {
+const diagnostics = []
+const unexpected = []
+const rendered = rawOutput.split('\n').map((rawLine) => {
+  const line = stripVTControlCharacters(rawLine)
+  const match = ERROR_LINE.exec(line)
+  if (!match)
+    return rawLine
+  diagnostics.push(match)
+  const [, file, position, code] = match
   const upstream = /node_modules\/docus\/(.+)$/.exec(file)
-  if (!upstream || !file.includes('docus@5.13.0_'))
-    return true
-  const key = `${upstream[1]}(${position}):${code}`
-  const remaining = known.get(key) ?? 0
-  known.set(key, remaining - 1)
-  return remaining <= 0
-})
+  if (upstream && file.includes('docus@5.13.0_')) {
+    const key = `${upstream[1]}(${position}):${code}`
+    const remaining = known.get(key) ?? 0
+    known.set(key, remaining - 1)
+    if (remaining > 0) {
+      // GitHub permits only ten error annotations per step. Accepted
+      // upstream diagnostics must not consume those slots via its matcher.
+      return line.replace(': error TS', ': known upstream TS')
+    }
+  }
+  unexpected.push(match)
+  return rawLine
+}).join('\n')
+process.stdout.write(rendered)
 
 if (unexpected.length > 0) {
   fail(
