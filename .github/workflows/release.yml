@@ -70,14 +70,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Create the GitHub prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: >-
-          gh release create "$RELEASE_TAG"
-          --verify-tag
-          --prerelease
-          --title "h34s $RELEASE_TAG"
-          --generate-notes
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "Release tag must be a semantic version prefixed by v" >&2
+            exit 1
+          fi
+          release_version="${RELEASE_TAG#v}"
+          notes_file=".github/release-notes/${release_version}.md"
+          test -f "$notes_file"
+          gh release create "$RELEASE_TAG" \
+            --verify-tag \
+            --prerelease \
+            --title "h34s $RELEASE_TAG" \
+            --notes-file "$notes_file"
