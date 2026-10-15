@@ -1,10 +1,10 @@
 # Develop the Nuxt/Scala.js example
 
-This is an unpublished development example. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools.
+This repository example uses the `0.1.0-alpha.1` release candidate libraries. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the configured library coordinates; installation from GitHub Packages requires a successful matching tag release workflow.
 
 ## Prerequisites
 
-Use Node 24, pnpm 10.34.4, Java 25 for the combined Kyo/ZIO example (Java 21 remains sufficient for ZIO-only tasks), sbt 1.11.7, and Docker with Compose for the optional database example. `project/build.properties` pins sbt; `.jvmopts` supplies the stack and heap sizes needed by the linked dependencies. The recovered Nuxt dependency set uses pnpm 10's build allowlist.
+Use Node 24, pnpm 10.34.4, Java 25 for the combined Kyo/ZIO example (Java 21 remains sufficient for ZIO-only tasks), sbt 1.11.7, and Docker with Compose for the optional database example. The current build selects Scala.js 1.22.0, Scala 3.5.2 for ZIO modules, and Scala 3.9.0 for Kyo 1.0.0-RC7. `project/build.properties` pins sbt; `.jvmopts` supplies the stack and heap sizes needed by the linked dependencies. The recovered Nuxt dependency set uses pnpm 10's build allowlist.
 
 In the prepared cloud environment, first run:
 
@@ -73,6 +73,18 @@ Skunk's typed SQL interpolator encodes input values as bound parameters; it neve
 
 The application includes `server/plugins/skunk-node-crypto.ts`: the pinned Skunk version calls Node's `require('crypto')` for SCRAM authentication, so the plugin installs Node's loader before Nitro accepts requests. Keep this plugin when copying the database example into an ES-module application. PostgreSQL's default SCRAM authentication stays enabled. Restart Nuxt if authentication ran before the plugin was installed; the failed library initializer cannot recover in the same process.
 
+## Production build
+
+With the combined build toolchain selected, run:
+
+```sh
+pnpm build
+```
+
+This runs `pnpm run scala:full` before Nuxt's production build. The Scala step clears previous output from both `server/.scala` and `server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, and checks that both outputs exist. A failed link stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own.
+
+This build entry point does not establish complete application packaging or a tested Nix deployment. The [release checks](releases.md#validate-and-publish-a-release) validate reusable library artifacts separately from packaging the example application.
+
 ## Checks
 
 ```sh
@@ -84,10 +96,10 @@ node scripts/kyo-smoke.mjs
 
 The smoke check needs the running example and database. Wait for Nitro's build to complete first. It verifies streaming, a real insert/read with schema-normalized text, and safe responses for blank, null, missing, and incorrectly typed input. It creates one note in the selected development database. `H34S_BASE_URL` can select a different local port.
 
-Verified in the prepared cloud checkout: 17 Kyo tests, all 31 ZIO handler/stream tests, 13 development-tool checks, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200 in the earlier bundled profile. The current direct-module profile also passes both smoke scripts, including PostgreSQL insert/read, streaming, and rejected input; a Scala service edit/relink updates its live Kyo response without restarting Nuxt. A query-failure probe in Nuxt development mode returned status 500 with the original cause and a stack frame mapped to `Notes.scala`. Production response suppression and Nitro's production mode replacement were checked separately. PostgreSQL showed no remaining application connections after successful requests, input failures, or query failure. The ZIO socket-close unit tests use real h3 with mocked Node responses; an actual ZIO client-abort integration check remains to be added. Kyo has a separate real client-abort test; its evidence is recorded in the [Kyo guide](kyo.md).
+Earlier verification in the prepared cloud checkout covered 17 Kyo tests, all 31 ZIO handler/stream tests, 13 development-tool checks, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200 in the earlier bundled profile. The direct-module profile also passed both smoke scripts, including PostgreSQL insert/read, streaming, and rejected input; a Scala service edit/relink updated its live Kyo response without restarting Nuxt. A query-failure probe in Nuxt development mode returned status 500 with the original cause and a stack frame mapped to `Notes.scala`. Production response suppression and Nitro's production mode replacement were checked separately. PostgreSQL showed no remaining application connections after successful requests, input failures, or query failure. The ZIO socket-close unit tests used real h3 with mocked Node responses; that evidence did not include an actual ZIO client-abort integration check. Kyo has a separate real client-abort test; its evidence is recorded in the [Kyo guide](kyo.md).
 
-The optional schema slice passed 15 native codec tests, 7 real h3 request/error tests, 2 tests of the actual `CreateNote` schema, the existing 31 handler/stream tests, and application development linking. Its updated HTTP smoke script has not yet been rerun against Nuxt/PostgreSQL; these automated tests do not establish that end-to-end result.
+The optional schema slice passed 15 native codec tests, 7 real h3 request/error tests, 2 tests of the actual `CreateNote` schema, the existing 31 handler/stream tests, and application development linking under the earlier Scala.js 1.20.1 profile. At that checkpoint its updated HTTP smoke script had not been rerun against Nuxt/PostgreSQL; those automated tests do not establish that end-to-end result. The [schema guide](schema.md#dependencies-and-compatibility) separates that historical profile from the current Scala.js 1.22.0 configuration. Check the matching release workflow for validation of the release revision.
 
 Tests cover native conversion, error boundaries, application provisioning, request cleanup, stream backpressure and cleanup, and h3 response-close behavior. Use direct HTTP for stream responses; in-process Nitro local-fetch streaming is not supported by this scoped adapter yet.
 
-The historical production script, scala-ts generation, Nix packaging, and application-scoped database pooling are not validated by this development slice. `scala:types` runs ScalablyTyped (TypeScript to Scala), not Scala-to-TypeScript generation.
+Scala-to-TypeScript generation, complete application packaging, Nix support, and application-scoped database pooling remain pending. `scala:types` runs ScalablyTyped (TypeScript to Scala), not Scala-to-TypeScript generation.

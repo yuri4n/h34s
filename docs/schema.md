@@ -2,7 +2,7 @@
 
 Schema support is optional. `ZHandler.readBody[A: NativeConverter]` remains the complete NativeConverter-only entry point. It has no schema requirement, and its conversion/error behavior is unchanged.
 
-Applications that want schema-driven input validation can add the optional `zioH3SchemaExt` source project. It supplies `ZHandler.readBodyWithSchema[A: Schema]`. The example opts in; the core handler library does not.
+Applications that want schema-driven input validation can add the optional `zioH3SchemaExt` source project. It is also configured as `"dev.yuri4n" %%% "zio-h3-schema-ext" % "0.1.0-alpha.1"` for the alpha release candidate; installation requires a successful matching tag release workflow. See [releases.md](releases.md) for registry access, coordinates, and the optional schema derivation dependency. The module supplies `ZHandler.readBodyWithSchema[A: Schema]`. The example opts in; the core handler library does not.
 
 ## Put validation in the model
 
@@ -111,9 +111,9 @@ Native/schema traversal is limited to 128 levels. Enums, maps, sets, tuples, eit
 | `zioH3SchemaExt` | The native schema bridge and existing ZIO handler API | Real h3 request parsing and safe/unsafe error-boundary tests |
 | Derived application schemas | ZIO Schema Derivation 1.7.5 | Actual `CreateNote` model tests and application development linking |
 
-The verified build uses Scala 3.5.2, Scala.js 1.20.1, h3 1.15.4, and Node 24.19.0. The resolved application Compile and Test classpaths both use ZIO and ZIO Streams 2.1.23; ZIO Test is aligned to 2.1.23. This is local development evidence, not CI/release validation or a claim about untested combinations. The application retains its existing schema dependencies; the reusable ZIO handler Compile classpath contains no ZIO Schema jars. The core projects' existing ZIO Prelude dependency is now explicit at 1.0.0-RC41 rather than inherited through Schema.
+The earlier schema verification used Scala 3.5.2, Scala.js 1.20.1, h3 1.15.4, and Node 24.19.0. The resolved application Compile and Test classpaths both used ZIO and ZIO Streams 2.1.23, with ZIO Test aligned to 2.1.23. This is historical local development evidence; it does not establish CI/release validation or support for untested combinations. The application retains its existing schema dependencies; the reusable ZIO handler Compile classpath contains no ZIO Schema jars. The core projects' existing ZIO Prelude dependency is explicit at 1.0.0-RC41 rather than inherited through Schema.
 
-This local profile runs on Debian 13.6, Linux x86_64, with Java 21 and sbt 1.11.7. It has no Nix lock/toolchain profile; Nix/NixOS and CI validation remain pending. A future compatibility matrix should tie each combination to its build profile and the same sbt/pnpm pipeline.
+That local profile ran on Debian 13.6, Linux x86_64, with Java 21 and sbt 1.11.7. The current alpha configuration uses Scala.js 1.22.0, Scala 3.5.2 for ZIO modules, Node 24, pnpm 10.34.4, and sbt 1.11.7. The combined Kyo/ZIO build uses Java 25; Java 21 remains sufficient for ZIO-only tasks. The [release workflow](releases.md#validate-and-publish-a-release) is configured to rerun schema checks with this current profile. Its result must be checked separately from the earlier evidence below. Nix locks and Nix/NixOS validation remain pending.
 
 ## Future format and effect bridges
 
@@ -131,6 +131,6 @@ From the repository root:
 sbt 'nativeConverterZIOSchemaExt/test' 'zioH3SchemaExt/test' 'zioH3Ext/test' 'nuxtsvr/test' 'nuxtsvr/fastLinkJS'
 ```
 
-Local reports confirm 15 native-schema tests, 7 h3 schema-request tests, 31 existing handler/stream tests, and 2 tests of the actual `CreateNote` model, all passing. Application `fastLinkJS` also passes. The tests exercise required/missing/null/wrong-type values, malformed JSON, domain constraints, normalization, field and schema validation, transform execution, nested collections, defaults, wire-name collisions, native property order, explicit converter ownership, and the safe/unsafe error boundary. The existing NativeConverter-only tests remain in place.
+The earlier Scala.js 1.20.1 reports confirmed 15 native-schema tests, 7 h3 schema-request tests, 31 existing handler/stream tests, and 2 tests of the actual `CreateNote` model, all passing. Application `fastLinkJS` also passed. The tests exercise required/missing/null/wrong-type values, malformed JSON, domain constraints, normalization, field and schema validation, transform execution, nested collections, defaults, wire-name collisions, native property order, explicit converter ownership, and the safe/unsafe error boundary. The existing NativeConverter-only tests remain in place.
 
 The HTTP smoke script now submits padded text and expects the schema-normalized value. It also expects the generic safe schema response. Run it against a configured development application as described in [development.md](development.md); it writes one note.

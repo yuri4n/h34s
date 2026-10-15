@@ -8,8 +8,8 @@ navigation: false
 
 [AI SLOP]{.ai-slop} Written with Codex. Human review pending.
 
-h34s is an unpublished Scala.js toolbox for Nuxt/Nitro. The ZIO development slice offers ordinary ZIO handlers, application-owned service layers, Skunk database access, scoped streaming, and Scala source maps.
+h34s is a Scala.js toolbox for Nuxt/Nitro with an integrated `0.1.0-alpha.1` release candidate. Its ZIO API offers ordinary ZIO handlers, application-owned service layers, optional schema decoding, Skunk database access, scoped streaming, and Scala source maps.
 
 Start with [the getting-started guide](/guide/getting-started), [adopt h34s in an existing project](/guide/adoption), or explore [ZIO handlers](/guide/handlers) and [Kyo handlers](/guide/kyo).
 
-A separate Kyo development slice provides native Kyo handlers and application-owned services. Published artifacts, automatic route and type generation, and production application packaging remain planned. Read [the current project status](/reference/status) before choosing a production setup.
+The first-class Kyo API provides native Kyo handlers and application-owned services on Kyo's own runtime. Private Maven publication is configured under `dev.yuri4n`; installation requires a successful matching tag workflow. Follow the [release installation guide](https://github.com/yuri4n/h34s/blob/main/docs/releases.md). Automatic route and type generation, Nix, and application packaging remain planned; [project status](/reference/status) records the current limits.

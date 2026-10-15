@@ -2,7 +2,9 @@
 
 A Scala.js toolbox for Nuxt/Nitro server handlers, with developer experience as a first-class requirement.
 
-**Status: unpublished ZIO and Kyo development integrations.** Both APIs use their own runtimes, native conversion, and application-owned services. The ZIO example also covers streaming and Skunk. Kyo streaming and Schema adapters, published artifacts, automatic route/type generation, and production packaging remain planned.
+**Status: `0.1.0-alpha.1` release candidate.** Native h3 bindings, ZIO and Kyo APIs, and optional ZIO Schema adapters are configured as separately consumable `dev.yuri4n` libraries. Installation requires a successful matching tag release workflow; this status does not mean the artifacts are already published. See the [installation and release guide](docs/releases.md) for private GitHub Packages access, module coordinates, and validation steps.
+
+Both effect APIs use their own runtimes, native conversion, and application-owned services. The ZIO example also covers streaming and Skunk. Kyo streaming and Kyo Schema adapters, automatic route/type generation, and application packaging remain planned.
 
 ## Write application code in ZIO
 
@@ -59,6 +61,6 @@ Keep one repository with separately consumable native h3 bindings, ZIO integrati
 - `scripts/smoke.mjs`: direct HTTP streaming and database insert/read checks against a running development instance.
 - `app/` and `content/`: retained playground UI/content; this slice does not redesign the frontend.
 
-The [baseline report](docs/baseline.md) records the original import and its historical limitations. This slice removes source rewriting and the missing `TaskStream` reference, but it does not establish the production linking/packaging path or Scala-to-TypeScript generation.
+The [baseline report](docs/baseline.md) records the original import and its historical limitations. The current integration removes source rewriting and the missing `TaskStream` reference. `pnpm build` now links both example applications for production before building Nuxt, with a guard against stale linked output. Full application packaging, Nix support, and Scala-to-TypeScript generation remain separate work.
 
 Use small feature branches, focused commits, and reviewable pull requests. [AGENTS.md](AGENTS.md) records the detailed project direction and delivery rules.

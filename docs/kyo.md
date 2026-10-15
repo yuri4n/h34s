@@ -1,6 +1,6 @@
 # Kyo handlers in Nuxt
 
-This unpublished integration runs ordinary Kyo programs on Kyo's own runtime. The reusable `kyoH3Ext` module depends on native h3 bindings and Kyo, without ZIO. The combined demonstration mounts both APIs in the same Nuxt application; each application module has its own dependency graph.
+The Kyo integration runs ordinary Kyo programs on Kyo's own runtime. The reusable `kyoH3Ext` module depends on native h3 bindings and Kyo, without ZIO. It is configured as `"dev.yuri4n" %%% "kyo-h3-ext" % "0.1.0-alpha.1"` for the alpha release candidate. Installation requires a successful matching tag release workflow; see [releases.md](releases.md) for registry access and setup. The combined demonstration mounts both APIs in the same Nuxt application; each application module has its own dependency graph.
 
 ## Run the example
 
@@ -110,6 +110,6 @@ node scripts/kyo-smoke.mjs
 
 The smoke script needs the running Nuxt application. The Scala suite checks the Kyo boundary independently of ZIO, including native conversion, errors, application services, and resource lifetimes. The ZIO suite checks the shared linker update against the existing integration.
 
-In the prepared Linux x86_64 checkout, all 17 Kyo tests and 31 ZIO regression tests pass. Both applications compile and development-link under Java 25. Live Nuxt requests pass GET/POST Kyo smoke checks, and the existing ZIO `/api/test` route still returns `abc`. The example’s locale configuration reduces its linked development JavaScript from 44 MiB to 5.3 MiB. All 13 development-tool checks pass. A real development exception mapped to `Greetings.scala`, and changing an application service configuration then relinking updated its HTTP response without restarting Nuxt. These direct-module development checks used the default Node heap. The separate composing loader also retains original Scala source content when bundling.
+Earlier verification in the prepared Linux x86_64 checkout passed all 17 Kyo tests and 31 ZIO regression tests. Both applications compiled and development-linked under Java 25. Live Nuxt requests passed GET/POST Kyo smoke checks, and the existing ZIO `/api/test` route returned `abc`. The example’s locale configuration reduced its linked development JavaScript from 44 MiB to 5.3 MiB. All 13 development-tool checks passed. A real development exception mapped to `Greetings.scala`, and changing an application service configuration then relinking updated its HTTP response without restarting Nuxt. These direct-module development checks used the default Node heap. The separate composing loader also retains original Scala source content when bundling.
 
-This profile is development evidence, not a published support guarantee. Nix locks, NixOS validation, production packaging, fresh-consumer CI, Kyo streams, Kyo Schema, and a Kyo database example require separate work.
+This profile records local development evidence. The alpha release workflow is configured to check independent ZIO and Kyo Maven consumers; its result must be checked separately from these earlier tests. `pnpm build` now links both example applications for production before building Nuxt. Nix locks, NixOS validation, application packaging, Kyo streams, Kyo Schema, and a Kyo database example require separate work.
