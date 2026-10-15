@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { releaseVersion } from './check-release.mjs'
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -20,7 +20,7 @@ const version = releaseVersion()
 const published = process.argv.includes('--published')
 const resolver = published
   ? '"GitHub Packages" at "https://maven.pkg.github.com/yuri4n/h34s"'
-  : `Resolver.file("release-staging", file("${maven}"))(Resolver.mavenStylePatterns)`
+  : `"release-staging" at "${pathToFileURL(`${maven}/`).href}"`
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit' })
@@ -81,7 +81,7 @@ scalaVersion := "${scalaVersion}"
 enablePlugins(ScalaJSPlugin)
 externalResolvers := {
   require(!sys.props.get("sbt.override.build.repos").exists(_.equalsIgnoreCase("true")), "Fresh consumer checks require their explicit Maven resolvers; disable sbt.override.build.repos in the sbt launcher.")
-  Seq(${resolver}, Resolver.mavenCentral)
+  Seq(${resolver}, "Maven Central" at "https://repo.maven.apache.org/maven2")
 }
 ${published
   ? 'credentials ++= (for { actor <- sys.env.get("GITHUB_ACTOR").toSeq; token <- sys.env.get("GITHUB_TOKEN").toSeq } yield Credentials("GitHub Package Registry", "maven.pkg.github.com", actor, token))'
