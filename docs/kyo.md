@@ -110,4 +110,6 @@ node scripts/kyo-smoke.mjs
 
 The smoke script needs the running Nuxt application. The Scala suite checks the Kyo boundary independently of ZIO, including native conversion, errors, application services, and resource lifetimes. The ZIO suite checks the shared linker update against the existing integration.
 
+In the prepared Linux x86_64 checkout, all 16 Kyo tests and 31 ZIO regression tests pass. Both applications compile and development-link under Java 25. Live Nuxt requests pass GET/POST Kyo smoke checks, and the existing ZIO `/api/test` route still returns `abc`. The example’s locale configuration reduces its linked development JavaScript from 44 MiB to 5.3 MiB. Six source-map checks pass, and composed Kyo maps contain the original Scala application and boundary sources.
+
 This profile is development evidence, not a published support guarantee. Nix locks, NixOS validation, production packaging, fresh-consumer CI, Kyo streams, Kyo Schema, and a Kyo database example require separate work.
