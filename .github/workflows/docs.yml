@@ -1,0 +1,37 @@
+name: Documentation website
+
+on:
+  pull_request:
+    paths:
+      - website/**
+      - vendor/yuri4n.dev
+      - .gitmodules
+      - pnpm-workspace.yaml
+      - pnpm-lock.yaml
+      - package.json
+      - .github/workflows/docs.yml
+  push:
+    branches: [main]
+    paths:
+      - website/**
+      - vendor/yuri4n.dev
+      - .gitmodules
+      - pnpm-workspace.yaml
+      - pnpm-lock.yaml
+      - package.json
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    uses: yuri4n/yuri4n.dev/.github/workflows/docs-ci.yml@v0.1.0
+    with:
+      working-directory: website
+      install-directory: website
+      library-path: website/vendor/yuri4n.dev
+      build-command: pnpm run ci
+      nitro-preset: vercel
+      output-dir: .vercel/output/static
