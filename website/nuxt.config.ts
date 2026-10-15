@@ -1,13 +1,24 @@
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 
 const description = 'Write Scala handlers for Nuxt. '
   + 'Learn ZIO, Skunk, streaming, and Scala.js debugging with h34s.'
+const docsLayerApp = fileURLToPath(
+  new URL('./vendor/yuri4n.dev/layers/docs/app/', import.meta.url),
+)
 
 export default defineNuxtConfig({
   extends: ['@yuri4n/nuxt-docs'],
   site: { name: 'h34s' },
   compatibilityDate: '2026-10-09',
   devtools: { enabled: false },
+  // Nuxt omits nested layers outside layers/ from the app project includes.
+  // Explicit Vue globs also keep Oxc from falling through to the parent app.
+  typescript: {
+    appTsConfig: {
+      include: [`${docsLayerApp}**/*`, `${docsLayerApp}**/*.vue`],
+    },
+  },
   // Nitro 2's runtime autodetection stops at Node 22.
   nitro: { vercel: { functions: { runtime: 'nodejs24.x' } } },
   // Vercel supplies image optimization; do not ship IPX/Sharp there.

@@ -24,7 +24,9 @@
     "@nuxt/content": "^3.16.1",
     "@nuxt/ui": "^4.11.3",
     "@yuri4n/nuxt-docs": "workspace:*",
-    "nuxt": "^4.6.0"
+    "nuxt": "^4.6.0",
+    "vue": "3.5.44",
+    "vue-router": "5.4.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

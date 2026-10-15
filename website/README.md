@@ -20,6 +20,9 @@ pnpm docs:dev
 The docs listen on port 3001. They need no Java, sbt, Scala linking, or
 PostgreSQL. The root application has its own lockfile and installation;
 `pnpm install` at the repository root does not install the docs.
+The website declares its own Vue and Vue Router versions. Its Nuxt
+TypeScript project explicitly includes the nested shared layer, so a
+clean build does not depend on the example app's generated configuration.
 
 Edit pages under `content/1.guide` and `content/2.reference`. Docus provides
 navigation, local search, code highlighting, edit links, and the mobile
