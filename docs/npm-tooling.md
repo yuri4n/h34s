@@ -72,7 +72,7 @@ Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
   (LocalRootProject / baseDirectory).value / "server" / ".scala",
 ```
 
-The npm package requires Node 22.18 or later and Nuxt 4.3.1 or later within Nuxt 4. Use the compiler, linker, and JDK versions from the [toolchain profile](releases.md#toolchain); the combined repository profile uses Node 24. The package does not install Java or sbt.
+The npm package requires Node 22.18 or later and the pinned Nuxt 4.3.1 profile. Use the compiler, linker, and JDK versions from the [toolchain profile](releases.md#toolchain); the combined repository profile uses Node 24. The package does not install Java or sbt.
 
 ## Add the Nuxt module and scripts
 

@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
-import { scalaDevModules } from '../build/scala-dev-modules.mjs'
+import { scalaDevModules } from '@yuri4n/h34s-nuxt/rollup'
 
 const run = promisify(execFile)
 

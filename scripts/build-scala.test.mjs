@@ -11,7 +11,10 @@ import { join } from 'node:path'
 // Build checks use Node's built-in runner without a test-framework dependency.
 // eslint-disable-next-line test/no-import-node-test
 import { test } from 'node:test'
-import { buildScala } from './build-scala.mjs'
+import { buildScala as runBuild } from '@yuri4n/h34s-nuxt/build'
+import config from '../h34s.config.mjs'
+
+const buildScala = options => runBuild({ ...options, config })
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'h34s-production-link-'))
@@ -33,15 +36,27 @@ test('production linking clears both development outputs before linking the two 
   const root = fixture(t)
   buildScala({ root, run: (_command, tasks, options) => {
     assert.equal(options.cwd, root)
-    assert.deepEqual(tasks, ['nuxtsvr/fullLinkJS', 'kyoExample/fullLinkJS'])
+    assert.deepEqual(
+      tasks,
+      [
+        '-Dsbt.supershell=false',
+        '-batch',
+        'nuxtsvr/fullLinkJS',
+        'kyoExample/fullLinkJS',
+      ],
+    )
     for (const name of ['.scala', '.scala-kyo']) {
       assert.equal(existsSync(join(root, 'server', name)), false)
       mkdirSync(join(root, 'server', name), { recursive: true })
       const files = name === '.scala'
         ? ['test.js', 'notes-get.js', 'notes-post.js']
         : ['kyo-greeting-get.js', 'kyo-greeting-post.js']
-      for (const filename of files)
-        writeFileSync(join(root, 'server', name, filename), 'fresh production code')
+      for (const filename of files) {
+        writeFileSync(
+          join(root, 'server', name, filename),
+          'fresh production code',
+        )
+      }
     }
     return { status: 0 }
   } })

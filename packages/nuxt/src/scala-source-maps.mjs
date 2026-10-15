@@ -9,14 +9,21 @@ function within(directory, file) {
 
 // Supply incoming maps before Nitro transforms the linked JS, allowing Rollup
 // to compose both stages back to Scala source locations.
-export function scalaSourceMaps(projectRoot, outputDirectories = ['server/.scala']) {
+export function scalaSourceMaps(
+  projectRoot,
+  outputDirectories = ['server/.scala'],
+) {
   const root = resolve(projectRoot)
-  const linkedDirectories = outputDirectories.map(directory => resolve(root, directory))
+  const linkedDirectories = outputDirectories.map(directory =>
+    resolve(root, directory),
+  )
 
   return {
     name: 'h34s-scala-source-maps',
     async load(id) {
-      const linked = isAbsolute(id) && linkedDirectories.some(directory => within(directory, id))
+      const linked
+        = isAbsolute(id)
+          && linkedDirectories.some(directory => within(directory, id))
       if (!linked || !id.endsWith('.js')) {
         return null
       }

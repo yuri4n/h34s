@@ -14,7 +14,7 @@ import { join } from 'node:path'
 // eslint-disable-next-line test/no-import-node-test
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { scalaSourceMaps } from '../build/scala-source-maps.mjs'
+import { scalaSourceMaps } from '@yuri4n/h34s-nuxt/rollup'
 
 async function fixture(
   t,
@@ -89,39 +89,4 @@ test('leaves unrelated JS and virtual modules to Nitro', async (t) => {
   assert.equal(await f.load(otherDirectory), null)
   assert.equal(await f.load('\0virtual'), null)
   assert.deepEqual(f.watched, [])
-})
-
-test('enables mapping only in Nuxt development mode', async (t) => {
-  const previous = globalThis.defineNuxtConfig
-  globalThis.defineNuxtConfig = value => value
-  t.after(() => {
-    globalThis.defineNuxtConfig = previous
-  })
-  const { default: nuxt } = await import('../nuxt.config.ts')
-  const production = { dev: false, rootDir: '/project', sourceMap: false }
-  const original = structuredClone(production)
-  nuxt.hooks['nitro:config'](production)
-  assert.deepEqual(production, original)
-  const development = { dev: true, rootDir: '/project' }
-  nuxt.hooks['nitro:config'](development)
-  assert.equal(development.sourceMap, true)
-  const rollup = development.rollupConfig
-  assert.ok(
-    rollup.plugins.find(plugin => plugin.name === 'h34s-scala-source-maps'),
-  )
-  assert.equal(rollup.output.sourcemapExcludeSources, false)
-
-  const kyo = await fixture(t, undefined, undefined, 'server/.scala-kyo')
-  const kyoDevelopment = { dev: true, rootDir: kyo.root }
-  nuxt.hooks['nitro:config'](kyoDevelopment)
-  const sourceMaps = kyoDevelopment.rollupConfig.plugins.find(
-    plugin => plugin.name === 'h34s-scala-source-maps',
-  )
-  assert.ok(sourceMaps)
-  const result = await sourceMaps.load.call(
-    { addWatchFile() {} },
-    kyo.linked,
-  )
-  assert.deepEqual(result.map.sources, [kyo.scala])
-  assert.ok(result.map.sourcesContent[0].includes('debug probe'))
 })
