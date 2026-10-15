@@ -16,7 +16,7 @@
     "typecheck": "node scripts/typecheck.mjs",
     "test": "node --test test/*.test.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
-    "ci": "pnpm check && pnpm build"
+    "ci": "node scripts/ci.mjs"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.0",
