@@ -62,7 +62,7 @@ lazy val configureCommonJsProject: Project => Project =
     )
 
 lazy val root = (project in file("."))
-  .aggregate(exts, nuxtsvr, kyoH3Ext, kyoExample)
+  .aggregate(exts, nuxtsvr, kyoH3Ext, kyoExample, nuxtHubExt, zioNuxtHubExt, kyoNuxtHubExt)
   .settings(
     publish / skip := true,
   )
@@ -183,6 +183,57 @@ lazy val kyoExample: Project = (project in file("scala-modules/kyo-example"))
     cleanFiles += (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
   )
   .dependsOn(kyoH3Ext)
+
+// Optional storage bindings. The native module imports neither a generated
+// NuxtHub module nor an effect runtime; applications supply their configured KV.
+lazy val nuxtHubExt: Project = (project in file("scala-modules/exts/nuxthub"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    name := "nuxthub-ext",
+    version := "0.1.0",
+  )
+
+lazy val zioNuxtHubExt: Project = (project in file("scala-modules/exts/zio-nuxthub"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    name := "zio-nuxthub-ext",
+    version := "0.1.0",
+    libraryDependencies ++= Seq(
+      "dev.zio" %%% "zio" % "2.1.23",
+      "org.getshaka" %%% "native-converter" % "0.9.0",
+      "dev.zio" %%% "zio-test" % "2.1.23" % Test,
+      "dev.zio" %%% "zio-test-sbt" % "2.1.23" % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
+      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
+    Test / jsEnv := nuxtHubTestJsEnv((nuxtHubExt / baseDirectory).value),
+  )
+  .dependsOn(nuxtHubExt % "compile->compile;test->test")
+
+lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxthub"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    name := "kyo-nuxthub-ext",
+    version := "0.1.0",
+    scalaVersion := "3.9.0",
+    libraryDependencies ++= Seq(
+      "io.getkyo" %%% "kyo-core" % "1.0.0-RC7",
+      "org.getshaka" %%% "native-converter" % "0.9.0",
+      "org.scalameta" %%% "munit" % "1.2.1" % Test,
+    ),
+    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
+      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
+    Test / jsEnv := nuxtHubTestJsEnv((nuxtHubExt / baseDirectory).value),
+  )
+  .dependsOn(nuxtHubExt % "compile->compile;test->test")
+
+def nuxtHubTestJsEnv(moduleDirectory: File) =
+  new org.scalajs.jsenv.nodejs.NodeJSEnv(
+    org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
+      "NODE_PATH" -> sys.props.getOrElse("h34s.nuxthub.nodePath", (moduleDirectory / "test-js" / "node_modules").getAbsolutePath),
+    )),
+  )
 
 lazy val zioJsExt: Project = (project in file("scala-modules/exts/zio-js"))
   .enablePlugins(ScalaJSPlugin)
