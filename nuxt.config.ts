@@ -46,18 +46,16 @@ export default defineNuxtConfig({
         ...scalaOutputs.map(directory => resolve(config.rootDir!, directory)),
       )
       config.rollupConfig ??= {}
-      config.rollupConfig.plugins ??= []
       // Load linked ESM directly in Node; relinking restarts the Nitro worker.
       // This avoids retaining large Scala.js graphs in Rollup's development cache.
-      config.rollupConfig.plugins.push(
+      config.rollupConfig.plugins = [
+        config.rollupConfig.plugins,
         scalaDevModules(config.rootDir!, scalaOutputs),
-      )
-      config.rollupConfig.plugins.push(
         scalaSourceMaps(
           config.rootDir!,
           scalaOutputs,
         ),
-      )
+      ]
       config.rollupConfig.output = {
         ...config.rollupConfig.output,
         sourcemapExcludeSources: false,

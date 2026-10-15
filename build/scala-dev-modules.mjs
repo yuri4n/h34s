@@ -45,7 +45,7 @@ export function scalaDevModules(
     name: 'h34s-scala-dev-modules',
     resolveId: {
       // Run before Nitro's normal resolvers, even when this plugin is appended.
-      order: 'pre',
+      order: /** @type {'pre'} */ ('pre'),
       async handler(source, importer) {
         let candidate = localPath(source)
         if (!candidate && /^\.\.?\//.test(source) && !/[\0?#]/.test(source)) {
