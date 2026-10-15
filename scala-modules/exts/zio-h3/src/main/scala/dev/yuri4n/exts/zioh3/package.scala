@@ -3,7 +3,7 @@ package dev.yuri4n.exts.zioh3
 import dev.yuri4n.exts.h3.given
 import dev.yuri4n.exts.h3.{AnyEvHandlerRes, CommonEvHandler, H3Event1}
 import dev.yuri4n.exts.ntcvzio.given
-import dev.yuri4n.exts.zioh3.streamconversion.toReadableStreamReader
+import dev.yuri4n.exts.zioh3.streamconversion.toReadableStream
 import org.getshaka.nativeconverter.{NativeConverter, fromNative}
 import org.scalablytyped.runtime.StringDictionary
 import org.scalajs.dom
@@ -23,7 +23,7 @@ import typings.std.{PromiseLike, Record}
 import zio.json.JsonEncoder
 import zio.prelude.NonEmptyList
 import zio.stream.{Stream, ZStream}
-import zio.{IO, RIO, Runtime, Task, URIO, Unsafe, ZIO, ZLayer}
+import zio.{Cause, IO, Promise, Runtime, Scope, Task, URIO, Unsafe, ZIO, ZLayer}
 
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
@@ -104,11 +104,33 @@ final case class SH3Event(private val event: H3Event1):
     def sendStream[A: NativeConverter](
         stream: TaskStream[A],
     ): Task[Unit] =
-      for
+      ZIO.scoped:
+        for
           runtime                <- ZIO.runtime
           given ExecutionContext <- ZIO.executor.map(_.asExecutionContext)
-          _                      <- ZIO.fromPromiseJS(h3SendStream(event, stream.toReadableStreamReader(runtime)))
-      yield ()
+          disconnected           <- Promise.make[Nothing, Unit]
+          response = event.node.res.asInstanceOf[js.Dynamic]
+          _ <- ZIO.fail(new UnsupportedOperationException("Streaming requires a Node HTTP response"))
+            .unless(response.socket != null && !js.isUndefined(response.socket))
+          onClose = (() => Unsafe.unsafe { implicit unsafe =>
+            runtime.unsafe.run(disconnected.succeed(())).getOrThrowFiberFailure()
+            ()
+          }): js.Function0[Unit]
+          _ <- ZIO.acquireRelease(ZIO.attempt {
+            response.once("close", onClose)
+            if response.destroyed.asInstanceOf[Boolean] || response.closed.asInstanceOf[Boolean] then onClose()
+            ()
+          })(
+            _ => ZIO.attempt { response.removeListener("close", onClose); () }.orDie,
+          )
+          _ <- ZIO.uninterruptibleMask { restore =>
+            ZIO.attempt(h3SendStream(event, stream.interruptWhen(disconnected.await).toReadableStream(runtime))).flatMap { sending =>
+              restore(ZIO.fromPromiseJS(sending))
+                .onInterrupt(disconnected.succeed(()) *> ZIO.fromPromiseJS(sending).ignore)
+            }
+          }
+            .onError(_ => ZIO.attempt { if response.headersSent.asInstanceOf[Boolean] then response.destroy(); () }.orDie)
+        yield ()
 
     def `$fetch`[A: NativeConverter](url: String): Task[A] =
       event.asInstanceOf[js.Dynamic].`$fetch`(url.asInstanceOf[js.Any]).fromNative_[A]
@@ -132,6 +154,18 @@ type UHandler[+A]         = ZHandler[Any, Nothing, A]
 type RHandler[-R, +A]     = ZHandler[R, Throwable, A]
 
 object ZHandler:
+
+    /** Define a request-scoped ZIO handler. Supply application services with ordinary ZIO provisioning. */
+    def define[A: NativeConverter](
+        program: ZIO[SH3Event & Scope, ErrorResponse | ::[Throwable] | Throwable, A],
+    ): CommonEvHandler =
+      given ExecutionContext = ExecutionContext.global
+      defineEventHandler(ZIO.scoped[SH3Event](program))
+
+    /** Side-effecting handlers, including sendStream, return native JavaScript undefined. */
+    def define(
+        program: ZIO[SH3Event & Scope, ErrorResponse | ::[Throwable] | Throwable, Unit],
+    ): CommonEvHandler = define[Unit](program)
 
     def readBody[A: NativeConverter]: TaskHandler[A] =
       ZIO.serviceWithZIO[SH3Event](_.readBody[A])
@@ -168,6 +202,7 @@ object ZHandler:
 
     final case class GetRouterParamsError(underlying: Throwable) extends SafeError:
         val message: String                             = "Failed to get router parameters"
+        override def status: Int                         = 500
         override val maybeUnderlying: Option[Throwable] = Some(underlying)
 
     def sendStream[A: NativeConverter](stream: TaskStream[A]): TaskHandler[Unit] =
@@ -184,29 +219,26 @@ given [A: JsonEncoder]: JsonEncoder[NonEmptyList[A]] = JsonEncoder.list.contrama
 
 trait SafeError extends NoStackTrace:
     val message: String
+    def status: Int = 400
     val maybeUnderlying: Option[Throwable] = None
 
 def mkHandler[A: NativeConverter](
     runtime: Runtime[Any] = Runtime.default,
     h: Handler[ErrorResponse | ::[Throwable] | Throwable, A],
 )(using ec: ExecutionContext): CommonEvHandler =
+    val internalError = ErrorResponse(NonEmptyList("Internal server error"))
     val handled =
       h.map(_.toNative)
-        .catchSome:
-            case t: Throwable =>
-              ZHandler.failWith(500, t.getMessage())
-
-            case errs @ List(_, _*) =>
-              ZHandler.failWith(
-                500,
-                errs.asInstanceOf[::[Throwable]].head.getMessage(),
-                errs.asInstanceOf[::[Throwable]].tail.map(_.getMessage)*,
-              )
         .catchAll:
             case err: ErrorResponse => ZIO.succeed(err.toNative)
-            case _                  => ZIO.die(new Error("unreachable"))
-        .catchAllDefect: t =>
-            ZIO.succeed(ErrorResponse(NonEmptyList(t.getMessage())).toNative)
+            case err: SafeError =>
+              ZHandler.setResponseStatus(err.status).orDie.as(ErrorResponse(NonEmptyList(err.message)).toNative)
+            case error =>
+              ZIO.logErrorCause("Unhandled handler failure", Cause.fail(error)) *>
+                ZHandler.setResponseStatus(500).orDie.as(internalError.toNative)
+        .catchAllDefect: error =>
+            ZIO.logErrorCause("Unhandled handler defect", Cause.die(error)) *>
+              ZHandler.setResponseStatus(500).orDie.as(internalError.toNative)
     end handled
 
     js.Any
