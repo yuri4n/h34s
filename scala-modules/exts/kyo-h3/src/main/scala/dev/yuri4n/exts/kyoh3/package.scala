@@ -30,9 +30,17 @@ final case class KH3Event(private val event: H3Event1):
     def rawEvent: H3Event1 = event
 
     def readBody[A: NativeConverter](using Frame): A < (Async & Abort[Throwable]) =
+      given ExecutionContext = ExecutionContext.global
       Abort.catching[Throwable] {
         Sync.defer {
-          Async.fromFuture(h3ReadBody[A, H3Event1, js.Any](event).toFuture)
+          h3ReadBody[A, H3Event1, js.Any](event).toFuture.transform(result => Success(result))
+        }
+      }.map { completed =>
+        // Async.fromFuture treats rejected Futures as panics. Reify the native
+        // I/O outcome first so callers can recover through Abort[Throwable].
+        Async.fromFuture(completed).map {
+          case Success(value) => value
+          case Failure(error) => Abort.fail(error)
         }
       // Decoding exceptions are defects, including a converter that throws SafeError.
       // Only an explicit typed failure may approve a message for the HTTP response.

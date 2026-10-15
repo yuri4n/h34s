@@ -121,6 +121,23 @@ class HttpHandlerSuite extends FunSuite:
       }.map(_ => ())
     }
 
+    test("a rejected JSON body read can be recovered through typed Abort") {
+      val handler = KHandler.define {
+        Abort.run[Throwable](KHandler.readBody[Input]).map(_.fold(
+          input => Greeting(input.name),
+          _ => Greeting("recovered invalid JSON"),
+          error => throw error,
+        ))
+      }
+      withServer(handler) { (server, port) =>
+        post(port, "{invalid json}").map { case (status, body) =>
+          assertEquals(status, 200)
+          assertEquals(body, "{\"message\":\"recovered invalid JSON\"}")
+          assertEquals(server.transportErrors, 0)
+        }
+      }
+    }
+
     test("an actual client abort waits for request cleanup without an h3 error response") {
       val acquired = Promise[Unit]()
       val finalizing = Promise[Unit]()
