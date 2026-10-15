@@ -31,7 +31,7 @@ In the prepared cloud environment the linking command is:
 /workspace/tooling/h34s-sbt 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
 ```
 
-The unoptimized Scala.js example currently needs an 8 GB Node heap for Nitro bundling (the default 4 GB heap ran out of memory). Allow enough machine memory for Node and the 4 GB sbt heap, or finish linking before starting Nuxt.
+The development-linked Scala.js example currently needs an 8 GB Node heap for Nitro bundling (the default 4 GB heap ran out of memory). Allow enough machine memory for Node and the 4 GB sbt heap, or finish linking before starting Nuxt.
 
 Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `sbt '~;nuxtsvr/fastLinkJS;kyoExample/fastLinkJS'` in another terminal.
 
