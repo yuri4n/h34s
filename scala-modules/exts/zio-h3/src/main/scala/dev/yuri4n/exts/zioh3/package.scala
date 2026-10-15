@@ -52,6 +52,14 @@ extension (j: js.Any) def fromNative_[A: NativeConverter]: Task[A] = ZIO.attempt
 final case class SH3Event(private val event: H3Event1):
     export event.{context, handled, headers, method, node, path, toJSON, web}
 
+    // Set by the server integration, never from request headers or query parameters.
+    private[zioh3] def developmentMode: Boolean =
+      val config = event.context.asInstanceOf[js.Dynamic].h34s
+      if config == null || js.isUndefined(config) then false
+      else
+        val value = config.development
+        js.typeOf(value) == "boolean" && value.asInstanceOf[Boolean]
+
     def respondWith(response: Response): Task[Unit] =
       respondWithZIO(ZIO.succeed(response))
 
@@ -227,18 +235,30 @@ def mkHandler[A: NativeConverter](
     h: Handler[ErrorResponse | ::[Throwable] | Throwable, A],
 )(using ec: ExecutionContext): CommonEvHandler =
     val internalError = ErrorResponse(NonEmptyList("Internal server error"))
+
+    def unexpected(cause: Cause[Any]): URIO[SH3Event, js.Any] =
+      ZIO.logErrorCause("Unhandled handler failure", cause) *>
+        ZHandler.setResponseStatus(500).orDie *>
+        ZIO.serviceWith[SH3Event] { event =>
+          val response = internalError.toNative
+          if event.developmentMode then
+            response.asInstanceOf[js.Dynamic].updateDynamic("debug")(
+              js.Dynamic.literal(cause = cause.prettyPrint),
+            )
+          response
+        }
+
     val handled =
       h.map(_.toNative)
-        .catchAll:
-            case err: ErrorResponse => ZIO.succeed(err.toNative)
-            case err: SafeError =>
-              ZHandler.setResponseStatus(err.status).orDie.as(ErrorResponse(NonEmptyList(err.message)).toNative)
-            case error =>
-              ZIO.logErrorCause("Unhandled handler failure", Cause.fail(error)) *>
-                ZHandler.setResponseStatus(500).orDie.as(internalError.toNative)
-        .catchAllDefect: error =>
-            ZIO.logErrorCause("Unhandled handler defect", Cause.die(error)) *>
-              ZHandler.setResponseStatus(500).orDie.as(internalError.toNative)
+        .catchAllCause { cause =>
+          if cause.isInterruptedOnly then ZIO.refailCause(cause.stripFailures)
+          else if cause.defects.nonEmpty then unexpected(cause)
+          else cause.failureOption match
+              case Some(err: ErrorResponse) => ZIO.succeed(err.toNative)
+              case Some(err: SafeError) =>
+                ZHandler.setResponseStatus(err.status).orDie.as(ErrorResponse(NonEmptyList(err.message)).toNative)
+              case _ => unexpected(cause)
+        }
     end handled
 
     js.Any
