@@ -70,7 +70,9 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Test Nuxt development integration
         run: node --test scripts/*.test.mjs
-      - name: Test native, ZIO, Kyo, and optional schema APIs
+      - name: Install the isolated KV test fixture
+        run: npm ci --prefix scala-modules/exts/nuxthub/test-js --ignore-scripts
+      - name: Test native, ZIO, Kyo, optional schema, and KV APIs
         run: >-
           sbt -batch
           'zioH3Ext/test'
@@ -78,6 +80,8 @@ jobs:
           'nativeConverterZIOSchemaExt/test'
           'zioH3SchemaExt/test'
           'nuxtsvr/test'
+          'zioNuxtHubExt/test'
+          'kyoNuxtHubExt/test'
       - name: Link production example applications
         run: pnpm run scala:full
       - name: Check publication metadata

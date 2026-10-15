@@ -10,7 +10,7 @@ The modules are independent:
 | `zioNuxtHubExt` | `ZHubKv` | ZIO 2.1.23 and NativeConverter 0.9.0 |
 | `kyoNuxtHubExt` | `KHubKv` | Kyo 1.0.0-RC7 and NativeConverter 0.9.0 |
 
-Neither adapter requires Schema or the other effect runtime. The native module also works without either adapter. These source projects are not published installation coordinates.
+Neither adapter requires Schema or the other effect runtime. The native module also works without either adapter. The configured alpha coordinates are `dev.yuri4n` %%% `nuxthub-ext`, `zio-nuxthub-ext`, or `kyo-nuxthub-ext`, all at `0.1.0-alpha.1`. Installation requires a successful matching release workflow; see the [private package installation guide](releases.md).
 
 ## Supply the application's KV
 

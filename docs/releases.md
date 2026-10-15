@@ -88,24 +88,31 @@ Every row uses organization `dev.yuri4n`, version `0.1.0-alpha.1`, and Scala.js 
 | `native-converter-zio-json-ext` | NativeConverter support for ZIO JSON values |
 | `native-converter-zio-schema-ext` | Optional native conversion from ZIO Schema |
 | `zio-h3-schema-ext` | Optional schema-based request decoding for ZIO handlers |
+| `nuxthub-ext` | Native NuxtHub 0.10.8 KV contract, supplied by the application |
+| `zio-nuxthub-ext` | Optional ZIO KV adapter |
+| `kyo-nuxthub-ext` | Optional Kyo KV adapter |
+
+See [NuxtHub KV](nuxthub.md) for application-owned storage configuration and driver limitations.
 
 Schema users can add `zio-h3-schema-ext` alongside `zio-h3-ext`; it includes the native schema converter. Schema derivation for application models can be added explicitly with `"dev.zio" %%% "zio-schema-derivation" % "1.7.5"`. Plain NativeConverter handlers do not require either schema integration. See [schema](schema.md) for supported forms and validation behavior.
 
 The root project, aggregates, applications, examples, and experimental `zioMigrationsExt` are excluded from publication. Database services, configuration, models, and `AppHandler` composition stay in application modules. The reusable libraries do not require the example's Skunk database.
 
-The alpha publication includes binary and source jars. Scaladoc jars are omitted because Scala 3.5's documentation generator fails while reading the generated inline h3 facades; a fix remains pending. The [documentation website](https://github.com/yuri4n/h34s/tree/main/website/content) and source jars remain the API guides for this alpha.
+The alpha publication includes binary and source jars. Scaladoc jars are omitted because Scala 3.5's documentation generator fails while reading the generated inline h3 facades; a fix remains pending. The [documentation website](https://github.com/yuri4n/h34s/tree/v0.1.0-alpha.1/website/content) and source jars remain the API guides for this alpha.
 
 ## Validate and publish a release
 
-The Scala workflow checks the development integration, ZIO/Kyo handlers, optional schema adapters, application tests, production linking, and reusable-library POMs. It stages library packages locally and verifies independent Maven consumers before a release can proceed. Local staging does not publish to GitHub Packages.
+The Scala workflow checks the development integration, ZIO/Kyo handlers, optional schema and NuxtHub KV adapters, application tests, production linking, and reusable-library POMs. It stages library packages locally and verifies independent Maven consumers before a release can proceed. Local staging does not publish to GitHub Packages.
 
 Run the same core checks from a clean checkout with the toolchain above:
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
 node --test scripts/*.test.mjs
+npm ci --prefix scala-modules/exts/nuxthub/test-js --ignore-scripts
 sbt 'zioH3Ext/test' 'kyoH3Ext/test' \
-  'nativeConverterZIOSchemaExt/test' 'zioH3SchemaExt/test' 'nuxtsvr/test'
+  'nativeConverterZIOSchemaExt/test' 'zioH3SchemaExt/test' 'nuxtsvr/test' \
+  'zioNuxtHubExt/test' 'kyoNuxtHubExt/test'
 pnpm run scala:full
 sbt releaseCheck
 node scripts/check-release.mjs
@@ -117,10 +124,12 @@ The installation step skips Nuxt's postinstall preparation because these library
 
 `releaseCheck` generates the intended library POMs. The metadata check rejects inconsistent release versions, unexpected internal dependencies, local generated-facade dependencies, and a tag that does not exactly match the configured version. `releasePublishLocal` publishes only the reusable modules to local Ivy for validation. `releasePublish` publishes that same module set to `https://maven.pkg.github.com/yuri4n/h34s`.
 
-`check-consumers.mjs` redirects publication to a disposable local Maven repository. It creates separate Scala 3.5.2/ZIO and Scala 3.9.0/Kyo projects that depend only on released artifact coordinates, with Maven Central and the staged repository as their resolvers. Neither consumer references repository source projects or locally published Ivy artifacts. Each compiles, links, checks that the other effect runtime and unwanted schema dependencies are absent, and serves a real HTTP request through h3. The script removes its temporary projects and Maven repository afterward.
+`check-consumers.mjs` redirects publication to a disposable local Maven repository. It creates three independent projects: Scala 3.5.2/ZIO, Scala 3.9.0/Kyo, and ZIO with the optional Schema and JSON adapters. They depend only on release artifact coordinates, with Maven Central and the staged repository as their resolvers. None references repository source projects or locally published Ivy artifacts. Each compiles, links, checks that the other effect runtime is absent, and serves a real HTTP request through h3. The base ZIO consumer also checks that it has no optional Schema dependency. The Schema consumer decodes a request with `readBodyWithSchema` and checks decimal JSON conversion without a Float precision loss.
+
+The consumers also compile their respective NuxtHub KV adapter constructors. KV operations are exercised separately by the adapter test suites against the pinned JavaScript fixture; the consumer HTTP checks do not start NuxtHub or a storage service. The script removes its temporary projects and Maven repository afterward.
 
 `pnpm run scala:full` clears previous linked output before linking both application modules for production, then checks that their output exists. The normal `pnpm build` command runs this step before Nuxt's production build, so a failed link cannot package stale development code.
 
-After the release commit is reviewed and its checks pass, a maintainer can create and push the matching `v0.1.0-alpha.1` tag. The tag workflow validates that exact revision, then publishes packages using `GITHUB_ACTOR` and the repository's `GITHUB_TOKEN`. It next runs `node scripts/check-consumers.mjs --published` against GitHub Packages to verify both consumers through the authenticated registry, without local staging. Only the package publication job receives `packages: write`, which also permits this download check. A separate job receives `contents: write` to create the GitHub prerelease after publication and registry verification succeed. No additional release secret is required, and repository/package visibility remains private.
+After the release commit is reviewed and its checks pass, a maintainer can create and push the matching `v0.1.0-alpha.1` tag. The tag workflow validates that exact revision, then publishes packages using `GITHUB_ACTOR` and the repository's `GITHUB_TOKEN`. It next runs `node scripts/check-consumers.mjs --published` against GitHub Packages to verify all three consumers through the authenticated registry, without local staging. Only the package publication job receives `packages: write`, which also permits this download check. A separate job receives `contents: write` to create the GitHub prerelease after publication and registry verification succeed. No additional release secret is required, and repository/package visibility remains private.
 
 Treat published release versions as immutable. If a release stops after some packages have uploaded, inspect the workflow and registry before retrying; do not overwrite artifacts with different contents under the same version. A corrected release should use a new version and matching tag.

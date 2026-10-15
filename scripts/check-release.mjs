@@ -15,6 +15,9 @@ export const releaseModules = [
   ['native-converter-zio-json', 'native-converter-zio-json-ext', '3.5.2'],
   ['native-converter-zio-schema', 'native-converter-zio-schema-ext', '3.5.2'],
   ['zio-h3-schema', 'zio-h3-schema-ext', '3.5.2'],
+  ['nuxthub', 'nuxthub-ext', '3.5.2'],
+  ['zio-nuxthub', 'zio-nuxthub-ext', '3.5.2'],
+  ['kyo-nuxthub', 'kyo-nuxthub-ext', '3.9.0'],
 ]
 
 export function releaseVersion(root = repository) {
@@ -95,15 +98,15 @@ export function checkRelease(root = repository, environment = process.env) {
           `${artifact}: inconsistent internal dependency version`,
         )
       }
-      if (artifact === 'h3-ext') {
+      if (['h3-ext', 'nuxthub-ext'].includes(artifact)) {
         assert(
           !['dev.zio', 'io.getkyo'].includes(dependency.group),
           'Native h3 must remain effect-neutral',
         )
       }
-      if (artifact === 'kyo-h3-ext')
+      if (artifact.startsWith('kyo-'))
         assert(dependency.group !== 'dev.zio', 'Kyo must not depend on ZIO')
-      if (artifact === 'zio-h3-ext') {
+      if (['zio-h3-ext', 'zio-nuxthub-ext'].includes(artifact)) {
         assert(
           dependency.group !== 'io.getkyo' && !dependency.artifact?.startsWith(
             'zio-schema',

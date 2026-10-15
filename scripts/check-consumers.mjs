@@ -62,9 +62,11 @@ try {
     temporary,
   )
 
-  for (const runtime of ['zio', 'kyo']) {
+  for (const runtime of ['zio', 'kyo', 'zio-schema']) {
     const directory = join(temporary, runtime)
     const scalaVersion = runtime === 'kyo' ? '3.9.0' : '3.5.2'
+    const effect = runtime === 'kyo' ? 'kyo' : 'zio'
+    const schema = runtime === 'zio-schema'
     write(
       join(directory, '.jvmopts'),
       readFileSync(resolve(repository, '.jvmopts'), 'utf8'),
@@ -81,7 +83,11 @@ externalResolvers := Seq(${resolver}, Resolver.mavenCentral)
 ${published
   ? 'credentials ++= (for { actor <- sys.env.get("GITHUB_ACTOR").toSeq; token <- sys.env.get("GITHUB_TOKEN").toSeq } yield Credentials("GitHub Package Registry", "maven.pkg.github.com", actor, token))'
   : ''}
-libraryDependencies += "dev.yuri4n" %%% "${runtime}-h3-ext" % "${version}"
+libraryDependencies ++= Seq(
+  "dev.yuri4n" %%% "${effect}-h3-ext" % "${version}",
+  "dev.yuri4n" %%% "${effect}-nuxthub-ext" % "${version}",
+)
+${schema ? `libraryDependencies ++= Seq("dev.yuri4n" %%% "zio-h3-schema-ext" % "${version}", "dev.yuri4n" %%% "native-converter-zio-json-ext" % "${version}", "dev.zio" %%% "zio-schema-derivation" % "1.7.5")` : ''}
 scalaJSLinkerConfig ~= (_.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule).withOutputPatterns(org.scalajs.linker.interface.OutputPatterns.fromJSFile("%s.cjs")))
 Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / "out"
 TaskKey[Unit]("writeDependencies") := IO.write(baseDirectory.value / "dependencies.txt", (Compile / update).value.allModules.map(m => m.organization + ":" + m.name + ":" + m.revision).sorted.mkString("\\n"))
@@ -89,16 +95,20 @@ TaskKey[Unit]("writeDependencies") := IO.write(baseDirectory.value / "dependenci
     write(join(directory, 'src/main/scala/Consumer.scala'), `
 import scala.scalajs.js.annotation.JSExportTopLevel
 import org.getshaka.nativeconverter.NativeConverter
+import dev.yuri4n.exts.nuxthub.HubKv
 import dev.yuri4n.exts.${runtime === 'kyo'
   ? 'kyoh3.KHandler'
   : 'zioh3.ZHandler'}
 ${runtime === 'kyo' ? 'import kyo.*' : 'import zio.ZIO'}
+${schema ? 'import dev.yuri4n.exts.zioh3schema.*\nimport dev.yuri4n.exts.ntcvziojson.given\nimport zio.schema.{Schema, DeriveSchema}\nimport zio.json.ast.Json' : ''}
 final case class Greeting(message: String) derives NativeConverter
 object Consumer:
+  def kvAdapter(kv: HubKv) = dev.yuri4n.exts.${effect === 'kyo' ? 'kyonuxthub.KHubKv' : 'zionuxthub.ZHubKv'}(kv)
+  ${schema ? 'given Schema[Greeting] = DeriveSchema.gen[Greeting]\n  @JSExportTopLevel("jsonNumber")\n  val jsonNumber = summon[NativeConverter[Json]].toNative(Json.Num(BigDecimal("123456.789")))' : ''}
   @JSExportTopLevel("handler")
   val handler = ${runtime === 'kyo'
     ? 'KHandler.define(Sync.defer(Greeting("published-kyo")))'
-    : 'ZHandler.define(ZIO.succeed(Greeting("published-zio")))'}
+    : schema ? 'ZHandler.define(ZHandler.readBodyWithSchema[Greeting])' : 'ZHandler.define(ZIO.succeed(Greeting("published-zio")))'}
 `)
     run('sbt', ['compile', 'writeDependencies', 'fastLinkJS'], directory)
     const dependencies = readFileSync(
@@ -113,7 +123,7 @@ object Consumer:
       !/^org\.scalablytyped(?:\.|:)/m.test(dependencies),
       'Consumer acquired generated local-only facade artifacts',
     )
-    if (runtime === 'zio') {
+    if (!schema && runtime === 'zio') {
       assert(
         !dependencies.includes(':zio-schema'),
         'NativeConverter consumer acquired optional schema dependencies',
@@ -124,12 +134,16 @@ const assert = require('node:assert/strict');
 const { createServer } = require('node:http');
 const { createApp, toNodeListener } = require('h3');
 const { handler } = require('./out/main.cjs');
+${schema ? "assert.equal(require('./out/main.cjs').jsonNumber, 123456.789);" : ''}
 const app = createApp();
 app.use('/hello', handler);
 const server = createServer(toNodeListener(app));
 server.listen(0, '127.0.0.1', async () => {
   try {
-    const response = await fetch('http://127.0.0.1:' + server.address().port + '/hello', { signal: AbortSignal.timeout(10000) });
+    const response = await fetch('http://127.0.0.1:' + server.address().port + '/hello', {
+      signal: AbortSignal.timeout(10000),
+      ${schema ? `method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"message":"published-zio-schema"}',` : ''}
+    });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { message: 'published-${runtime}' });
     console.log('${runtime} published consumer served a real h3 request');

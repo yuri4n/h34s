@@ -16,7 +16,7 @@
     "scala:types": "sbt h3Ext/compile",
     "scala:fast": "sbt nuxtsvr/fastLinkJS kyoExample/fastLinkJS",
     "scala:full": "node scripts/build-scala.mjs",
-    "dev:scala": "pnpm run scala:fast && nuxt dev",
+    "dev:scala": "pnpm run scala:fast && pnpm run dev",
     "build:scala": "pnpm run build"
   },
   "devDependencies": {

@@ -4,6 +4,7 @@ import org.scalajs.linker.interface.{ESVersion, ModuleKind, OutputPatterns}
 lazy val releaseModules = Seq(
   "h3Ext", "zioH3Ext", "kyoH3Ext", "zioJsExt", "nativeConverterZIOExt",
   "nativeConverterZIOJsonExt", "nativeConverterZIOSchemaExt", "zioH3SchemaExt",
+  "nuxtHubExt", "zioNuxtHubExt", "kyoNuxtHubExt",
 )
 addCommandAlias("releaseCheck", releaseModules.map(_ + "/makePom").mkString(";"))
 addCommandAlias("releasePublishLocal", releaseModules.map(_ + "/publishLocal").mkString(";"))
@@ -190,14 +191,12 @@ lazy val nuxtHubExt: Project = (project in file("scala-modules/exts/nuxthub"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "nuxthub-ext",
-    version := "0.1.0",
   )
 
 lazy val zioNuxtHubExt: Project = (project in file("scala-modules/exts/zio-nuxthub"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "zio-nuxthub-ext",
-    version := "0.1.0",
     libraryDependencies ++= Seq(
       "dev.zio" %%% "zio" % "2.1.23",
       "org.getshaka" %%% "native-converter" % "0.9.0",
@@ -215,7 +214,6 @@ lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxth
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "kyo-nuxthub-ext",
-    version := "0.1.0",
     scalaVersion := "3.9.0",
     libraryDependencies ++= Seq(
       "io.getkyo" %%% "kyo-core" % "1.0.0-RC7",
