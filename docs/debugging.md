@@ -21,40 +21,43 @@ Inspect `debug.cause` in the browser Network panel or the failed fetch response.
 
 ## JavaScript-to-Scala source maps
 
-There are two mapping stages:
+The development profile loads linked Scala.js ES modules directly in Node:
 
-1. Scala.js links Scala into `server/.scala/*.js` with adjacent `.js.map` files.
-2. Nitro bundles that JavaScript into its server module and composes a final map.
+1. `fastLinkJS` writes JavaScript and adjacent `.js.map` files to `server/.scala` or `server/.scala-kyo`.
+2. `build/scala-dev-modules.mjs` resolves those modules as native file imports. Nitro watches both directories and replaces its development worker after linking.
+3. `pnpm dev` enables Node source maps before loading the application. Node uses the adjacent maps to resolve stack frames to original Scala files and lines.
 
-The development-only loader in `build/scala-source-maps.mjs` supplies Scala.js's maps to Nitro before JavaScript transformation. Without this step, Nitro's map stops at the generated JavaScript. The loader normalizes local file URLs and embeds project Scala sources, so the final map can resolve positions to `.scala` files and lines. It does not download dependency sources; remote URLs and unavailable dependency sources may remain unresolved in a debugger.
+This avoids rebundling the large linked modules on each edit. A fresh Nitro worker also gets a fresh Node module cache. Keep the JavaScript and map files together, and finish linking before making a request. The development resolver and directory watching are enabled only under Nuxt’s development flag; production packaging remains a separate, unvalidated slice.
 
-`fastLinkJS` explicitly enables source maps. The Nuxt development hook enables Nitro maps and includes source content only in development. It leaves production source-map settings untouched; production packaging is still a separate, unvalidated slice.
+For bundling workflows, `build/scala-source-maps.mjs` remains available to compose Scala.js maps through Nitro/Rollup. It normalizes local file URLs and embeds project Scala sources. It does not download dependency sources. The default direct-module profile uses Node’s adjacent maps and local Scala source files instead.
 
-The installed Nuxt CLI enables Node source-map support for its development workers. When launching a custom Node entry point directly, use `node --enable-source-maps <entry.mjs>` to map stack traces. Source maps locate code; ZIO's trace additionally identifies effect boundaries that a JavaScript call stack may not retain.
+When launching a custom Node entry point directly, use `node --enable-source-maps <entry.mjs>`. Source maps locate code; ZIO and Kyo traces additionally identify effect boundaries that a JavaScript call stack may not retain.
 
 ## Interactive debugging
 
 Start Nuxt with its inspector option:
 
 ```sh
-NODE_OPTIONS=--max-old-space-size=8192 pnpm dev --inspect
+pnpm dev --inspect
 ```
 
-Attach a Node debugger using the inspector address printed by Nuxt, then look for the original Scala file in Sources. Server handlers execute in Node, so use its inspector session. Node can use the composed maps for source locations and breakpoints; Scala expressions, Scala collection inspection, and a full JVM-style debugger are not provided by source maps.
+Attach a Node debugger using the inspector address printed by Nuxt, then look for the original Scala file in Sources. Server handlers execute in Node, so use its inspector session. Node can use the Scala.js maps for source locations and breakpoints; Scala expressions, Scala collection inspection, and a full JVM-style debugger are not provided by source maps.
 
-After editing Scala, rerun `nuxtsvr/fastLinkJS` or keep its sbt watch task running. Nuxt watches the generated JavaScript and maps. Wait for both builds before inspecting a new failure; stale linked code cannot match edited Scala source reliably.
+After editing Scala, rerun `nuxtsvr/fastLinkJS` or keep its sbt watch task running. Nuxt watches the generated JavaScript and maps. Wait for linking and worker reload before inspecting a new failure; stale linked code cannot match edited Scala source reliably.
 
 ## Checks
 
 ```sh
-node --test scripts/scala-source-maps.test.mjs
+node --test scripts/scala-source-maps.test.mjs scripts/scala-dev-modules.test.mjs
 sbt 'zioH3Ext/test' 'nuxtsvr/fastLinkJS'
 ```
 
-The source-map checks cover local sources, source roots, remote sources, and the development-only Nuxt hook. Handler tests cover development causes, opaque production responses, safe errors, and cleanup defects. A composed Scala.js → esbuild → Rollup map has been checked with Node stack remapping. A real Nuxt database failure also returned a stack frame mapped to `notes/Notes.scala:23`; the final Nitro map includes project Scala source content. Interactive breakpoint stepping is not yet verified.
+All 13 development-tool checks pass. They cover resolver boundaries, actual Rollup-to-Node execution, original Scala source locations, map composition, and development-only configuration. A real Kyo exception in Nuxt mapped to `Greetings.scala:18` during a temporary probe, and a service configuration edit followed by relinking changed the live response without restarting Nuxt. The probe was removed afterward. Interactive breakpoint stepping is not yet verified.
+
+Handler tests cover development causes, opaque production responses, safe errors, and cleanup defects. The earlier bundled workflow also passed a composed Scala.js → esbuild → Rollup map check and a Nuxt database-failure stack-frame check. Those results do not establish production packaging support.
 
 ## Kyo requests
 
 The Kyo integration uses the same Nuxt development flag and `debug.cause` field. Its diagnostics contain the original exception, nested causes, and Kyo traces rather than a ZIO Cause. Only typed `Abort.fail` values extending Kyo's `SafeError` are approved public messages; thrown defects remain opaque outside development.
 
-The Kyo example links into `server/.scala-kyo`. The Nuxt source-map plugin accepts that directory alongside `server/.scala`, and embeds local project Scala source from either integration. Run `kyoExample/fastLinkJS` after editing Kyo code. See [Kyo handlers](kyo.md) for the compiler profile and runnable routes.
+The Kyo example links into `server/.scala-kyo`. The development resolver and worker watcher accept that directory alongside `server/.scala`; Node uses each integration’s adjacent Scala.js maps. Run `kyoExample/fastLinkJS` after editing Kyo code. See [Kyo handlers](kyo.md) for the compiler profile and runnable routes.

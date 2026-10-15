@@ -9,7 +9,7 @@ Use the development toolchain from [development](development.md). Kyo 1.0.0-RC7 
 ```sh
 pnpm install --frozen-lockfile
 sbt 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
-NODE_OPTIONS=--max-old-space-size=8192 pnpm dev
+pnpm dev
 ```
 
 Then request the Kyo routes; no database is required:
@@ -21,7 +21,7 @@ curl --fail -H 'Content-Type: application/json' \
 node scripts/kyo-smoke.mjs
 ```
 
-The responses are `{"message":"Hello, Kyo!"}` and `{"message":"Hello, Scala!"}`. Run `kyoExample/fastLinkJS` again after changing Kyo application source; Nitro watches `server/.scala-kyo`. The development source-map integration accepts both linked output directories.
+The responses are `{"message":"Hello, Kyo!"}` and `{"message":"Hello, Scala!"}`. Run `kyoExample/fastLinkJS` again after changing Kyo application source; Nitro watches `server/.scala-kyo`. Nitro loads the linked ES modules directly in Node and replaces its worker after relinking. `pnpm dev` enables Node source maps automatically; no heap override is needed. The application pins runtime `h3` 1.15.4 for those native imports.
 
 In the prepared cloud environment, run `source /workspace/tooling/activate-kyo.sh` before sbt to select the separately installed Java 25. The existing Java 21 activation remains available for ZIO-only work.
 
@@ -90,7 +90,7 @@ A typed `Abort.fail` with `SafeError` from `dev.yuri4n.exts.kyoh3` exposes an ap
 
 Unexpected exceptions, panics, and response conversion failures return status 500 with `{"errors":["Internal server error"]}`. Server diagnostics keep the original exception. Nuxt's existing development plugin enables `debug.cause` only when the server context contains boolean `true`; request headers and query values do not enable it.
 
-Kyo and ZIO keep their own trace formats. [Development source maps](debugging.md) compose generated JavaScript back to project Scala sources for both output directories.
+Kyo and ZIO keep their own trace formats. [Development source maps](debugging.md) map generated JavaScript back to project Scala sources for both output directories.
 
 ## Resource lifetime
 
@@ -104,12 +104,12 @@ Kyo 1.0.0-RC7 logs and suppresses errors from `Scope.ensure` finalizers. Such er
 
 ```sh
 sbt 'kyoH3Ext/test' 'zioH3Ext/test' 'kyoExample/fastLinkJS' 'nuxtsvr/fastLinkJS'
-node --test scripts/scala-source-maps.test.mjs
+node --test scripts/scala-source-maps.test.mjs scripts/scala-dev-modules.test.mjs
 node scripts/kyo-smoke.mjs
 ```
 
 The smoke script needs the running Nuxt application. The Scala suite checks the Kyo boundary independently of ZIO, including native conversion, errors, application services, and resource lifetimes. The ZIO suite checks the shared linker update against the existing integration.
 
-In the prepared Linux x86_64 checkout, all 17 Kyo tests and 31 ZIO regression tests pass. Both applications compile and development-link under Java 25. Live Nuxt requests pass GET/POST Kyo smoke checks, and the existing ZIO `/api/test` route still returns `abc`. The example’s locale configuration reduces its linked development JavaScript from 44 MiB to 5.3 MiB. Six source-map checks pass, and composed Kyo maps contain the original Scala application and boundary sources.
+In the prepared Linux x86_64 checkout, all 17 Kyo tests and 31 ZIO regression tests pass. Both applications compile and development-link under Java 25. Live Nuxt requests pass GET/POST Kyo smoke checks, and the existing ZIO `/api/test` route still returns `abc`. The example’s locale configuration reduces its linked development JavaScript from 44 MiB to 5.3 MiB. All 13 development-tool checks pass. A real development exception mapped to `Greetings.scala`, and changing an application service configuration then relinking updated its HTTP response without restarting Nuxt. These direct-module development checks used the default Node heap. The separate composing loader also retains original Scala source content when bundling.
 
 This profile is development evidence, not a published support guarantee. Nix locks, NixOS validation, production packaging, fresh-consumer CI, Kyo streams, Kyo Schema, and a Kyo database example require separate work.

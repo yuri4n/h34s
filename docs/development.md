@@ -22,7 +22,7 @@ Clone the private repository using your existing GitHub access, then run:
 ```sh
 pnpm install --frozen-lockfile
 sbt 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
-NODE_OPTIONS=--max-old-space-size=8192 pnpm dev
+pnpm dev
 ```
 
 In the prepared cloud environment the linking command is:
@@ -31,11 +31,11 @@ In the prepared cloud environment the linking command is:
 /workspace/tooling/h34s-sbt 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
 ```
 
-The development-linked Scala.js example currently needs an 8 GB Node heap for Nitro bundling (the default 4 GB heap ran out of memory). Allow enough machine memory for Node and the 4 GB sbt heap, or finish linking before starting Nuxt.
+Development loads the linked Scala.js ES modules directly in Node. Nitro watches both output directories and replaces its worker after relinking, keeping Node’s module cache fresh. This avoids the large Rollup graphs that exhausted an 8 GB heap during bundled watch rebuilds. The current `pnpm dev` script enables Node source maps automatically and needs no heap override. The application pins `h3` as a direct runtime dependency for the linked modules.
 
 Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `sbt '~;nuxtsvr/fastLinkJS;kyoExample/fastLinkJS'` in another terminal.
 
-Nuxt development mode also enables detailed Scala error responses and composes source maps back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
+Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
 
 The cloud instance uses an ignored `.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings address this environment's SQLite addon startup and network limitations. They do not affect the Scala database layer.
 
@@ -75,14 +75,14 @@ The application includes `server/plugins/skunk-node-crypto.ts`: the pinned Skunk
 
 ```sh
 sbt 'zioH3Ext/test' 'kyoH3Ext/test' 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
-node --test scripts/scala-source-maps.test.mjs
+node --test scripts/scala-source-maps.test.mjs scripts/scala-dev-modules.test.mjs
 node scripts/smoke.mjs
 node scripts/kyo-smoke.mjs
 ```
 
 The smoke check needs the running example and database. Wait for Nitro's build to complete first. It verifies streaming, a real insert/read, and safe responses for blank, null, missing, and incorrectly typed input. It creates one note in the selected development database. `H34S_BASE_URL` can select a different local port.
 
-Verified in the prepared cloud checkout: all 31 Scala handler/stream tests, six source-map checks, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200. A query-failure probe in Nuxt development mode returned status 500 with the original cause and a stack frame mapped to `Notes.scala`. Production response suppression and Nitro's production mode replacement were checked separately. PostgreSQL showed no remaining application connections after successful requests, input failures, or query failure. The ZIO socket-close unit tests use real h3 with mocked Node responses; an actual ZIO client-abort integration check remains to be added. Kyo has a separate real client-abort test; its evidence is recorded in the [Kyo guide](kyo.md).
+Verified in the prepared cloud checkout: 17 Kyo tests, all 31 ZIO handler/stream tests, 13 development-tool checks, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200 in the earlier bundled profile. The current direct-module profile also passes both smoke scripts, including PostgreSQL insert/read, streaming, and rejected input; a Scala service edit/relink updates its live Kyo response without restarting Nuxt. A query-failure probe in Nuxt development mode returned status 500 with the original cause and a stack frame mapped to `Notes.scala`. Production response suppression and Nitro's production mode replacement were checked separately. PostgreSQL showed no remaining application connections after successful requests, input failures, or query failure. The ZIO socket-close unit tests use real h3 with mocked Node responses; an actual ZIO client-abort integration check remains to be added. Kyo has a separate real client-abort test; its evidence is recorded in the [Kyo guide](kyo.md).
 
 Tests cover native conversion, error boundaries, application provisioning, request cleanup, stream backpressure and cleanup, and h3 response-close behavior. Use direct HTTP for stream responses; in-process Nitro local-fetch streaming is not supported by this scoped adapter yet.
 

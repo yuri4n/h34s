@@ -16,7 +16,12 @@ import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { scalaSourceMaps } from '../build/scala-source-maps.mjs'
 
-async function fixture(t, sources, sourceRoot, outputDirectory = 'server/.scala') {
+async function fixture(
+  t,
+  sources,
+  sourceRoot,
+  outputDirectory = 'server/.scala',
+) {
   const root = await mkdtemp(join(tmpdir(), 'h34s-source-maps-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const linked = join(root, outputDirectory, 'main.js')
@@ -101,14 +106,21 @@ test('enables mapping only in Nuxt development mode', async (t) => {
   nuxt.hooks['nitro:config'](development)
   assert.equal(development.sourceMap, true)
   const rollup = development.rollupConfig
-  assert.equal(rollup.plugins[0].name, 'h34s-scala-source-maps')
+  assert.ok(
+    rollup.plugins.find(plugin => plugin.name === 'h34s-scala-source-maps'),
+  )
   assert.equal(rollup.output.sourcemapExcludeSources, false)
 
   const kyo = await fixture(t, undefined, undefined, 'server/.scala-kyo')
   const kyoDevelopment = { dev: true, rootDir: kyo.root }
   nuxt.hooks['nitro:config'](kyoDevelopment)
-  const result = await kyoDevelopment.rollupConfig.plugins[0].load.call(
-    { addWatchFile() {} }, kyo.linked,
+  const sourceMaps = kyoDevelopment.rollupConfig.plugins.find(
+    plugin => plugin.name === 'h34s-scala-source-maps',
+  )
+  assert.ok(sourceMaps)
+  const result = await sourceMaps.load.call(
+    { addWatchFile() {} },
+    kyo.linked,
   )
   assert.deepEqual(result.map.sources, [kyo.scala])
   assert.ok(result.map.sourcesContent[0].includes('debug probe'))
