@@ -65,21 +65,25 @@ curl --fail http://127.0.0.1:3000/api/notes
 
 POST returns status 201 with `{ "id": 1, "text": "My first note" }` for a new empty database. GET lists notes by ID. Blank text returns a safe 422 response. The ID may differ when the database already contains rows.
 
-`notes/Notes.scala` defines the application model, request DTO, service, and Skunk implementation. DTOs derive `NativeConverter`, so their native JavaScript representation matches their fields. Skunk's typed SQL interpolator encodes input values as bound parameters; it never concatenates them into SQL. `Services.scala` composes the database layer, and `AppHandler.scala` supplies it to endpoint programs. Schema initialization is a setup action, never a per-request side effect.
+`notes/Notes.scala` defines the application model, request DTO, service, and Skunk implementation. The `Note` response derives `NativeConverter`. The `CreateNote` input opts into ZIO Schema: its schema trims and validates text, and the handler calls `readBodyWithSchema` without repeating those rules. Invalid input returns HTTP 422 with `Request body does not match schema`. The plain NativeConverter-only reader remains available without schema dependencies; see [schema.md](schema.md).
+
+Skunk's typed SQL interpolator encodes input values as bound parameters; it never concatenates them into SQL. `Services.scala` composes the database layer, and `AppHandler.scala` supplies it to endpoint programs. Database schema initialization is a setup action, never a per-request side effect.
 
 The application includes `server/plugins/skunk-node-crypto.ts`: the pinned Skunk version calls Node's `require('crypto')` for SCRAM authentication, so the plugin installs Node's loader before Nitro accepts requests. Keep this plugin when copying the database example into an ES-module application. PostgreSQL's default SCRAM authentication stays enabled. Restart Nuxt if authentication ran before the plugin was installed; the failed library initializer cannot recover in the same process.
 
 ## Checks
 
 ```sh
-sbt 'zioH3Ext/test' 'nuxtsvr/fastLinkJS'
+sbt 'nativeConverterZIOSchemaExt/test' 'zioH3SchemaExt/test' 'zioH3Ext/test' 'nuxtsvr/test' 'nuxtsvr/fastLinkJS'
 node --test scripts/scala-source-maps.test.mjs
 node scripts/smoke.mjs
 ```
 
-The smoke check needs the running example and database. Wait for Nitro's build to complete first. It verifies streaming, a real insert/read, and safe responses for blank, null, missing, and incorrectly typed input. It creates one note in the selected development database. `H34S_BASE_URL` can select a different local port.
+The smoke check needs the running example and database. Wait for Nitro's build to complete first. It verifies streaming, a real insert/read with schema-normalized text, and safe responses for blank, null, missing, and incorrectly typed input. It creates one note in the selected development database. `H34S_BASE_URL` can select a different local port.
 
-Verified in the prepared cloud checkout: all 31 Scala handler/stream tests, six source-map checks, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200. A query-failure probe in Nuxt development mode returned status 500 with the original cause and a stack frame mapped to `Notes.scala`. Production response suppression and Nitro's production mode replacement were checked separately. PostgreSQL showed no remaining application connections after successful requests, input failures, or query failure. Socket-close unit tests use real h3 with mocked Node responses; an actual client-abort integration check remains to be added.
+The development baseline was verified in the prepared cloud checkout: all 31 Scala handler/stream tests, six source-map checks, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200. A query-failure probe in Nuxt development mode returned status 500 with the original cause and a stack frame mapped to `Notes.scala`. Production response suppression and Nitro's production mode replacement were checked separately. PostgreSQL showed no remaining application connections after successful requests, input failures, or query failure. Socket-close unit tests use real h3 with mocked Node responses; an actual client-abort integration check remains to be added.
+
+The optional schema slice passed 15 native codec tests, 7 real h3 request/error tests, 2 tests of the actual `CreateNote` schema, the existing 31 handler/stream tests, and application development linking. Its updated HTTP smoke script has not yet been rerun against Nuxt/PostgreSQL; these automated tests do not establish that end-to-end result.
 
 Tests cover native conversion, error boundaries, application provisioning, request cleanup, stream backpressure and cleanup, and h3 response-close behavior. Use direct HTTP for stream responses; in-process Nitro local-fetch streaming is not supported by this scoped adapter yet.
 

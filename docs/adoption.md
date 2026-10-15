@@ -8,9 +8,11 @@ Use the repository example and the commands in [development.md](development.md).
 
 ## Existing Nuxt application
 
-Keep your TypeScript handlers. Add a Scala.js/sbt build alongside them and an application module whose `fastLinkJS` output points to `server/.scala`. Use the Scala 3.5.2, Scala.js 1.20.1, h3 1.15.4, and ZIO versions from this repository until a compatibility matrix exists.
+Keep your TypeScript handlers. Add a Scala.js/sbt build alongside them and an application module whose `fastLinkJS` output points to `server/.scala`. Match this repository's tested development profile: Scala 3.5.2, Scala.js 1.20.1, h3 1.15.4, and its resolved ZIO versions. The [schema compatibility table](schema.md#dependencies-and-compatibility) records the optional integrations and their evidence; other version/platform combinations need their own verification.
 
 The current source integration needs the native h3, ZIO handler, ZIO JavaScript helper, and native-converter modules from this repository. They are not published dependencies yet; a source checkout/submodule and explicit sbt project references are the interim option. Keep the application module independent of the recovered `nuxtsvr` example, its services, and the experimental migration module.
+
+Schema support is optional in every path. The NativeConverter-only reader is complete without schema dependencies. Applications that want model-defined validation can additionally reference `nativeConverterZIOSchemaExt` and `zioH3SchemaExt`; see [schema.md](schema.md) for the explicit API and supported forms.
 
 Export a Scala handler with `@JSExportTopLevel("default", "notes-get")`. For the current integration, mount it once in `server/api/notes.get.ts`:
 

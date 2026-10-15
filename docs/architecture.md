@@ -6,6 +6,7 @@ h34s keeps the native h3 bindings and the effect integrations in one repository.
 | --- | --- |
 | Native h3 bindings | Scala.js and h3 facades; no mandatory ZIO or Kyo runtime |
 | ZIO API | Ordinary ZIO handlers, services, scopes, streams, and the ZIO runtime |
+| Optional ZIO Schema bridges | Schema-driven native conversion and request validation; no schema requirement in the NativeConverter-only core |
 | Kyo API | First-class idiomatic Kyo handlers and the Kyo runtime; planned, not implemented |
 | Application | Models, database configuration, service layers, connection ownership, and `AppHandler` |
 | Nuxt integration | Connect linked Scala.js handlers to Nitro routes |
@@ -25,6 +26,8 @@ This first example opens one connection per request and closes it when that requ
 Skunk runs directly in Scala.js/Nitro. Doobie depends on JDBC and would require a JVM backend; that is not the selected application architecture.
 
 ## Errors and streaming
+
+Schema validation is optional. NativeConverter-only handlers retain their existing entry point and converter ownership. The Notes example defines normalization and validation once in its model schema and opts into `readBodyWithSchema`. The optional native bridge creates a converter only when explicitly requested; it installs no competing default given. See [schema integration](schema.md) for supported forms and the extension points for JSON, YAML, and Kyo schemas.
 
 `SafeError` messages and explicit `ZHandler.failWith` messages are approved response data. Unexpected exceptions and defects produce status 500 with `Internal server error`. In Nuxt development mode, the response also contains `debug.cause` with the original ZIO cause, nested errors, and trace. Production responses omit that field; full diagnostics remain in server logs.
 

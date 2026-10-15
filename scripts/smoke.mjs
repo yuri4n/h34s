@@ -19,7 +19,7 @@ const created = await request('/api/notes', {
   headers: {
     'content-type': 'application/json',
   },
-  body: JSON.stringify({ text }),
+  body: JSON.stringify({ text: `  ${text}  ` }),
 })
 assert.equal(created.status, 201)
 const note = await created.json()
@@ -42,7 +42,7 @@ const invalid = await request('/api/notes', {
 assert.equal(invalid.status, 422)
 assert.deepEqual(
   await invalid.json(),
-  { errors: ['Text must contain between 1 and 2000 characters'] },
+  { errors: ['Request body does not match schema'] },
 )
 for (const body of [
   { text: null },
@@ -63,7 +63,7 @@ for (const body of [
   assert.equal(malformed.status, 422)
   assert.deepEqual(
     await malformed.json(),
-    { errors: ['Expected a JSON object with a text field'] },
+    { errors: ['Request body does not match schema'] },
   )
 }
 console.log(

@@ -5,9 +5,18 @@ import skunk.Session
 import skunk.codec.all.*
 import skunk.implicits.*
 import zio.{Task, ZLayer}
+import zio.schema.{DeriveSchema, Schema, StandardType}
+import zio.schema.validation.Validation
 
 final case class Note(id: Int, text: String) derives NativeConverter
-final case class CreateNote(text: String) derives NativeConverter
+final case class CreateNote(text: String)
+
+object CreateNote:
+    given Schema[CreateNote] =
+      given Schema[String] = Schema.Primitive(StandardType.StringType)
+        .transform(_.trim, identity)
+        .validation(Validation.minLength(1) && Validation.maxLength(2000))
+      DeriveSchema.gen[CreateNote]
 
 trait Notes:
     def create(text: String): Task[Note]

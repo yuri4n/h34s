@@ -51,4 +51,4 @@ node --test scripts/scala-source-maps.test.mjs
 sbt 'zioH3Ext/test' 'nuxtsvr/fastLinkJS'
 ```
 
-The source-map checks cover local sources, source roots, remote sources, and the development-only Nuxt hook. Handler tests cover development causes, opaque production responses, safe errors, and cleanup defects. A composed Scala.js → esbuild → Rollup map has been checked with Node stack remapping. A real Nuxt database failure also returned a stack frame mapped to `notes/Notes.scala:23`; the final Nitro map includes project Scala source content. Interactive breakpoint stepping is not yet verified.
+The source-map checks cover local sources, source roots, remote sources, and the development-only Nuxt hook. Handler tests cover development causes, opaque production responses, safe errors, and cleanup defects. A composed Scala.js → esbuild → Rollup map has been checked with Node stack remapping. A real Nuxt database failure also returned a stack frame mapped to `notes/Notes.scala`; the final Nitro map includes project Scala source content. Interactive breakpoint stepping is not yet verified.

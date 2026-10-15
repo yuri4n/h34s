@@ -37,6 +37,10 @@ These notes record the user's intended direction. They are not a description of 
 
 ## Conversions and efficiency
 
+- Schema support is optional. NativeConverter-only users must retain a complete supported path without schema dependencies, new implicit requirements, or ambiguous converter defaults.
+- Applications that choose a schema should define structural and domain validation once in their model schema. Handlers request validated models; they should not repeat null, trimming, or length checks that belong to that schema.
+- Keep ZIO Schema and eventual Kyo Schema integrations as optional, independent bridges. Native values, NativeConverter, JSON, and YAML adapters should reuse that model definition where supported; do not claim all formats or schema systems are implemented before their adapters are validated.
+- Optional bridges must be explicit about converter ownership and supported schema shapes. Do not install a blanket schema-derived NativeConverter that competes with an application's existing converter.
 - Prefer `NativeConverter` and direct Scala.js/native-value conversion. Avoid JSON string round trips merely to move data between Scala and JavaScript; HTTP wire serialization is a separate concern.
 - Keep conversions and runtime machinery out of endpoint business logic.
 - Conversion integrations must compose predictably. Avoid duplicate defaults and ambiguous instances when users install multiple optional modules.
@@ -50,6 +54,8 @@ These notes record the user's intended direction. They are not a description of 
 - Kyo is a first-class independent integration, not a mandatory runtime beneath ZIO. Kyo-only consumers should not need ZIO, and ZIO-only consumers should not need Kyo.
 - Application services, database configuration, and example DTOs belong in examples, not mandatory core dependencies.
 - Final module boundaries, naming, release/version policy, and converter compatibility rules remain design decisions to agree on.
+- Maintain an explicit compatibility matrix for the native, ZIO, and optional schema integrations. Distinguish locally verified development combinations, CI/release validation, and untested combinations; list the evidence and platform constraints rather than implying broad support from one pinned build.
+- Tie compatibility entries to tested build profiles: record the Nix lock/toolchain reference when available, OS/architecture, the shared sbt/pnpm pipeline, and CI evidence. Track Nix/NixOS support as pending until that profile is implemented and tested; a local non-Nix run does not establish Nix compatibility.
 
 ## Previously requested capabilities
 

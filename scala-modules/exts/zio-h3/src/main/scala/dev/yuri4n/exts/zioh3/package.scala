@@ -85,6 +85,12 @@ final case class SH3Event(private val event: H3Event1):
         .fromFuture(implicit ec => h3ReadBody[T, H3Event1, js.Any](event).toFuture)
         .flatMap(_.fromNative_[T])
 
+    /** Explicit parsing policy; the no-argument reader retains h3's defaults. */
+    def readBody[T: NativeConverter](strict: Boolean): Task[T] =
+      ZIO
+        .fromFuture(implicit ec => h3ReadBody[T, H3Event1, js.Any](event, typings.h3.anon.Strict().setStrict(strict)).toFuture)
+        .flatMap(_.fromNative_[T])
+
     def getQuery: Task[Map[String, String]] =
       ZIO
         .attempt(h3GetQuery[Nothing, H3Event1, StringDictionary[String]](event))
@@ -177,6 +183,9 @@ object ZHandler:
 
     def readBody[A: NativeConverter]: TaskHandler[A] =
       ZIO.serviceWithZIO[SH3Event](_.readBody[A])
+
+    def readBody[A: NativeConverter](strict: Boolean): TaskHandler[A] =
+      ZIO.serviceWithZIO[SH3Event](_.readBody[A](strict))
 
     def setResponseStatus(status: Int): TaskHandler[Unit] =
       ZIO.serviceWithZIO[SH3Event]:
