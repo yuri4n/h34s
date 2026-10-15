@@ -3,8 +3,8 @@
 AI-assisted draft. Human review pending.
 
 This is a separate Nuxt application built on the shared
-[`@yuri4n/nuxt-docs` layer](https://github.com/yuri4n/yuri4n.dev/tree/v0.1.0/layers/docs).
-The original `yuri4nized-nuxt` reference now points to that repository.
+[`@yuri4n/nuxt-docs` layer](https://github.com/yuri4n/yuri4nized-nuxt/tree/v0.1.0/layers/docs).
+The repository is `yuri4nized-nuxt`; its packages use the `yuri4n.dev` name.
 The Git submodule pins v0.1.0; Docus is pinned to 5.13.0 by the layer.
 
 ## Develop
