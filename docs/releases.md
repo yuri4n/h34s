@@ -29,7 +29,9 @@ ThisBuild / credentials ++= (for {
 )).toSeq
 ```
 
-A consumer GitHub Actions workflow can use its repository's `GITHUB_TOKEN` when that repository has access to these packages. Set `permissions: { contents: read, packages: read }`, provide `GITHUB_PACKAGES_USER: ${{ github.actor }}` and `GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}` to the sbt step, and grant the consumer repository access in the package's Actions access settings if it does not inherit access. No developer PAT is needed for that workflow.
+GitHub's Maven registry uses [repository-scoped permissions](https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages#permissions-for-repository-scoped-packages). The h34s repository's own workflows can publish and verify these packages with their `GITHUB_TOKEN`.
+
+A different repository, including `yurian.land`, needs a classic PAT with `read:packages` from an account that can read private `yuri4n/h34s`. Store it as that consumer repository's `GITHUB_PACKAGES_TOKEN` Actions secret and provide the token owner's username as `GITHUB_PACKAGES_USER`. Pass those values to the sbt step. The consumer's own `GITHUB_TOKEN` and the granular package “Manage Actions access” settings do not establish cross-repository Maven access.
 
 HTTP 401 usually means missing or invalid credentials. HTTP 403, or a package appearing absent despite a successful release, can mean that the account or workflow repository lacks access. Check the registry URL, package version, token scope, and package access before changing dependency versions.
 
