@@ -18,10 +18,22 @@ async function report(level, message) {
   })
 }
 
+function buildEnvironment() {
+  const env = { ...process.env }
+  const options = env.NODE_OPTIONS || ''
+  const explicitHeap = /(?:^|[\s"])--max[-_]old[-_]space[-_]size(?:[=\s"]|$)/
+  // Prerendering exceeds the hosted runner's default 2 GiB heap.
+  if (!explicitHeap.test(options)) {
+    env.NODE_OPTIONS = `${options} --max-old-space-size=4096`.trim()
+  }
+  return env
+}
+
 function runStage(stage) {
   return new Promise((resolve) => {
     const child = spawn('pnpm', ['run', stage], {
       stdio: ['inherit', 'pipe', 'pipe'],
+      env: stage === 'build' ? buildEnvironment() : process.env,
     })
     let tail = ''
     for (const [source, destination] of [

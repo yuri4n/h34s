@@ -55,6 +55,9 @@ The default production output is a Node server in `.output/`. Start it
 with Node 24. The docs CI uses the shared v0.1.0 workflow and builds the
 Vercel server preset; it checks the generated agent files and verifies
 that the assistant remains disabled. The workflow never deploys.
+The CI runner defaults the build's Node heap limit to 4 GiB for
+prerendering. It preserves other `NODE_OPTIONS` flags and explicit heap
+limits.
 
 ## Publish after review
 
