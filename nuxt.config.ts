@@ -1,3 +1,5 @@
+import { scalaSourceMaps } from './build/scala-source-maps.mjs'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: [
@@ -29,6 +31,21 @@ export default defineNuxtConfig({
   },
 
   compatibilityDate: '2025-05-15',
+
+  hooks: {
+    'nitro:config': (config) => {
+      if (!config.dev)
+        return
+      config.sourceMap = true
+      config.rollupConfig ??= {}
+      config.rollupConfig.plugins ??= []
+      config.rollupConfig.plugins.push(scalaSourceMaps(config.rootDir!))
+      config.rollupConfig.output = {
+        ...config.rollupConfig.output,
+        sourcemapExcludeSources: false,
+      }
+    },
+  },
 
   eslint: {
     config: {

@@ -35,6 +35,8 @@ The unoptimized Scala.js example currently needs an 8 GB Node heap for Nitro bun
 
 Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `sbt '~nuxtsvr/fastLinkJS'` in another terminal.
 
+Nuxt development mode also enables detailed Scala error responses and composes source maps back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
+
 The cloud instance uses an ignored `.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings address this environment's SQLite addon startup and network limitations. They do not affect the Scala database layer.
 
 ## 2. Run the model and database example
@@ -71,12 +73,13 @@ The application includes `server/plugins/skunk-node-crypto.ts`: the pinned Skunk
 
 ```sh
 sbt 'zioH3Ext/test' 'nuxtsvr/fastLinkJS'
+node --test scripts/scala-source-maps.test.mjs
 node scripts/smoke.mjs
 ```
 
 The smoke check needs the running example and database. Wait for Nitro's build to complete first. It verifies streaming, a real insert/read, and safe responses for blank, null, missing, and incorrectly typed input. It creates one note in the selected development database. `H34S_BASE_URL` can select a different local port.
 
-Verified in the prepared cloud checkout: all 26 Scala handler/stream tests, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200. A separate query-failure probe returned an opaque 500 response. PostgreSQL showed no remaining application connections after successful requests, input failures, or that query failure. Socket-close unit tests use real h3 with mocked Node responses; an actual client-abort integration check remains to be added.
+Verified in the prepared cloud checkout: all 31 Scala handler/stream tests, six source-map checks, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200. A query-failure probe in Nuxt development mode returned status 500 with the original cause and a stack frame mapped to `Notes.scala`. Production response suppression and Nitro's production mode replacement were checked separately. PostgreSQL showed no remaining application connections after successful requests, input failures, or query failure. Socket-close unit tests use real h3 with mocked Node responses; an actual client-abort integration check remains to be added.
 
 Tests cover native conversion, error boundaries, application provisioning, request cleanup, stream backpressure and cleanup, and h3 response-close behavior. Use direct HTTP for stream responses; in-process Nitro local-fetch streaming is not supported by this scoped adapter yet.
 

@@ -171,6 +171,7 @@ lazy val nuxtsvr: Project = (project in file("scala-modules/svr"))
     scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)
       .withOutputPatterns(OutputPatterns.fromJSFile("%s.js"))
       .withESFeatures(_.withESVersion(ESVersion.ES2021))),
+    Compile / fastLinkJS / scalaJSLinkerConfig ~= (_.withSourceMap(true)),
     Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala",
   )
   .dependsOn(exts)

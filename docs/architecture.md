@@ -26,7 +26,9 @@ Skunk runs directly in Scala.js/Nitro. Doobie depends on JDBC and would require 
 
 ## Errors and streaming
 
-`SafeError` messages and explicit `ZHandler.failWith` messages are approved response data. Unexpected exceptions and defects produce status 500 with `Internal server error`; their details remain in server diagnostics.
+`SafeError` messages and explicit `ZHandler.failWith` messages are approved response data. Unexpected exceptions and defects produce status 500 with `Internal server error`. In Nuxt development mode, the response also contains `debug.cause` with the original ZIO cause, nested errors, and trace. Production responses omit that field; full diagnostics remain in server logs.
+
+The Nitro request plugin supplies `event.context.h34s.development` from the build-time `import.meta.dev` flag. The library requires boolean `true` and defaults to opaque responses when the integration is absent. Headers and query parameters cannot enable it. See [debugging](debugging.md) for source maps and the Node debugger.
 
 The Web Stream adapter pulls one upstream chunk at a time and awaits scoped cleanup during cancellation. The adapter queue is bounded by upstream chunk size, not a promise that every chunk contains one element. This is not an end-to-end HTTP memory bound: h3's Web Stream sink does not await Node response `drain`, so a slow client can still grow outgoing Node buffers.
 

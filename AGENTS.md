@@ -58,6 +58,7 @@ These notes record the user's intended direction. They are not a description of 
 - Scala-to-TypeScript generation using **scala-ts**. Distinguish this from ScalablyTyped, which generates Scala facades from TypeScript.
 - Improved code generation and Nuxt imports, potentially through an sbt plugin and Nuxt integration, without making endpoint authors manage the plumbing.
 - Distinct public-safe errors and an unsafe `Throwable` channel. Only explicitly approved safe error data may be displayed; internal exceptions, causes, and defects must not leak to clients.
+- The user explicitly wants development diagnostics tied to Nuxt development mode. In that mode, responses may include original errors, causes, and traces for debugging. Production remains opaque. Compose Scala.js and Nitro source maps so Node debugging can locate the original Scala source.
 
 ## First-class sbt, Nix, and packaging support
 
