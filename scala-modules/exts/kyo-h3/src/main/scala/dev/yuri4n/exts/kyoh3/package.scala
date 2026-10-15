@@ -33,9 +33,10 @@ final case class KH3Event(private val event: H3Event1):
       Abort.catching[Throwable] {
         Sync.defer {
           Async.fromFuture(h3ReadBody[A, H3Event1, js.Any](event).toFuture)
-            .map(_.fromNative[A])
         }
-      }
+      // Decoding exceptions are defects, including a converter that throws SafeError.
+      // Only an explicit typed failure may approve a message for the HTTP response.
+      }.map(_.fromNative[A])
 
     def setResponseStatus(status: Int)(using Frame): Unit < Sync =
       Sync.defer(h3SetResponseStatus(event, status))

@@ -3,7 +3,7 @@ package dev.yuri4n.exts.kyoh3
 import dev.yuri4n.exts.h3.CommonEvHandler
 import kyo.*
 import munit.FunSuite
-import org.getshaka.nativeconverter.NativeConverter
+import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.*
@@ -54,31 +54,71 @@ class HttpHandlerSuite extends FunSuite:
       TestDeadline(server.port.flatMap(port => Future.fromTry(Try(f(server, port))).flatten))
         .transformWith(result => server.close().flatMap(_ => Future.fromTry(result)))
 
+    private def post(port: Int, body: String): Future[(Int, String)] =
+      val result = Promise[(Int, String)]()
+      val onResponse: js.Function1[js.Dynamic, Unit] = response =>
+        var content = ""
+        response.setEncoding("utf8")
+        response.on("data", ((chunk: String) => content += chunk): js.Function1[String, Unit])
+        response.on("end", (() => {
+          result.success((response.statusCode.asInstanceOf[Int], content))
+          ()
+        }): js.Function0[Unit])
+        ()
+      val request = NodeHttp.request(js.Dynamic.literal(
+        hostname = "127.0.0.1", port = port, method = "POST", path = "/greeting",
+        headers = js.Dynamic.literal("content-type" -> "application/json"),
+      ), onResponse)
+      request.on("error", ((error: js.Any) => { result.tryFailure(js.JavaScriptException(error)); () }): js.Function1[js.Any, Unit])
+      request.end(body)
+      result.future
+
     test("h3 reads a JSON body and serializes the native Kyo result over HTTP") {
       val handler = KHandler.define(KHandler.readBody[Input].map(input => Greeting(s"Hello ${input.name}")))
       withServer(handler) { (server, port) =>
-        val result = Promise[(Int, String)]()
-        val onResponse: js.Function1[js.Dynamic, Unit] = response =>
-          var body = ""
-          response.setEncoding("utf8")
-          response.on("data", ((chunk: String) => body += chunk): js.Function1[String, Unit])
-          response.on("end", (() => {
-            result.success((response.statusCode.asInstanceOf[Int], body))
-            ()
-          }): js.Function0[Unit])
-          ()
-        val request = NodeHttp.request(js.Dynamic.literal(
-          hostname = "127.0.0.1", port = port, method = "POST", path = "/greeting",
-          headers = js.Dynamic.literal("content-type" -> "application/json"),
-        ), onResponse)
-        request.on("error", ((error: js.Any) => { result.tryFailure(js.JavaScriptException(error)); () }): js.Function1[js.Any, Unit])
-        request.end("{\"name\":\"Scala\"}")
-        result.future.map { case (status, body) =>
+        post(port, "{\"name\":\"Scala\"}").map { case (status, body) =>
           assertEquals(status, 200)
           assertEquals(body, "{\"message\":\"Hello Scala\"}")
           assertEquals(server.transportErrors, 0)
         }
       }
+    }
+
+    test("a SafeError thrown by request decoding stays opaque and retains development diagnostics") {
+      final case class BrokenInput(value: String)
+      final case class DecoderDefect(message: String) extends SafeError:
+        override def status: Int = 422
+      given NativeConverter[BrokenInput]:
+        extension (value: BrokenInput) def toNative: js.Any = js.Dynamic.literal(value = value.value)
+        def fromNative(state: ParseState): BrokenInput = throw DecoderDefect("private decoder detail")
+
+      Future.traverse(List(false, true)) { development =>
+        var releases = 0
+        val handler = KHandler.define {
+          Scope.ensure(Sync.defer { releases += 1 }).andThen(
+            KHandler.getEvent.map { event =>
+              Sync.defer {
+                event.context.asInstanceOf[js.Dynamic].updateDynamic("h34s")(
+                  js.Dynamic.literal(development = development),
+                )
+              }.andThen(KHandler.readBody[BrokenInput]).map(_.value)
+            },
+          )
+        }
+        withServer(handler) { (server, port) =>
+          post(port, "{\"value\":\"ignored\"}").map { case (status, body) =>
+            assertEquals(status, 500)
+            val response = js.JSON.parse(body)
+            assertEquals(js.JSON.stringify(response.errors), "[\"Internal server error\"]")
+            if development then
+              assert(response.debug.cause.asInstanceOf[String].contains("private decoder detail"))
+            else
+              assertEquals(body, "{\"errors\":[\"Internal server error\"]}")
+            assertEquals(releases, 1)
+            assertEquals(server.transportErrors, 0)
+          }
+        }
+      }.map(_ => ())
     }
 
     test("an actual client abort waits for request cleanup without an h3 error response") {
