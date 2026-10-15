@@ -5,7 +5,7 @@ These notes record the user's intended direction. They are not a description of 
 ## Project identity
 
 - The user has chosen **h34s** as the project name.
-- The user authorized the private GitHub repository **yuri4n/h34s**, with remote `https://github.com/yuri4n/h34s.git`. Keep it private unless explicitly asked to change visibility. Published package/artifact namespaces remain to be agreed.
+- The user authorized the private GitHub repository **yuri4n/h34s**, with remote `https://github.com/yuri4n/h34s.git`. Keep it private unless explicitly asked to change visibility. The user approved private GitHub Packages Maven publication under `dev.yuri4n`, starting with `0.1.0-alpha.1`, including a matching Git tag and GitHub release. Keep both repository and packages private.
 - Do not rename the existing workspace directory, Scala packages, or build artifacts as a side effect of recording the name.
 
 ## Highest priority: developer experience
@@ -54,7 +54,7 @@ These notes record the user's intended direction. They are not a description of 
 - Kyo is a first-class independent integration, not a mandatory runtime beneath ZIO. Kyo-only consumers should not need ZIO, and ZIO-only consumers should not need Kyo.
 - The user explicitly selected current Kyo with required tooling updates over an older Kyo release chosen only to retain the existing compiler pin. Keep the effect modules independently consumable and record compiler, linker, and build-JDK requirements in the compatibility profile. Validate existing ZIO behavior when shared build tooling changes.
 - Application services, database configuration, and example DTOs belong in examples, not mandatory core dependencies.
-- Final module boundaries, naming, release/version policy, and converter compatibility rules remain design decisions to agree on.
+- The alpha release keeps native, ZIO, Kyo, optional ZIO Schema, and optional NuxtHub KV modules independently consumable in this repository. `version.sbt` controls the shared release version; `docs/releases.md` records coordinates and the tag/publish verification workflow. Future compatibility guarantees and broader module additions remain design decisions.
 - Maintain an explicit compatibility matrix for the native, ZIO, and optional schema integrations. Distinguish locally verified development combinations, CI/release validation, and untested combinations; list the evidence and platform constraints rather than implying broad support from one pinned build.
 - Tie compatibility entries to tested build profiles: record the Nix lock/toolchain reference when available, OS/architecture, the shared sbt/pnpm pipeline, and CI evidence. Track Nix/NixOS support as pending until that profile is implemented and tested; a local non-Nix run does not establish Nix compatibility.
 

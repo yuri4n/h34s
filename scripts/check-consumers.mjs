@@ -79,7 +79,10 @@ try {
     write(join(directory, 'build.sbt'), `
 scalaVersion := "${scalaVersion}"
 enablePlugins(ScalaJSPlugin)
-externalResolvers := Seq(${resolver}, Resolver.mavenCentral)
+externalResolvers := {
+  require(!sys.props.get("sbt.override.build.repos").exists(_.equalsIgnoreCase("true")), "Fresh consumer checks require their explicit Maven resolvers; disable sbt.override.build.repos in the sbt launcher.")
+  Seq(${resolver}, Resolver.mavenCentral)
+}
 ${published
   ? 'credentials ++= (for { actor <- sys.env.get("GITHUB_ACTOR").toSeq; token <- sys.env.get("GITHUB_TOKEN").toSeq } yield Credentials("GitHub Package Registry", "maven.pkg.github.com", actor, token))'
   : ''}
@@ -91,6 +94,7 @@ ${schema ? `libraryDependencies ++= Seq("dev.yuri4n" %%% "zio-h3-schema-ext" % "
 scalaJSLinkerConfig ~= (_.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule).withOutputPatterns(org.scalajs.linker.interface.OutputPatterns.fromJSFile("%s.cjs")))
 Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / "out"
 TaskKey[Unit]("writeDependencies") := IO.write(baseDirectory.value / "dependencies.txt", (Compile / update).value.allModules.map(m => m.organization + ":" + m.name + ":" + m.revision).sorted.mkString("\\n"))
+TaskKey[Unit]("writeArtifactPaths") := IO.write(baseDirectory.value / "artifacts.txt", (Compile / update).value.allFiles.map(_.getAbsolutePath).sorted.mkString("\\n"))
 `)
     write(join(directory, 'src/main/scala/Consumer.scala'), `
 import scala.scalajs.js.annotation.JSExportTopLevel
@@ -110,11 +114,15 @@ object Consumer:
     ? 'KHandler.define(Sync.defer(Greeting("published-kyo")))'
     : schema ? 'ZHandler.define(ZHandler.readBodyWithSchema[Greeting])' : 'ZHandler.define(ZIO.succeed(Greeting("published-zio")))'}
 `)
-    run('sbt', ['compile', 'writeDependencies', 'fastLinkJS'], directory)
+    run('sbt', ['compile', 'writeDependencies', 'writeArtifactPaths', 'fastLinkJS'], directory)
     const dependencies = readFileSync(
       join(directory, 'dependencies.txt'),
       'utf8',
     )
+    const artifacts = readFileSync(join(directory, 'artifacts.txt'), 'utf8')
+    assert(!/[/\\]local[/\\]dev\.yuri4n[/\\]/.test(artifacts), 'Consumer resolved a local Ivy h34s artifact')
+    if (!published)
+      assert(artifacts.includes(maven), 'Consumer did not use the isolated Maven staging repository')
     assert(
       !dependencies.includes(runtime === 'kyo' ? 'dev.zio:' : 'io.getkyo:'),
       `${runtime} consumer acquired the other effect runtime`,

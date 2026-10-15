@@ -6,9 +6,23 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const modules = [
-  { task: 'nuxtsvr/fullLinkJS', directory: 'server/.scala' },
-  { task: 'kyoExample/fullLinkJS', directory: 'server/.scala-kyo' },
+  { task: 'nuxtsvr/fullLinkJS', directory: 'server/.scala', outputs: ['test.js', 'notes-get.js', 'notes-post.js'] },
+  { task: 'kyoExample/fullLinkJS', directory: 'server/.scala-kyo', outputs: ['kyo-greeting-get.js', 'kyo-greeting-post.js'] },
 ]
+
+export function verifyScalaOutputs(root = repository) {
+  for (const { directory, outputs } of modules) {
+    for (const filename of outputs) {
+      const output = resolve(root, directory, filename)
+      const file = statSync(output, { throwIfNoEntry: false })
+      if (!file?.isFile() || file.size === 0) {
+        throw new Error(
+          `Scala production linker did not produce ${directory}/${filename}`,
+        )
+      }
+    }
+  }
+}
 
 export function buildScala({ root = repository, run = spawnSync } = {}) {
   // Nitro must never package stale development output after a failed link.
@@ -25,15 +39,7 @@ export function buildScala({ root = repository, run = spawnSync } = {}) {
     throw new Error(`Scala production linking failed (${reason})`)
   }
 
-  for (const { directory } of modules) {
-    const output = resolve(root, directory, 'main.js')
-    const file = statSync(output, { throwIfNoEntry: false })
-    if (!file?.isFile() || file.size === 0) {
-      throw new Error(
-        `Scala production linker did not produce ${directory}/main.js`,
-      )
-    }
-  }
+  verifyScalaOutputs(root)
 }
 
 const entry = process.argv[1] && pathToFileURL(resolve(process.argv[1]))
