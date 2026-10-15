@@ -41,7 +41,8 @@ pnpm docs:preview
 
 The check runs the shared ESLint preset, TypeScript, internal page-link
 checks, and a check that the landing example matches real Scala source.
-The pinned Docus source currently has eight known TypeScript diagnostics.
+The pinned Docus source has up to ten known TypeScript diagnostics (eight
+in the prepared workspace, ten in a fresh checkout and CI).
 `scripts/typecheck.mjs` prints them and allows only their exact upstream
 file locations and error codes. New diagnostics, application/shared-layer
 errors, signals, and unexpected exits fail the command. This is a bounded

@@ -30,7 +30,13 @@ export default defineNuxtConfig({
       npm: false,
     },
   },
-  icon: { serverBundle: { collections: ['lucide', 'simple-icons'] } },
+  icon: {
+    provider: 'server',
+    fallbackToApi: false,
+    serverBundle: { collections: ['lucide', 'simple-icons'] },
+    // These icons come from content navigation, outside the Vue scanner.
+    clientBundle: { icons: ['lucide:book-open', 'lucide:library'] },
+  },
   llms: {
     title: 'h34s documentation',
     description,

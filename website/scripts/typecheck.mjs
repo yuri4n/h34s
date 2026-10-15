@@ -5,6 +5,8 @@ import process from 'node:process'
 // exception tied to exact files, positions, and codes. New dependency or
 // application diagnostics fail, as do interrupted or crashed checks.
 const known = new Map([
+  ['app/components/OgImage/Docs.takumi.vue(19,84):2731', 1],
+  ['app/components/OgImage/Landing.takumi.vue(62,73):2731', 1],
   ['app/composables/useSeo.ts(37,53):2339', 1],
   ['app/composables/useSeo.ts(139,41):2339', 1],
   ['app/composables/useSeo.ts(172,5):2322', 1],
