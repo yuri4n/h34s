@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
+import { stripVTControlCharacters } from 'node:util'
 
 // Docus 5.13.0 ships source with these known upstream diagnostics. Keep the
 // exception tied to exact files, positions, and codes. New dependency or
@@ -17,15 +18,33 @@ const known = new Map([
 
 const ERROR_LINE = /^(\S[^(]*)\((\d+,\d+)\): error TS(\d+)/
 
-const result = spawnSync('nuxt', ['typecheck'], { encoding: 'utf8' })
-
-if (result.error || result.signal) {
-  console.error('typecheck: process failed.', result.error || result.signal)
-  process.exit(1)
+function fail(message, status = 1) {
+  console.error(`typecheck: ${message}`)
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.error(
+      `::error title=Documentation typecheck::${message.replaceAll(
+        '%',
+        '%25',
+      ).replaceAll(
+        '\r',
+        '%0D',
+      ).replaceAll(
+        '\n',
+        '%0A',
+      )}`,
+    )
+  }
+  process.exit(status)
 }
 
-const output = `${result.stdout}${result.stderr}`
-process.stdout.write(output)
+const result = spawnSync('nuxt', ['typecheck'], { encoding: 'utf8' })
+
+if (result.error || result.signal)
+  fail(`process failed: ${result.error || result.signal}`)
+
+const rawOutput = `${result.stdout}${result.stderr}`
+process.stdout.write(rawOutput)
+const output = stripVTControlCharacters(rawOutput)
 
 const diagnostics = output
   .split('\n')
@@ -42,17 +61,28 @@ const unexpected = diagnostics.filter(([, file, position, code]) => {
 })
 
 if (unexpected.length > 0) {
-  console.error(`typecheck: ${unexpected.length} unexpected diagnostic(s).`)
-  process.exit(1)
+  fail(
+    `${unexpected.length} unexpected diagnostic(s): ${unexpected.map(
+      match => match[0],
+    ).join(
+      '; ',
+    )}`,
+  )
 }
 
 const fatal = /FATAL ERROR|ERR_[A-Z_]+|^\s*ERROR\b/m.test(output)
   || output.split('\n').some(line => /error TS\d+/.test(line)
     && !ERROR_LINE.test(line))
-const expectedFailure = result.status === 2 && diagnostics.length > 0
+// TypeScript build mode uses 1 when no referenced project succeeds and 2
+// when some do. Both represent diagnostics; the allowlist above must pass.
+const expectedFailure = [1, 2].includes(result.status)
+  && diagnostics.length > 0
 if (fatal || (result.status !== 0 && !expectedFailure)) {
-  console.error(`typecheck: nuxt typecheck failed (exit ${result.status}).`)
-  process.exit(result.status || 1)
+  fail(
+    `nuxt typecheck failed (exit ${result.status}; `
+    + `parsed diagnostics ${diagnostics.length}; fatal output ${fatal}).`,
+    result.status || 1,
+  )
 }
 
 if (diagnostics.length > 0)
