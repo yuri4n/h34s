@@ -103,8 +103,8 @@ const guides = [
           Scala handlers.<br /><span>Nuxt applications.</span>
         </h1>
         <p class="hero-description">
-          Write your server logic in Scala. Compose services with ZIO or Kyo. Deliver
-          it all through Nuxt, with h3 doing the HTTP work.
+          Write your server logic in Scala. Compose services with ZIO or Kyo.
+          Deliver it all through Nuxt, with h3 doing the HTTP work.
         </p>
         <div class="hero-actions">
           <UButton
@@ -180,8 +180,8 @@ const guides = [
       aria-label="Built with Scala.js, ZIO, Kyo, h3, Nuxt, and Skunk"
     >
       <span class="technology-label">A familiar stack, connected.</span>
-      <span>Scala.js</span><span>ZIO</span><span>Kyo</span><span>h3</span><span>Nuxt</span
-      ><span>Skunk</span>
+      <span>Scala.js</span><span>ZIO</span><span>Kyo</span><span>h3</span
+      ><span>Nuxt</span><span>Skunk</span>
     </div>
 
     <section class="home-section" aria-labelledby="paths-title">
@@ -261,7 +261,8 @@ const guides = [
         <p>
           The current slice includes ZIO handlers, Skunk persistence, and Scala
           source maps. A separate Kyo slice adds native handlers and services.
-          Published packages, automatic routes, and production packaging remain planned.
+          Published packages, automatic routes, and production packaging remain
+          planned.
         </p>
         <NuxtLink class="text-link" to="/reference/status"
           >What works today
