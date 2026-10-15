@@ -27,6 +27,12 @@ In the prepared cloud environment, run `source /workspace/tooling/activate-kyo.s
 
 The cloud launcher documented in [development](development.md) points at the prepared checkout. When using a separate worktree, adjust its working directory before running it. Normal sbt users run the commands above from their checkout.
 
+## Choose locale data in the application
+
+Kyo RC7 brings a full international currency database. Its generated Scala.js data adds roughly 40 MB to the development bundle. This greeting example excludes `io.github.cquiroz:locales-full-currencies-db_sjs1_3` in `kyoExample`, using scala-java-locales' supported built-in English/root formatting fallback. It does not include currency metadata.
+
+The reusable `kyoH3Ext` module retains Kyo's upstream dependency graph. Applications needing international locale or currency data can retain the full database or select a custom database through scala-java-locales. This is application build policy; it does not restrict Unicode request or response values.
+
 ## Keep endpoints small
 
 The compiled examples live under `scala-modules/kyo-example/src/main/scala/dev/yuri4n/kyoexample`:

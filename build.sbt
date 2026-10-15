@@ -141,6 +141,10 @@ lazy val kyoExample: Project = (project in file("scala-modules/kyo-example"))
     name := "kyo-example",
     version := "0.1.0-SNAPSHOT",
     scalaVersion := "3.9.0",
+    // This English-only example uses scala-java-locales' built-in English fallback.
+    // Kyo's full currency database adds tens of MB of JS; locale policy belongs
+    // to the application, so the reusable kyoH3Ext dependency graph is unchanged.
+    excludeDependencies += ExclusionRule("io.github.cquiroz", "locales-full-currencies-db_sjs1_3"),
     publish / skip := true,
     scalaJSUseMainModuleInitializer := false,
     scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)
