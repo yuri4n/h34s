@@ -6,7 +6,7 @@ h34s keeps the native h3 bindings and the effect integrations in one repository.
 | --- | --- |
 | Native h3 bindings | Scala.js and h3 facades; no mandatory ZIO or Kyo runtime |
 | ZIO API | Ordinary ZIO handlers, services, scopes, streams, and the ZIO runtime |
-| Kyo API | First-class idiomatic Kyo handlers and the Kyo runtime; planned, not implemented |
+| Kyo API | Native Kyo handlers, Env services, Scope cleanup, and Kyo runtime execution; see [Kyo guide](kyo.md) |
 | Application | Models, database configuration, service layers, connection ownership, and `AppHandler` |
 | Nuxt integration | Connect linked Scala.js handlers to Nitro routes |
 
@@ -24,6 +24,8 @@ This first example opens one connection per request and closes it when that requ
 
 Skunk runs directly in Scala.js/Nitro. Doobie depends on JDBC and would require a JVM backend; that is not the selected application architecture.
 
+The independent Kyo application supplies `Greetings` through `Env.run` in its own `AppHandler`. It depends on `kyoH3Ext` and the native bindings, without ZIO. Its compiler is Scala 3.9.0 for Kyo 1.0.0-RC7; existing ZIO modules remain on Scala 3.5.2. Both use the Scala.js 1.22.0 linker. See [Kyo](kyo.md) for runtime and lifecycle differences.
+
 ## Errors and streaming
 
 `SafeError` messages and explicit `ZHandler.failWith` messages are approved response data. Unexpected exceptions and defects produce status 500 with `Internal server error`. In Nuxt development mode, the response also contains `debug.cause` with the original ZIO cause, nested errors, and trace. Production responses omit that field; full diagnostics remain in server logs.
@@ -38,6 +40,6 @@ The Web Stream adapter pulls one upstream chunk at a time and awaits scoped clea
 
 1. Package the native bindings and ZIO API as independently consumable artifacts, with a version matrix and fresh-consumer test.
 2. Automate route discovery and type generation so adding an endpoint does not require a TypeScript mounting file.
-3. Add a Kyo handler API against the same transport behavior tests.
+3. Extend the Kyo handler API with optional Schema and streaming adapters, preserving independent runtimes and transport contracts.
 4. Add an application-scoped Skunk pool with startup/shutdown and stream lease tests.
 5. Verify the production Nuxt/Scala.js pipeline, then add the planned Nix and native-packager paths.

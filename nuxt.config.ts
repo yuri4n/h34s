@@ -39,7 +39,7 @@ export default defineNuxtConfig({
       config.sourceMap = true
       config.rollupConfig ??= {}
       config.rollupConfig.plugins ??= []
-      config.rollupConfig.plugins.push(scalaSourceMaps(config.rootDir!))
+      config.rollupConfig.plugins.push(scalaSourceMaps(config.rootDir!, ['server/.scala', 'server/.scala-kyo']))
       config.rollupConfig.output = {
         ...config.rollupConfig.output,
         sourcemapExcludeSources: false,

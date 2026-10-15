@@ -111,7 +111,8 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
   )
   .dependsOn(h3Ext, zioJsExt, nativeConverterZIOExt)
 
-// Kyo modules use the compiler required by Kyo; the ZIO modules keep Scala 3.5.2.
+// Kyo RC7 macros need Java 25 at build time. Only Kyo modules use Scala 3.9.0;
+// the ZIO modules keep Scala 3.5.2. The application runtime remains Node.
 // Depend directly on h3Ext so Kyo consumers do not acquire ZIO or application services.
 lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
   .enablePlugins(ScalaJSPlugin)

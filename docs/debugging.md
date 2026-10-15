@@ -52,3 +52,9 @@ sbt 'zioH3Ext/test' 'nuxtsvr/fastLinkJS'
 ```
 
 The source-map checks cover local sources, source roots, remote sources, and the development-only Nuxt hook. Handler tests cover development causes, opaque production responses, safe errors, and cleanup defects. A composed Scala.js → esbuild → Rollup map has been checked with Node stack remapping. A real Nuxt database failure also returned a stack frame mapped to `notes/Notes.scala:23`; the final Nitro map includes project Scala source content. Interactive breakpoint stepping is not yet verified.
+
+## Kyo requests
+
+The Kyo integration uses the same Nuxt development flag and `debug.cause` field. Its diagnostics contain the original exception, nested causes, and Kyo traces rather than a ZIO Cause. Only typed `Abort.fail` values extending Kyo's `SafeError` are approved public messages; thrown defects remain opaque outside development.
+
+The Kyo example links into `server/.scala-kyo`. The Nuxt source-map plugin accepts that directory alongside `server/.scala`, and embeds local project Scala source from either integration. Run `kyoExample/fastLinkJS` after editing Kyo code. See [Kyo handlers](kyo.md) for the compiler profile and runnable routes.
