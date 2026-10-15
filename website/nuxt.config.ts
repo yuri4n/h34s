@@ -14,7 +14,14 @@ export default defineNuxtConfig({
   content: {
     build: {
       markdown: {
-        highlight: { langs: ['scala', 'sql'] },
+        highlight: {
+          langs: ['scala', 'sql'],
+          theme: {
+            default: 'github-light',
+            light: 'github-light',
+            dark: 'github-dark',
+          },
+        },
       },
     },
   },
