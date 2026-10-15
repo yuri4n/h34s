@@ -30,7 +30,7 @@ function runStage(stage) {
     ]) {
       source.setEncoding('utf8')
       source.on('data', (chunk) => {
-        tail = (tail + stripVTControlCharacters(chunk)).slice(-3000)
+        tail = (tail + stripVTControlCharacters(chunk)).slice(-12000)
       })
       source.pipe(destination, { end: false })
     }
@@ -50,10 +50,19 @@ for (const stage of ['check', 'build']) {
   if (result.error || result.signal || result.status !== 0) {
     const message = `Documentation ${stage} failed: `
       + `${result.error || result.signal || `exit ${result.status}`}`
-    const details = result.tail ? `${message}\n${result.tail}` : message
+    const details = result.tail
+      ? `${message}\n${result.tail.slice(-3000)}`
+      : message
     await report('error', details)
-    // Error slots can already be exhausted by a dependency's annotations.
-    await report('notice', details)
+    // Keep the error header when long stack traces fill the end of the log.
+    // Four chunks plus the stage notices stay below GitHub's ten-notice cap.
+    const chunks = result.tail.match(/[\s\S]{1,3000}/g) ?? ['']
+    for (const [index, chunk] of chunks.entries()) {
+      await report(
+        'notice',
+        `${message} (output ${index + 1}/${chunks.length})\n${chunk}`,
+      )
+    }
     process.exitCode = result.status > 0 ? result.status : 1
     break
   }
