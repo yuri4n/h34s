@@ -1,10 +1,31 @@
 import org.scalajs.linker.interface.{ESVersion, ModuleKind, OutputPatterns}
 
+// Explicitly exclude aggregate projects, applications and the migration experiment.
+lazy val releaseModules = Seq(
+  "h3Ext", "zioH3Ext", "kyoH3Ext", "zioJsExt", "nativeConverterZIOExt",
+  "nativeConverterZIOJsonExt", "nativeConverterZIOSchemaExt", "zioH3SchemaExt",
+)
+addCommandAlias("releaseCheck", releaseModules.map(_ + "/makePom").mkString(";"))
+addCommandAlias("releasePublishLocal", releaseModules.map(_ + "/publishLocal").mkString(";"))
+addCommandAlias("releasePublish", releaseModules.map(_ + "/publish").mkString(";"))
+
 inThisBuild(
   Seq(
     // scalaVersion      := "3.7.4",
     scalaVersion      := "3.5.2",
     organization      := "dev.yuri4n",
+    homepage          := Some(url("https://github.com/yuri4n/h34s")),
+    scmInfo           := Some(ScmInfo(url("https://github.com/yuri4n/h34s"), "scm:git:https://github.com/yuri4n/h34s.git")),
+    publishMavenStyle := true,
+    // Scala 3.5 Scaladoc currently fails reading generated inline h3 TASTy.
+    // Publish the compiled library and sources; guides live in the docs site.
+    Compile / packageDoc / publishArtifact := false,
+    pomIncludeRepository := (_ => false),
+    publishTo := Some("GitHub Packages" at "https://maven.pkg.github.com/yuri4n/h34s"),
+    credentials ++= (for {
+      actor <- sys.env.get("GITHUB_ACTOR").toSeq
+      token <- sys.env.get("GITHUB_TOKEN").toSeq
+    } yield Credentials("GitHub Package Registry", "maven.pkg.github.com", actor, token)),
     semanticdbEnabled := true,
     semanticdbVersion := scalafixSemanticdb.revision,
     scalacOptions ++= Seq(
@@ -49,7 +70,8 @@ lazy val root = (project in file("."))
 lazy val exts = (project in file("scala-modules/exts"))
   .settings(
     name    := "exts",
-    version := "0.1.0",
+    publish / skip := true,
+
   )
   .dependsOn(
     // h3Ext,
@@ -75,10 +97,12 @@ lazy val exts = (project in file("scala-modules/exts"))
 lazy val h3Ext: Project = (project in file("scala-modules/exts/h3"))
   .settings(
     name    := "h3-ext",
-    version := "0.1.0",
+
   )
-  .enablePlugins(ScalablyTypedConverterPlugin)
+  .enablePlugins(ScalablyTypedConverterGenSourcePlugin)
   .settings(
+    stOutputPackage := "dev.yuri4n.h34s.facades",
+    stMinimize := Selection.AllExcept("h3"),
     libraryDependencies ++= Seq(
       "org.getshaka" %%% "native-converter" % "0.9.0",
     ),
@@ -93,7 +117,7 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name    := "zio-h3-ext",
-    version := "0.1.0",
+
     libraryDependencies ++= Seq(
       "dev.zio"      %%% "zio"              % "2.1.23",
       "dev.zio"      %%% "zio-prelude"      % "1.0.0-RC41",
@@ -121,7 +145,7 @@ lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "kyo-h3-ext",
-    version := "0.1.0",
+
     scalaVersion := "3.9.0",
     libraryDependencies ++= Seq(
       "io.getkyo" %%% "kyo-core" % "1.0.0-RC7",
@@ -142,7 +166,7 @@ lazy val kyoExample: Project = (project in file("scala-modules/kyo-example"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "kyo-example",
-    version := "0.1.0-SNAPSHOT",
+
     scalaVersion := "3.9.0",
     // This English-only example uses scala-java-locales' built-in English fallback.
     // Kyo's full currency database adds tens of MB of JS; locale policy belongs
@@ -155,6 +179,8 @@ lazy val kyoExample: Project = (project in file("scala-modules/kyo-example"))
       .withESFeatures(_.withESVersion(ESVersion.ES2021))),
     Compile / fastLinkJS / scalaJSLinkerConfig ~= (_.withSourceMap(true)),
     Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala-kyo",
+    Compile / fullLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala-kyo",
+    cleanFiles += (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
   )
   .dependsOn(kyoH3Ext)
 
@@ -162,7 +188,7 @@ lazy val zioJsExt: Project = (project in file("scala-modules/exts/zio-js"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name    := "zio-js-ext",
-    version := "0.1.0",
+
     libraryDependencies ++= Seq(
       "dev.zio"      %%% "zio"              % "2.1.23",
       "dev.zio"      %%% "zio-streams"      % "2.1.23",
@@ -175,7 +201,7 @@ lazy val nativeConverterZIOExt = (project in file("scala-modules/exts/native-con
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name    := "native-converter-zio-ext",
-    version := "0.1.0",
+
     libraryDependencies ++= Seq(
       "dev.zio"      %%% "zio"              % "2.1.23",
       "dev.zio"      %%% "zio-prelude"      % "1.0.0-RC41",
@@ -190,7 +216,7 @@ lazy val nativeConverterZIOJsonExt: Project =
     .enablePlugins(ScalaJSPlugin)
     .settings(
       name    := "native-converter-zio-json-ext",
-      version := "0.1.0",
+
       libraryDependencies ++= Seq(
         "dev.zio"      %%% "zio-json"         % "0.7.38",
         "org.getshaka" %%% "native-converter" % "0.9.0",
@@ -204,7 +230,7 @@ lazy val nativeConverterZIOSchemaExt: Project =
     .enablePlugins(ScalaJSPlugin)
     .settings(
       name := "native-converter-zio-schema-ext",
-      version := "0.1.0",
+
       libraryDependencies ++= Seq(
         "dev.zio" %%% "zio-schema" % "1.7.5",
         "org.getshaka" %%% "native-converter" % "0.9.0",
@@ -221,7 +247,7 @@ lazy val zioH3SchemaExt: Project = (project in file("scala-modules/exts/zio-h3-s
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "zio-h3-schema-ext",
-    version := "0.1.0",
+
     libraryDependencies ++= Seq(
       "dev.zio" %%% "zio-schema-derivation" % "1.7.5" % Test,
       "dev.zio" %%% "zio-test" % "2.1.23" % Test,
@@ -242,14 +268,16 @@ lazy val zioMigrationsExt: Project = (project in file("scala-modules/exts/zio-mi
   .configure(configureCommonJsProject)
   .settings(
     name    := "zio-migrations-ext",
-    version := "0.1.0",
+    // The recovered migration experiment is not a supported release module.
+    publish / skip := true,
+
   )
 
 lazy val nuxtsvr: Project = (project in file("scala-modules/svr"))
   .configure(configureCommonJsProject)
   .settings(
     name                                                := "nuxtsvr",
-    version                                             := "0.1.0-SNAPSHOT",
+
     publish / skip                                      := true,
     scalaJSUseMainModuleInitializer                     := false,
     scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)
@@ -257,6 +285,8 @@ lazy val nuxtsvr: Project = (project in file("scala-modules/svr"))
       .withESFeatures(_.withESVersion(ESVersion.ES2021))),
     Compile / fastLinkJS / scalaJSLinkerConfig ~= (_.withSourceMap(true)),
     Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala",
+    Compile / fullLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala",
+    cleanFiles += (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
       .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
@@ -267,40 +297,3 @@ lazy val nuxtsvr: Project = (project in file("scala-modules/svr"))
     ),
   )
   .dependsOn(exts)
-
-// lazy val nuxtScala = project
-//   .in(file("scala-modules/server-scala"))
-//   .enablePlugins(ScalablyTypedConverterPlugin)
-//   .settings(
-//     name                                                := "nuxt-scala",
-//     version                                             := "0.1.0",
-//     scalacOptions ++= Seq(
-//       "-Wunused:all",
-//       "-Xkind-projector:underscores",
-//     ),
-//     libraryDependencies ++= Seq(
-//       "dev.zio"      %%% "zio"              % "2.1.23",
-//       "dev.zio"      %%% "zio-streams"      % "2.1.23",
-//       "dev.zio"      %%% "zio-schema"       % "1.7.5",
-//       "dev.zio"      %%% "zio-schema-json"  % "1.7.5",
-//       "dev.zio"      %%% "zio-json"         % "0.7.38",
-//       "org.getshaka" %%% "native-converter" % "0.9.0",
-//     ),
-//     scalaJSUseMainModuleInitializer                     := false,
-//     scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
-//       .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))
-//       .withESFeatures(_.withESVersion(ESVersion.ES2021))),
-//     Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / "../server/.scala",
-//     Compile / fullLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / "../server/.scala",
-//     Compile / npmDependencies                           := Seq(
-//       "h3" -> "1.15.4",
-//       // "@types/node" -> "25.0.3",
-//     ),
-//     stIgnore += "@types/node",
-//     // Run fastLinkJS whenever BSP incremental compile runs (bspBuildTargetCompile is an InputKey)
-//     // Compile / bspBuildTargetCompile                     := (Compile / bspBuildTargetCompile)
-//     //   .dependsOn(Compile / fastLinkJS)
-//     //   .evaluated,
-//     // Compile / compile := (Compile / compile).dependsOn(Compile / fullLinkJS).evaluated
-//     // Compile / fullLinkJS := (Compile / fullLinkJS).triggeredBy(Compile / compile).value,
-//   )

@@ -8,16 +8,16 @@
     "docs:build": "pnpm --dir website build",
     "docs:preview": "pnpm --dir website preview",
     "docs:check": "pnpm --dir website check",
-    "build": "nuxt build",
+    "build": "pnpm run scala:full && nuxt build",
     "dev": "node --enable-source-maps node_modules/nuxt/bin/nuxt.mjs dev",
-    "generate": "nuxt generate",
+    "generate": "pnpm run scala:full && nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "scala:types": "sbt -Dsbt.supershell=false -batch scalablytypedGenerate",
-    "scala:fast": "sbt -Dsbt.supershell=false -batch fastLinkJS",
-    "scala:full": "sbt -Dsbt.supershell=false -batch fullLinkJS",
+    "scala:types": "sbt h3Ext/compile",
+    "scala:fast": "sbt nuxtsvr/fastLinkJS kyoExample/fastLinkJS",
+    "scala:full": "node scripts/build-scala.mjs",
     "dev:scala": "pnpm run scala:fast && nuxt dev",
-    "build:scala": "pnpm run scala:full && nuxt build"
+    "build:scala": "pnpm run build"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^7.4.2",

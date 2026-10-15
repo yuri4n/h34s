@@ -3,7 +3,7 @@ package dev.yuri4n.exts.zioh3schema
 import dev.yuri4n.exts.h3.CommonEvHandler
 import dev.yuri4n.exts.zioh3.ZHandler
 import org.getshaka.nativeconverter.NativeConverter
-import typings.h3.mod.{EventHandlerRequest, H3Event}
+import dev.yuri4n.h34s.facades.h3.mod.{EventHandlerRequest, H3Event}
 import zio.*
 import zio.schema.{DeriveSchema, Schema, StandardType}
 import zio.schema.validation.Validation

@@ -4,7 +4,7 @@ import dev.yuri4n.exts.h3.{AnyEvHandlerRes, CommonEvHandler, H3Event1}
 import dev.yuri4n.exts.h3.given
 import kyo.{Abort, Async, Env, Fiber, Frame, Result, Scope, Sync, `<`}
 import org.getshaka.nativeconverter.{NativeConverter, fromNative}
-import typings.h3.mod.{
+import dev.yuri4n.h34s.facades.h3.mod.{
   EventHandlerObject,
   EventHandlerRequest,
   defineEventHandler as h3DefineEventHandler,

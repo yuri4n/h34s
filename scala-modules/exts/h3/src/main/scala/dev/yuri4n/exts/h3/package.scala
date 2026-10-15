@@ -1,7 +1,7 @@
 package dev.yuri4n.exts.h3
 
-import typings.h3.anon.H3EventEventHandlerReques
-import typings.h3.mod.{EventHandlerRequest, EventHandlerResponse, EventHandler_, H3Event}
+import dev.yuri4n.h34s.facades.h3.anon.H3EventEventHandlerReques
+import dev.yuri4n.h34s.facades.h3.mod.{EventHandlerRequest, EventHandlerResponse, EventHandler_, H3Event}
 
 type H3Event1        = H3Event[EventHandlerRequest]
 type AnyEvHandlerRes = EventHandlerResponse[Any]

@@ -8,7 +8,7 @@ import org.getshaka.nativeconverter.{NativeConverter, fromNative}
 import org.scalablytyped.runtime.StringDictionary
 import org.scalajs.dom
 import org.scalajs.dom.Response
-import typings.h3.mod.{
+import dev.yuri4n.h34s.facades.h3.mod.{
   EventHandlerObject,
   EventHandlerRequest,
   defineEventHandler as h3DefineEventHandler,
@@ -19,7 +19,7 @@ import typings.h3.mod.{
   sendStream as h3SendStream,
   setResponseStatus as h3SetResponseStatus,
 }
-import typings.std.{PromiseLike, Record}
+import dev.yuri4n.h34s.facades.std.{PromiseLike, Record}
 import zio.json.JsonEncoder
 import zio.prelude.NonEmptyList
 import zio.stream.{Stream, ZStream}
@@ -88,7 +88,7 @@ final case class SH3Event(private val event: H3Event1):
     /** Explicit parsing policy; the no-argument reader retains h3's defaults. */
     def readBody[T: NativeConverter](strict: Boolean): Task[T] =
       ZIO
-        .fromFuture(implicit ec => h3ReadBody[T, H3Event1, js.Any](event, typings.h3.anon.Strict().setStrict(strict)).toFuture)
+        .fromFuture(implicit ec => h3ReadBody[T, H3Event1, js.Any](event, dev.yuri4n.h34s.facades.h3.anon.Strict().setStrict(strict)).toFuture)
         .flatMap(_.fromNative_[T])
 
     def getQuery: Task[Map[String, String]] =

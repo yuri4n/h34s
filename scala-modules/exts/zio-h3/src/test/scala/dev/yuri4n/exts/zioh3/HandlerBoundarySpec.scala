@@ -2,7 +2,7 @@ package dev.yuri4n.exts.zioh3
 
 import dev.yuri4n.exts.h3.CommonEvHandler
 import org.getshaka.nativeconverter.NativeConverter
-import typings.h3.mod.{EventHandlerRequest, H3Event}
+import dev.yuri4n.h34s.facades.h3.mod.{EventHandlerRequest, H3Event}
 import zio.*
 import zio.test.*
 

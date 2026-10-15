@@ -4,7 +4,7 @@ import dev.yuri4n.exts.h3.CommonEvHandler
 import kyo.*
 import munit.FunSuite
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
-import typings.h3.mod.{EventHandlerRequest, H3Event}
+import dev.yuri4n.h34s.facades.h3.mod.{EventHandlerRequest, H3Event}
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.*
