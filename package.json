@@ -2,7 +2,12 @@
   "name": "nuxt-app",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.34.4",
   "scripts": {
+    "docs:dev": "pnpm --dir website dev",
+    "docs:build": "pnpm --dir website build",
+    "docs:preview": "pnpm --dir website preview",
+    "docs:check": "pnpm --dir website check",
     "build": "nuxt build",
     "dev": "node --enable-source-maps node_modules/nuxt/bin/nuxt.mjs dev",
     "generate": "nuxt generate",

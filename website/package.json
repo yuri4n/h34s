@@ -1,0 +1,38 @@
+{
+  "name": "@h34s/docs",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@10.34.4",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "scripts": {
+    "dev": "nuxt dev --port 3001",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview --port 3001",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "ci": "node scripts/ci.mjs"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.0",
+    "@iconify-json/simple-icons": "^1.2.0",
+    "@nuxt/content": "^3.16.1",
+    "@nuxt/ui": "^4.11.3",
+    "@yuri4n/nuxt-docs": "workspace:*",
+    "nuxt": "^4.6.0",
+    "vue": "3.5.44",
+    "vue-router": "5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@yuri4n/eslint-config": "workspace:*",
+    "eslint": "^10.12.0",
+    "typescript": "~6.0.3",
+    "vue-tsc": "^3.3.12"
+  }
+}
