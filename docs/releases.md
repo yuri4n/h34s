@@ -1,6 +1,8 @@
 # Install and release h34s libraries
 
-The first planned release is **`dev.yuri4n` version `0.1.0-alpha.1`**, hosted in the private GitHub Packages Maven registry for `yuri4n/h34s`. This document describes the release configuration and installation recipe; it does not mean that the artifacts have been published. Check the repository's [releases](https://github.com/yuri4n/h34s/releases) and successful release workflow before using these coordinates.
+**`dev.yuri4n` version `0.1.0-alpha.1` is published** in the private GitHub Packages Maven registry for `yuri4n/h34s`. The [prerelease](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1) and [successful release workflow](https://github.com/yuri4n/h34s/actions/runs/38779659501) record publication of all eleven artifacts and authenticated ZIO/Kyo/Schema consumer checks.
+
+The reusable JavaScript tooling is a separate npm package, `@yuri4n/h34s-nuxt`. Its first release is pending and is not included in the Maven tag above. See [npm-tooling.md](npm-tooling.md) for package installation, shared configuration, and local tarball review.
 
 ## Toolchain
 
@@ -110,7 +112,7 @@ Run the same core checks from a clean checkout with the toolchain above:
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
-node --test scripts/*.test.mjs
+node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
 npm ci --prefix scala-modules/exts/nuxthub/test-js --ignore-scripts
 sbt 'zioH3Ext/test' 'kyoH3Ext/test' \
   'nativeConverterZIOSchemaExt/test' 'zioH3SchemaExt/test' 'nuxtsvr/test' \
@@ -132,6 +134,12 @@ The consumers also compile their respective NuxtHub KV adapter constructors. KV 
 
 `pnpm run scala:full` clears previous linked output before linking both application modules for production, then checks that their output exists. The normal `pnpm build` command runs this step before Nuxt's production build, so a failed link cannot package stale development code.
 
-After the release commit is reviewed and its checks pass, a maintainer can create and push the matching `v0.1.0-alpha.1` tag. The tag workflow validates that exact revision, then publishes packages using `GITHUB_ACTOR` and the repository's `GITHUB_TOKEN`. It next runs `node scripts/check-consumers.mjs --published` against GitHub Packages to verify all three consumers through the authenticated registry, without local staging. Only the package publication job receives `packages: write`, which also permits this download check. A separate job receives `contents: write` to create the GitHub prerelease after publication and registry verification succeed. No additional release secret is required, and repository/package visibility remains private.
+The `v0.1.0-alpha.1` tag is already released and must not be moved. For a future release, update the Maven version, review the commit and checks, then create its matching `v<version>` tag. The tag workflow validates that exact revision, then publishes packages using `GITHUB_ACTOR` and the repository's `GITHUB_TOKEN`. It next runs `node scripts/check-consumers.mjs --published` against GitHub Packages to verify all three consumers through the authenticated registry, without local staging. Only the package publication job receives `packages: write`, which also permits this download check. A separate job receives `contents: write` to create the GitHub prerelease after publication and registry verification succeed. No additional release secret is required, and repository/package visibility remains private.
 
 Treat published release versions as immutable. If a release stops after some packages have uploaded, inspect the workflow and registry before retrying; do not overwrite artifacts with different contents under the same version. A corrected release should use a new version and matching tag.
+
+## Release the npm build tooling separately
+
+`packages/nuxt/package.json` owns the npm version. Its `npm-v<version>` tag workflow is separate from the Maven `v<version>` workflow and targets `https://npm.pkg.github.com`. Releasing or consuming the build tooling does not republish Scala artifacts. The prepared initial npm version is `0.1.0-alpha.1`; it remains unpublished until its own workflow succeeds.
+
+Validate package tests and a packed tarball before publishing. The tarball must contain the CLI, Nuxt module, runtime plugin, configuration helpers, and source-map/development loaders; a workspace import alone does not prove the published contents are complete. Validate an external Nuxt consumer as well as the repository example, then inspect the separate npm release checks before recommending registry installation. Keep package versions immutable and pin the application dependency.

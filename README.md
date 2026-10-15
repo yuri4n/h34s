@@ -2,7 +2,9 @@
 
 A Scala.js toolbox for Nuxt/Nitro server handlers, with developer experience as a first-class requirement.
 
-**Status: `0.1.0-alpha.1` release candidate.** Native h3 bindings, ZIO and Kyo APIs, and optional ZIO Schema adapters are configured as separately consumable `dev.yuri4n` libraries. Installation requires a successful matching tag release workflow; this status does not mean the artifacts are already published. See the [installation and release guide](docs/releases.md) for private GitHub Packages access, module coordinates, and validation steps.
+**Status: [Maven alpha `0.1.0-alpha.1` released](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1).** Eleven independently consumable `dev.yuri4n` libraries are available through private GitHub Packages, including native h3 bindings, ZIO/Kyo APIs, and optional Schema and NuxtHub KV adapters. See the [installation and release guide](docs/releases.md) for authentication, coordinates, and validation.
+
+Reusable build scripts and Nuxt development integration live in **`@yuri4n/h34s-nuxt`**. Its separate npm release is pending; the [npm tooling guide](docs/npm-tooling.md) covers source-tarball review and the installation/configuration contract. Applications keep their sbt build and services; the package supplies the CLI, source-map support, development loading, and diagnostics plugin.
 
 Both effect APIs use their own runtimes, native conversion, and application-owned services. The ZIO example also covers streaming and Skunk. Kyo streaming and Kyo Schema adapters, automatic route/type generation, and application packaging remain planned.
 
@@ -57,6 +59,8 @@ Keep one repository with separately consumable native h3 bindings, ZIO integrati
 - `scala-modules/exts/`: native h3 bindings, ZIO handlers, conversion integrations, streaming tests, and recovered experimental migration helpers.
 - `scala-modules/kyo-example/`: Kyo models, application services, `AppHandler`, and exported GET/POST handlers.
 - `scala-modules/svr/`: the application-owned Notes model, Skunk service, environment composition, handlers, and schema, alongside recovered playground services.
+- `packages/nuxt/`: reusable npm CLI and Nuxt module, with a separate release lifecycle.
+- `h34s.config.mjs`: application-specific sbt project IDs, generated outputs, and expected route entry files.
 - `server/api/`: mounts for linked Scala.js handlers. Generated output is ignored.
 - `scripts/smoke.mjs`: direct HTTP streaming and database insert/read checks against a running development instance.
 - `app/` and `content/`: retained playground UI/content; this slice does not redesign the frontend.

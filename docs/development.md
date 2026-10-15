@@ -1,6 +1,8 @@
 # Develop the Nuxt/Scala.js example
 
-This repository example uses the `0.1.0-alpha.1` release candidate libraries. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the configured library coordinates; installation from GitHub Packages requires a successful matching tag release workflow.
+This repository example uses the `0.1.0-alpha.1` libraries. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates.
+
+The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. Its first npm publication is pending. The [npm tooling guide](npm-tooling.md) explains how external applications configure the same integration without copying scripts.
 
 ## Prerequisites
 
@@ -13,7 +15,7 @@ cd /workspace/h34s
 source /workspace/tooling/activate-kyo.sh
 ```
 
-The cloud sbt launcher is a Java launcher, so use `/workspace/tooling/h34s-sbt` for the commands below, without sbt shell-script flags such as `-batch`. It keeps caches writable and facade lockfile updates outside the checkout. On a normal development machine, use the installed `sbt` launcher.
+The activation script puts the prepared `sbt` launcher on `PATH`, so the npm CLI can invoke it. `/workspace/tooling/h34s-sbt` is also available for direct Scala commands. It keeps caches writable and facade lockfile updates outside the checkout. On a normal development machine, use the installed `sbt` launcher.
 
 ## 1. Start from this repository
 
@@ -21,7 +23,7 @@ Clone the private repository using your existing GitHub access, then run:
 
 ```sh
 pnpm install --frozen-lockfile
-sbt 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
+pnpm run scala:fast
 pnpm dev
 ```
 
@@ -33,7 +35,7 @@ In the prepared cloud environment the linking command is:
 
 Development loads the linked Scala.js ES modules directly in Node. Nitro watches both output directories and replaces its worker after relinking, keeping Node’s module cache fresh. This avoids the large Rollup graphs that exhausted an 8 GB heap during bundled watch rebuilds. The current `pnpm dev` script enables Node source maps automatically and needs no heap override. The application pins `h3` as a direct runtime dependency for the linked modules.
 
-Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `sbt '~;nuxtsvr/fastLinkJS;kyoExample/fastLinkJS'` in another terminal.
+Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `pnpm run scala:watch` in another terminal. The `h34s-scala` CLI reads both modules from `h34s.config.mjs`.
 
 Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
 
@@ -81,7 +83,7 @@ With the combined build toolchain selected, run:
 pnpm build
 ```
 
-This runs `pnpm run scala:full` before Nuxt's production build. The Scala step clears previous output from both `server/.scala` and `server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, and checks that both outputs exist. A failed link stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own.
+This runs `pnpm run scala:full` before Nuxt's production build. The packaged `h34s-scala build` step reads `h34s.config.mjs`, clears previous output from both `server/.scala` and `server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, and checks that both outputs exist. A failed link stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own.
 
 This build entry point does not establish complete application packaging or a tested Nix deployment. The [release checks](releases.md#validate-and-publish-a-release) validate reusable library artifacts separately from packaging the example application.
 
