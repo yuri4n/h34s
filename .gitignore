@@ -37,3 +37,5 @@ project/target
 project/project
 project/metals.sbt
 server/.scala/
+
+server/.scala-kyo/

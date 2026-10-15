@@ -41,7 +41,7 @@ lazy val configureCommonJsProject: Project => Project =
     )
 
 lazy val root = (project in file("."))
-  .aggregate(exts, nuxtsvr)
+  .aggregate(exts, nuxtsvr, kyoH3Ext, kyoExample)
   .settings(
     publish / skip := true,
   )
@@ -110,6 +110,45 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
     ),
   )
   .dependsOn(h3Ext, zioJsExt, nativeConverterZIOExt)
+
+// Kyo modules use the compiler required by Kyo; the ZIO modules keep Scala 3.5.2.
+// Depend directly on h3Ext so Kyo consumers do not acquire ZIO or application services.
+lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    name := "kyo-h3-ext",
+    version := "0.1.0",
+    scalaVersion := "3.9.0",
+    libraryDependencies ++= Seq(
+      "io.getkyo" %%% "kyo-core" % "1.0.0-RC7",
+      "org.getshaka" %%% "native-converter" % "0.9.0",
+      "org.scalameta" %%% "munit" % "1.2.1" % Test,
+    ),
+    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
+      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
+    Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(
+      org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
+        "NODE_PATH" -> ((h3Ext / Compile / npmUpdate).value / "node_modules").getAbsolutePath,
+      )),
+    ),
+  )
+  .dependsOn(h3Ext)
+
+lazy val kyoExample: Project = (project in file("scala-modules/kyo-example"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    name := "kyo-example",
+    version := "0.1.0-SNAPSHOT",
+    scalaVersion := "3.9.0",
+    publish / skip := true,
+    scalaJSUseMainModuleInitializer := false,
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)
+      .withOutputPatterns(OutputPatterns.fromJSFile("%s.js"))
+      .withESFeatures(_.withESVersion(ESVersion.ES2021))),
+    Compile / fastLinkJS / scalaJSLinkerConfig ~= (_.withSourceMap(true)),
+    Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala-kyo",
+  )
+  .dependsOn(kyoH3Ext)
 
 lazy val zioJsExt: Project = (project in file("scala-modules/exts/zio-js"))
   .enablePlugins(ScalaJSPlugin)
