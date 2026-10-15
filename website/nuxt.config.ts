@@ -1,3 +1,5 @@
+import process from 'node:process'
+
 const description = 'Write Scala handlers for Nuxt. '
   + 'Learn ZIO, Skunk, streaming, and Scala.js debugging with h34s.'
 
@@ -6,6 +8,12 @@ export default defineNuxtConfig({
   site: { name: 'h34s' },
   compatibilityDate: '2026-10-09',
   devtools: { enabled: false },
+  // Nitro 2's runtime autodetection stops at Node 22.
+  nitro: { vercel: { functions: { runtime: 'nodejs24.x' } } },
+  // Vercel supplies image optimization; do not ship IPX/Sharp there.
+  image: {
+    provider: process.env.NITRO_PRESET === 'vercel' ? 'vercel' : undefined,
+  },
   app: {
     head: {
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],

@@ -86,6 +86,8 @@ NITRO_PRESET=vercel VERCEL_OIDC_TOKEN=ci-assistant-check pnpm ci
 
 The Vercel preset writes `.vercel/output`. That generated directory is
 ignored. Do not commit deployment credentials or project-link metadata.
+The site pins its Vercel function runtime to Node 24 and uses Vercel's
+image service for that preset, avoiding bundled IPX/Sharp binaries.
 
 ## Update the shared layer
 
