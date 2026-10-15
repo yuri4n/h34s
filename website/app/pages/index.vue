@@ -3,7 +3,7 @@ definePageMeta({ layout: 'default' })
 useSeoMeta({
   title: 'Scala handlers for Nuxt',
   description:
-    'Build Nuxt backends in Scala with ordinary ZIO programs, app-owned services, and native JavaScript responses.',
+    'Build Nuxt backends in Scala with ZIO or Kyo programs, app-owned services, and native JavaScript responses.',
 })
 
 const example = `@JSExportTopLevel("default", "notes-get")
@@ -60,6 +60,13 @@ const guides = [
     tag: 'ZIO',
   },
   {
+    icon: 'i-lucide-layers',
+    title: 'Kyo handlers & services',
+    description: 'Use native Kyo effects and resolve services in your app.',
+    to: '/guide/kyo',
+    tag: 'KYO',
+  },
+  {
     icon: 'i-lucide-database',
     title: 'PostgreSQL with Skunk',
     description: 'Models, typed queries, and scoped connections inside Node.',
@@ -96,7 +103,7 @@ const guides = [
           Scala handlers.<br /><span>Nuxt applications.</span>
         </h1>
         <p class="hero-description">
-          Write your server logic in Scala. Compose services with ZIO. Deliver
+          Write your server logic in Scala. Compose services with ZIO or Kyo. Deliver
           it all through Nuxt, with h3 doing the HTTP work.
         </p>
         <div class="hero-actions">
@@ -117,7 +124,7 @@ const guides = [
           </UButton>
         </div>
         <p class="hero-footnote">
-          Source checkout today. A first-class Kyo API is next.
+          Source checkout today. ZIO and Kyo have dedicated handler guides.
         </p>
       </div>
 
@@ -170,10 +177,10 @@ const guides = [
 
     <div
       class="technology-line"
-      aria-label="Built with Scala.js, ZIO, h3, Nuxt, and Skunk"
+      aria-label="Built with Scala.js, ZIO, Kyo, h3, Nuxt, and Skunk"
     >
       <span class="technology-label">A familiar stack, connected.</span>
-      <span>Scala.js</span><span>ZIO</span><span>h3</span><span>Nuxt</span
+      <span>Scala.js</span><span>ZIO</span><span>Kyo</span><span>h3</span><span>Nuxt</span
       ><span>Skunk</span>
     </div>
 
@@ -253,8 +260,8 @@ const guides = [
       <div class="status-description">
         <p>
           The current slice includes ZIO handlers, Skunk persistence, and Scala
-          source maps. Kyo, published packages, automatic route generation, and
-          production packaging are planned.
+          source maps. A separate Kyo slice adds native handlers and services.
+          Published packages, automatic routes, and production packaging remain planned.
         </p>
         <NuxtLink class="text-link" to="/reference/status"
           >What works today

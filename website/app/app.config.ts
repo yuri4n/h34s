@@ -2,7 +2,7 @@ export default defineAppConfig({
   seo: {
     title: 'h34s',
     description: 'Scala handlers for Nuxt. '
-      + 'A guide to ZIO, Skunk, and Scala.js.',
+      + 'A guide to ZIO, Kyo, Skunk, and Scala.js.',
   },
   header: { title: 'h34s' },
   ui: { colors: { primary: 'teal', neutral: 'stone' } },
