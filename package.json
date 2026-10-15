@@ -20,7 +20,7 @@
     "build:scala": "pnpm run build",
     "scala:watch": "h34s-scala watch",
     "test:tooling": "node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs",
-    "test:package": "node scripts/check-npm-package.mjs"
+    "test:package": "node scripts/check-npm-package.mjs && node scripts/check-npm-nuxt.mjs"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^7.4.2",

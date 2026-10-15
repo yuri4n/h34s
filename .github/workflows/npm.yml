@@ -5,6 +5,10 @@ on:
     paths:
       - packages/nuxt/**
       - scripts/check-npm-package.mjs
+      - scripts/check-npm-nuxt.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - .github/workflows/npm.yml
   push:
     branches: [main]
@@ -12,6 +16,10 @@ on:
     paths:
       - packages/nuxt/**
       - scripts/check-npm-package.mjs
+      - scripts/check-npm-nuxt.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - .github/workflows/npm.yml
   workflow_dispatch:
 
@@ -80,9 +88,29 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      NUXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify the packed module with Nuxt development and production HTTP
+        run: node scripts/check-npm-nuxt.mjs
+
   publish:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/npm-v')
-    needs: validate
+    needs: [validate, integration]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

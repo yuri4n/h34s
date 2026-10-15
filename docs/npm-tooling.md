@@ -36,6 +36,8 @@ pnpm add -D /tmp/yuri4n-h34s-nuxt-0.1.0-alpha.1.tgz
 
 The repository example uses the local package. A packed-tarball check verifies that consumers receive the runtime plugin and helpers without referencing files outside the package. A local tarball path is a review setup; use the pinned registry dependency for an independently installable application after publication.
 
+Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, and a production bundle that runs without the original generated files.
+
 ## Configure the Scala.js outputs
 
 Create `h34s.config.mjs` beside the application's `package.json`:
