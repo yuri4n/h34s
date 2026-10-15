@@ -15,6 +15,8 @@ val listNotes = AppHandler.define:
 
 The example's `Services.layer` composes database configuration, a scoped Skunk connection, and `NotesLive`. Models and connection policy live in the application module. The library supplies request context, scopes execution, handles native conversion, and hides runtime/Promise plumbing.
 
+Schema support is optional. The plain `ZHandler.readBody[A: NativeConverter]` API remains complete without schema dependencies. The Notes example opts into `ZHandler.readBodyWithSchema[CreateNote]`, keeping trimming and validation in the model's ZIO Schema. See the [optional schema guide](docs/schema.md) for the explicit native-value bridge and its supported forms.
+
 Start with the [development guide](docs/development.md). It covers the dependency-free stream route and the PostgreSQL insert/read example. The [adoption guide](docs/adoption.md) describes new projects, existing Nuxt applications, and existing Scala projects, including current validation limits.
 
 Nuxt development mode exposes failure details and maps generated JavaScript back to Scala source locations. The [debugging guide](docs/debugging.md) explains diagnostics and Node debugging; production error responses stay opaque.
