@@ -27,7 +27,7 @@ object DatabaseResource:
     end make
 
     def layer =
-      ZLayer.fromZIO(ZIO.serviceWithZIO[DatabaseConfig](make))
+      ZLayer.scoped(ZIO.serviceWithZIO[DatabaseConfig](make))
 
     final case class DatabaseConfig(
         host: String,
