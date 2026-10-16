@@ -5,6 +5,8 @@ These notes record the user's intended direction. They are not a description of 
 ## Project identity
 
 - The user has chosen **h34s** as the project name.
+- h34s is a toolbox for running Scala.js server code in Nuxt/Nitro. Keep the native bindings, independent ZIO and Kyo APIs, optional adapters, and npm tooling usable in the user's own project. Application models, services, databases, and deployment choices belong to that project.
+- Keep the repository root for reusable libraries and shared build/test tooling. Put the runnable integration demo, including its Scala application code, under `examples/nuxt/`. The documentation site is a separate Nuxt application under `website/`. Label these roles explicitly; neither application is the h34s product or a required scaffold for consumers.
 - The user authorized the private GitHub repository **yuri4n/h34s**, with remote `https://github.com/yuri4n/h34s.git`. Keep it private unless explicitly asked to change visibility. The user approved private GitHub Packages Maven publication under `dev.yuri4n`, starting with `0.1.0-alpha.1`, including a matching Git tag and GitHub release. Keep both repository and packages private.
 - Do not rename the existing workspace directory, Scala packages, or build artifacts as a side effect of recording the name.
 
@@ -23,9 +25,11 @@ These notes record the user's intended direction. They are not a description of 
 - ZIO is the primary documented developer experience. ZIO handlers use the ZIO runtime; Kyo handlers use the Kyo runtime. Keep effect-specific dependencies out of the native h3 bindings.
 - Share native transport contracts and behavior tests. Do not translate arbitrary ZIO programs into Kyo or introduce a mandatory dual-runtime bridge. A shared Kyo core is only a future option after explicit interoperability, cancellation, and lifecycle validation.
 - Preserve existing call sites where practical; explicitly identify necessary error-typing changes.
-- Application handlers should remain ordinary ZIO programs using `for` comprehensions, `ZIO.service`, typed errors, and streams.
+- ZIO application handlers should remain ordinary ZIO programs using `for` comprehensions, `ZIO.service`, typed errors, and streams. Kyo application handlers should use native Kyo programs and `Env` composition.
 - The desired application entry point is `AppHandler.define: ...`.
 - `AppHandler` belongs to the example/application, not the reusable toolbox. It should be a thin composition over a library entry point such as `ZHandler.define`, supplying application-specific services, resources, and policy.
+- `AppHandler` is an optional name for code the application author writes, not an h34s export or generated object. Users may call `ZHandler.define` or `KHandler.define` directly when they do not need an application wrapper.
+- The user chose the first-class Kyo API for the `yurian.land` application. Its handlers and service composition should use Kyo; the ZIO Notes example does not select the runtime for that downstream application.
 - Offer an equally ergonomic, idiomatic Kyo API for applications that do not use ZIO. The user has also called this “KIO”; confirm public naming before finalizing it.
 
 ## Environment composition and lifecycle
@@ -84,6 +88,8 @@ Use a middle ground between ASD-STE100-inspired technical writing and a natural,
 
 - Prefer short, direct sentences, active voice, familiar words, and explicit subjects. Keep technical terms consistent instead of varying them for style.
 - Give one main action per instructional step. State prerequisites before the action, then the expected result and relevant recovery steps.
+- Write guides as instructions to the application author: "Define your services," "Create your own `AppHandler`," and "Provide the layer before calling `ZHandler.define`." Avoid wording such as "The application supplies its services in `AppHandler`" when the reader still needs to write that code. Identify example-owned names before showing snippets that use them.
+- Distinguish user setup from library behavior. Describe actual h34s behavior precisely (request context, effect execution, conversion, configured development loading); instruct the user to create models, compose environments, own resources, mount routes, and configure their application. Use descriptive wording when explaining existing implementation, without turning it into an automatic product capability.
 - Keep API names, code identifiers, commands, and diagnostics exact. Explain necessary Scala, ZIO, Kyo, and Nuxt terminology; do not replace precise terms with misleading simplifications.
 - Use a warm, natural tone in explanations and introductions. Allow contractions and occasional light humor when appropriate, but keep essential instructions free of idioms or jokes that obscure meaning.
 - Use calm, literal language for errors, security guidance, destructive actions, and data-loss warnings. State the consequence and recovery action clearly.
@@ -99,6 +105,7 @@ Use a middle ground between ASD-STE100-inspired technical writing and a natural,
 - Include a practical PostgreSQL/Skunk guide running inside Scala.js/Nitro: local database setup, configuration, connections/pooling, queries and writes, transactions, schema initialization/migrations, cleanup, and testing. Cover any optional convenience integrations with direct library-usage examples; keep database integrations optional and do not invent a mandatory persistence abstraction.
 - Prefer compiling runnable examples as the source of documentation snippets. Validate Scala examples and generated TypeScript together, and exercise documented setup/build workflows from a clean state as part of release validation.
 - Separate tutorials, task-focused recipes, API/configuration reference, and explanations of tradeoffs. Clearly distinguish supported behavior from planned APIs; never document unimplemented commands or packages as working features.
+- Audit README files, guides, reference tables, homepage copy, SEO/LLM metadata, package descriptions, and examples together for ownership and product claims. Skunk persistence is an optional application example, not a database service supplied by h34s. Do not present both effect runtimes, Schema, a database, or cloning this repository as mandatory dependencies.
 
 ## Interactive documentation: explicit post-MVP priority
 

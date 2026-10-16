@@ -2,7 +2,9 @@
 
 AI-assisted draft. Human review pending.
 
-This is a separate Nuxt application built on the shared
+This directory contains the documentation site, separate from the
+Scala.js/Nuxt demo in `examples/nuxt/` and the reusable libraries in
+`scala-modules/exts/`. The site is a Nuxt application built on the shared
 [`@yuri4n/nuxt-docs` layer](https://github.com/yuri4n/yuri4nized-nuxt/tree/v0.1.0/layers/docs).
 The repository is `yuri4nized-nuxt`; its packages use the `yuri4n.dev` name.
 The Git submodule pins v0.1.0; Docus is pinned to 5.13.0 by the layer.
@@ -18,7 +20,8 @@ pnpm docs:dev
 ```
 
 The docs listen on port 3001. They need no Java, sbt, Scala linking, or
-PostgreSQL. The root application has its own lockfile and installation;
+PostgreSQL. The repository workspace for library tooling and the demo
+has its own lockfile and installation;
 `pnpm install` at the repository root does not install the docs.
 The website declares its own Vue and Vue Router versions. Its Nuxt
 TypeScript project explicitly includes the nested shared layer, so a
@@ -27,7 +30,12 @@ clean build does not depend on the example app's generated configuration.
 Edit pages under `content/1.guide` and `content/2.reference`. Docus provides
 navigation, local search, code highlighting, edit links, and the mobile
 menu. The landing page and theme live under `app/`. Keep source snippets
-consistent with the Scala example. Mark planned functionality explicitly.
+consistent with the Scala examples in `examples/nuxt/scala/`. Write setup
+as instructions to application authors: define models and services,
+provide their dependencies, and mount handler exports. Identify
+`AppHandler` as an optional application helper, not a library export.
+Describe the native, ZIO, Kyo, and optional adapters as a toolbox, and
+mark planned functionality explicitly.
 
 The shared layer disables its AI assistant, including when a deployment
 injects `VERCEL_OIDC_TOKEN`. It provides `/llms.txt`, `/llms-full.txt`, raw
@@ -78,8 +86,8 @@ For a future Vercel project:
 4. Set `NUXT_SITE_URL` to the agreed absolute production URL. Vercel's
    production URL is a fallback; local builds use the layer's localhost
    fallback. Check canonical and `/llms.txt` links on the preview.
-5. Set `github.branch` in `app/app.config.ts` to the reviewed source branch
-   when promoting the docs. It currently points at the documentation PR.
+5. Check that source and edit links resolve to the reviewed documentation.
+   `github.branch` in `app/app.config.ts` targets `main`.
 6. Check preview routes, search, mobile navigation, light/dark themes,
    `/llms-full.txt`, and the absence of the assistant before publishing.
 

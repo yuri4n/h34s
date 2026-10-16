@@ -23,7 +23,7 @@ The runtime plugin installed by `@yuri4n/h34s-nuxt` supplies the mode from Nitro
 
 The development profile loads linked Scala.js ES modules directly in Node:
 
-1. `fastLinkJS` writes JavaScript and adjacent `.js.map` files to `server/.scala` or `server/.scala-kyo`.
+1. `fastLinkJS` writes JavaScript and adjacent `.js.map` files to the configured application output directories. In the repository demo, these are `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`.
 2. The npm module's development loader resolves configured output modules as native file imports. Nitro watches both directories and replaces its development worker after linking.
 3. `pnpm dev` enables Node source maps before loading the application. Node uses the adjacent maps to resolve stack frames to original Scala files and lines.
 
@@ -60,4 +60,4 @@ Handler tests cover development causes, opaque production responses, safe errors
 
 The Kyo integration uses the same Nuxt development flag and `debug.cause` field. Its diagnostics contain the original exception, nested causes, and Kyo traces rather than a ZIO Cause. Only typed `Abort.fail` values extending Kyo's `SafeError` are approved public messages; thrown defects remain opaque outside development.
 
-The Kyo example links into `server/.scala-kyo`. The development resolver and worker watcher accept that directory alongside `server/.scala`; Node uses each integration’s adjacent Scala.js maps. Run `kyoExample/fastLinkJS` after editing Kyo code. See [Kyo handlers](kyo.md) for the compiler profile and runnable routes.
+The Kyo example links into `examples/nuxt/server/.scala-kyo`. The development resolver and worker watcher accept that directory alongside the demo's `server/.scala`; Node uses each integration’s adjacent Scala.js maps. Run `kyoExample/fastLinkJS` after editing Kyo code. See [Kyo handlers](kyo.md) for the compiler profile and runnable routes.

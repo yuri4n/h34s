@@ -1,6 +1,8 @@
 # Develop the Nuxt/Scala.js example
 
-This repository example uses the `0.1.0-alpha.1` libraries. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates.
+Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate `website/` app serves the documentation. To use h34s in your own Nuxt project, follow [adoption.md](adoption.md).
+
+The demo uses the `0.1.0-alpha.1` libraries. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates.
 
 The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications can install its [published `0.1.0-alpha.1` package](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The [npm tooling guide](npm-tooling.md) explains how to configure the same integration without copying scripts.
 
@@ -19,7 +21,7 @@ The activation script puts the prepared `sbt` launcher on `PATH`, so the npm CLI
 
 ## 1. Start from this repository
 
-Clone the private repository using your existing GitHub access, then run:
+Clone the private repository using your existing GitHub access, then run these commands from the repository root. The root scripts delegate to the demo:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -35,28 +37,32 @@ In the prepared cloud environment the linking command is:
 
 Development loads the linked Scala.js ES modules directly in Node. Nitro watches both output directories and replaces its worker after relinking, keeping Node’s module cache fresh. This avoids the large Rollup graphs that exhausted an 8 GB heap during bundled watch rebuilds. The current `pnpm dev` script enables Node source maps automatically and needs no heap override. The application pins `h3` as a direct runtime dependency for the linked modules.
 
-Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `pnpm run scala:watch` in another terminal. The `h34s-scala` CLI reads both modules from `h34s.config.mjs`.
+Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `pnpm run scala:watch` in another terminal. The root scripts pass `examples/nuxt/h34s.build.config.mjs` to the CLI. That wrapper uses the demo's `h34s.config.mjs` and resolves its output paths from the repository root.
 
 Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
 
-The cloud instance uses an ignored `.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings address this environment's SQLite addon startup and network limitations. They do not affect the Scala database layer.
+The cloud instance uses an ignored `examples/nuxt/.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings address this environment's SQLite addon startup and network limitations. They do not affect the Scala database layer.
 
-The independent [Kyo example](kyo.md) adds GET and POST `/api/kyo/greeting`. Its compiled output lives in `server/.scala-kyo`; link both applications before starting this combined Nuxt demonstration. Kyo-only applications depend on `kyoH3Ext`, without the ZIO example or its database integration.
+The independent [Kyo example](kyo.md) adds GET and POST `/api/kyo/greeting`. Its compiled output lives in `examples/nuxt/server/.scala-kyo`; link both applications before starting this combined Nuxt demonstration. In your own Kyo-only application, depend on `kyo-h3-ext`; you do not need the ZIO example or its database integration.
 
 ## 2. Run the model and database example
 
-Set `MY_APP_DB_HOST`, `MY_APP_DB_PORT`, `MY_APP_DB_USER`, `MY_APP_DB_PASSWORD`, and `MY_APP_DB_NAME` in your process or an ignored local environment file. For local Compose, use host `127.0.0.1` and port `5432` (or a free port of your choice). Supply your own local password; do not commit it.
+Export `MY_APP_DB_HOST`, `MY_APP_DB_PORT`, `MY_APP_DB_USER`, `MY_APP_DB_PASSWORD`, and `MY_APP_DB_NAME` in the shell you use for both Compose and Nuxt. For local Compose, use host `127.0.0.1` and port `5432` (or a free port of your choice). Supply your own local password; do not commit it.
+
+If you prefer a local environment file, put it in the ignored `examples/nuxt/.env` and add `--env-file examples/nuxt/.env` to each Compose command below. Nuxt development reads that file from the example's application root.
+
+Keep the default Compose project name `h34s` to reuse the existing `h34s_postgres_data` volume after the demo's move. If you previously used another project name, set `COMPOSE_PROJECT_NAME` to that name or add `-p <existing-name>` to each Compose command below.
 
 ```sh
-docker compose up -d postgres
-docker compose exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose -f examples/nuxt/docker-compose.yml up -d postgres
+docker compose -f examples/nuxt/docker-compose.yml exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
 Compose mounts the example schema into PostgreSQL's initialization directory. PostgreSQL runs those scripts only when initializing an empty volume. For an existing development database, apply the additive example schema explicitly:
 
 ```sh
-docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-  < scala-modules/svr/src/main/resources/sql/01-init.sql
+docker compose -f examples/nuxt/docker-compose.yml exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < examples/nuxt/scala/zio/src/main/resources/sql/01-init.sql
 ```
 
 Pass the same `MY_APP_DB_*` variables to the Nuxt process, rebuild Scala.js, then start Nuxt. Exercise the endpoints with:
@@ -71,9 +77,9 @@ POST returns status 201 with `{ "id": 1, "text": "My first note" }` for a new em
 
 `notes/Notes.scala` defines the application model, request DTO, service, and Skunk implementation. The `Note` response derives `NativeConverter`. The `CreateNote` input opts into ZIO Schema: its schema trims and validates text, and the handler calls `readBodyWithSchema` without repeating those rules. Invalid input returns HTTP 422 with `Request body does not match schema`. The plain NativeConverter-only reader remains available without schema dependencies; see [schema.md](schema.md).
 
-Skunk's typed SQL interpolator encodes input values as bound parameters; it never concatenates them into SQL. `Services.scala` composes the database layer, and `AppHandler.scala` supplies it to endpoint programs. Database schema initialization is a setup action, never a per-request side effect.
+Skunk's typed SQL interpolator encodes input values as bound parameters; it never concatenates them into SQL. In your own application, define your database layer in a composition module such as this demo's `Services.scala`, then write an `AppHandler` wrapper to provide it to your endpoints. These are application-owned files. Initialize the database schema during setup, not during requests.
 
-The application includes `server/plugins/skunk-node-crypto.ts`: the pinned Skunk version calls Node's `require('crypto')` for SCRAM authentication, so the plugin installs Node's loader before Nitro accepts requests. Keep this plugin when copying the database example into an ES-module application. PostgreSQL's default SCRAM authentication stays enabled. Restart Nuxt if authentication ran before the plugin was installed; the failed library initializer cannot recover in the same process.
+The demo includes `examples/nuxt/server/plugins/skunk-node-crypto.ts`: the pinned Skunk version calls Node's `require('crypto')` for SCRAM authentication, so the plugin installs Node's loader before Nitro accepts requests. Add this plugin when adapting the database example to an ES-module application. PostgreSQL's default SCRAM authentication stays enabled. Restart Nuxt if authentication ran before the plugin was installed; the failed library initializer cannot recover in the same process.
 
 ## Production build
 
@@ -83,7 +89,7 @@ With the combined build toolchain selected, run:
 pnpm build
 ```
 
-This runs `pnpm run scala:full` before Nuxt's production build. The packaged `h34s-scala build` step reads `h34s.config.mjs`, clears previous output from both `server/.scala` and `server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, and checks that both outputs exist. A failed link stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own.
+This runs `pnpm run scala:full` before the demo's Nuxt production build. The packaged `h34s-scala build` step reads `examples/nuxt/h34s.build.config.mjs`, clears previous output from both `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, and checks that both outputs exist. A failed link stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own. Nuxt writes the deployable output to `examples/nuxt/.output/`.
 
 This build entry point does not establish complete application packaging or a tested Nix deployment. The [release checks](releases.md#validate-and-publish-a-release) validate reusable library artifacts separately from packaging the example application.
 

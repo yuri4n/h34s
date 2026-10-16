@@ -14,7 +14,7 @@ on:
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
-      - nuxt.config.ts
+      - examples/**
       - .github/workflows/scala.yml
       - .github/workflows/release.yml
       - .github/workflows/npm.yml
@@ -32,7 +32,7 @@ on:
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
-      - nuxt.config.ts
+      - examples/**
       - .github/workflows/scala.yml
       - .github/workflows/release.yml
       - .github/workflows/npm.yml

@@ -2,7 +2,7 @@
 
 Schema support is optional. `ZHandler.readBody[A: NativeConverter]` remains the complete NativeConverter-only entry point. It has no schema requirement, and its conversion/error behavior is unchanged.
 
-Applications that want schema-driven input validation can add the optional `zioH3SchemaExt` source project. It is also configured as `"dev.yuri4n" %%% "zio-h3-schema-ext" % "0.1.0-alpha.1"` for the alpha release candidate; installation requires a successful matching tag release workflow. See [releases.md](releases.md) for registry access, coordinates, and the optional schema derivation dependency. The module supplies `ZHandler.readBodyWithSchema[A: Schema]`. The example opts in; the core handler library does not.
+For schema-driven input validation, add the published `"dev.yuri4n" %%% "zio-h3-schema-ext" % "0.1.0-alpha.1"` dependency, or the `zioH3SchemaExt` source project. See [releases.md](releases.md) for registry access and the optional schema derivation dependency. Then use `ZHandler.readBodyWithSchema[A: Schema]` for models you define. Keep the NativeConverter-only reader when you do not need this optional integration.
 
 ## Put validation in the model
 
@@ -38,7 +38,7 @@ val createNote = AppHandler.define:
     yield note
 ```
 
-`AppHandler` and `Notes` remain application-owned services. There are no repeated null, trimming, or length checks in this handler. Response models can continue deriving `NativeConverter`; input and output need not choose the same optional integration.
+Define `Notes` and your own `AppHandler` wrapper in your application before using this example. Provide the service through your ordinary ZIO layers; neither name is an h34s export. Put validation in the input schema instead of repeating null, trimming, or length checks in the endpoint. You can continue deriving `NativeConverter` for response models; input and output need not choose the same optional integration.
 
 ## Own the conversion explicitly
 

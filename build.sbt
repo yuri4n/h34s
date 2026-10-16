@@ -163,7 +163,7 @@ lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
   )
   .dependsOn(h3Ext)
 
-lazy val kyoExample: Project = (project in file("scala-modules/kyo-example"))
+lazy val kyoExample: Project = (project in file("examples/nuxt/scala/kyo"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "kyo-example",
@@ -322,7 +322,7 @@ lazy val zioMigrationsExt: Project = (project in file("scala-modules/exts/zio-mi
 
   )
 
-lazy val nuxtsvr: Project = (project in file("scala-modules/svr"))
+lazy val nuxtsvr: Project = (project in file("examples/nuxt/scala/zio"))
   .configure(configureCommonJsProject)
   .settings(
     name                                                := "nuxtsvr",

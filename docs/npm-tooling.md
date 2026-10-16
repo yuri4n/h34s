@@ -121,7 +121,7 @@ The `./build` entry point also exports `loadConfig`, `buildScala`, and `linkScal
 
 The npm package owns build orchestration, development loading, source maps, and the Nuxt development flag. It has no dependency on a particular effect API.
 
-Applications still own `build.sbt`, Maven credentials, Scala models and services, `AppHandler`, route mounts, database migrations, secrets, and deployment policy. Keep one mount per exported route until route generation is implemented:
+Configure your own `build.sbt` and Maven credentials. Define models and services in your application, compose their environment in an optional `AppHandler` wrapper, and configure any database resources, migrations, secrets, and deployment policy there. Create one mount per exported route until route generation is implemented:
 
 ```ts
 // server/api/notes.get.ts
