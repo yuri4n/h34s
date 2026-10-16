@@ -14,7 +14,7 @@ Both effect APIs use their own runtimes, native conversion, and application-owne
 
 ## Write application code in ZIO
 
-Define your services, then write your own `AppHandler` to provide them before calling `ZHandler.define`. Follow the [handler guide](website/content/1.guide/3.handlers.md#compose-the-application-environment) for the example composition. `AppHandler` and `Notes` below are application code you create; h34s does not export them. With that setup, write the endpoint as:
+Define your services, then write your own `AppHandler` to provide them before calling `ZHandler.define`. Follow the [handler guide](website/content/1.guide/3.handlers.md#compose-services-once-in-application-code) for the example composition. `AppHandler` and `Notes` below are application code you create; h34s does not export them. With that setup, write the endpoint as:
 
 ```scala
 val listNotes = AppHandler.define:

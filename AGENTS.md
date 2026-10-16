@@ -25,7 +25,7 @@ These notes record the user's intended direction. They are not a description of 
 - ZIO is the primary documented developer experience. ZIO handlers use the ZIO runtime; Kyo handlers use the Kyo runtime. Keep effect-specific dependencies out of the native h3 bindings.
 - Share native transport contracts and behavior tests. Do not translate arbitrary ZIO programs into Kyo or introduce a mandatory dual-runtime bridge. A shared Kyo core is only a future option after explicit interoperability, cancellation, and lifecycle validation.
 - Preserve existing call sites where practical; explicitly identify necessary error-typing changes.
-- Application handlers should remain ordinary ZIO programs using `for` comprehensions, `ZIO.service`, typed errors, and streams.
+- ZIO application handlers should remain ordinary ZIO programs using `for` comprehensions, `ZIO.service`, typed errors, and streams. Kyo application handlers should use native Kyo programs and `Env` composition.
 - The desired application entry point is `AppHandler.define: ...`.
 - `AppHandler` belongs to the example/application, not the reusable toolbox. It should be a thin composition over a library entry point such as `ZHandler.define`, supplying application-specific services, resources, and policy.
 - `AppHandler` is an optional name for code the application author writes, not an h34s export or generated object. Users may call `ZHandler.define` or `KHandler.define` directly when they do not need an application wrapper.
