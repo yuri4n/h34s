@@ -4,7 +4,7 @@ The same separation applies in each path: Nuxt mounts handlers, Scala.js impleme
 
 ## New project
 
-Use the repository example and the commands in [development.md](development.md). The dependency-free stream route is the first check; add the Notes/Skunk example next. This path is exercised in the prepared cloud checkout. A fresh machine without the cloud helper and local Nuxt settings has not been validated. There is no `create-h34s` command. The `0.1.0-alpha.1` Maven libraries are published, as described in [releases.md](releases.md). The separate [npm build tooling](npm-tooling.md) is available for source-tarball review; its registry release is pending.
+Use the repository example and the commands in [development.md](development.md). The dependency-free stream route is the first check; add the Notes/Skunk example next. This path is exercised in the prepared cloud checkout. A fresh machine without the cloud helper and local Nuxt settings has not been validated. There is no `create-h34s` command. The `0.1.0-alpha.1` Maven libraries are published, as described in [releases.md](releases.md). The separate [npm build tooling](npm-tooling.md) is published as `@yuri4n/h34s-nuxt@0.1.0-alpha.1` in the private GitHub npm registry.
 
 ## Existing Nuxt application
 
