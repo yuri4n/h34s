@@ -3,7 +3,7 @@ export default defineAppConfig({
     locale: 'en', // Set your single-language locale
   },
   seo: {
-    title: 'My Docs',
-    description: 'My awesome documentation',
+    title: 'h34s Nuxt example',
+    description: 'A playground application using the h34s Scala.js toolbox',
   },
 })
