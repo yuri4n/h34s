@@ -2,6 +2,8 @@
 
 A toolbox for running Scala.js server code in your Nuxt/Nitro application.
 
+The intended future name is **nuxt4s**. Current packages, commands, and links still use h34s; see the [project direction and rename plan](docs/project-direction.md).
+
 Choose the native h3 bindings, ZIO or Kyo handler API, and optional adapters you need. Define your own models, services, and resource policy in your application. Use the npm tooling to link Scala.js and load it in Nuxt. Start with the [adoption guide](docs/adoption.md) to add these tools to your project.
 
 The runnable demo is in [`examples/nuxt/`](examples/nuxt/README.md). The documentation site is a separate Nuxt app in [`website/`](website/README.md). The repository root holds the libraries and shared tooling; you do not need to copy the demo to use h34s.

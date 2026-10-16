@@ -4,7 +4,7 @@ These notes record the user's intended direction. They are not a description of 
 
 ## Project identity
 
-- The user has chosen **h34s** as the project name.
+- The current project name is **h34s**. The user now intends **nuxt4s** as the future name because this is a toolbox for running Scala on Nuxt; h3 is one transport module. Record and plan the coordinated migration in [docs/project-direction.md](docs/project-direction.md). Do not rename the repository, artifacts, Scala packages, npm package/CLI, configuration, imports, or public links as an incidental cleanup. Preserve current installation paths and immutable releases until that migration is reviewed.
 - h34s is a toolbox for running Scala.js server code in Nuxt/Nitro. Keep the native bindings, independent ZIO and Kyo APIs, optional adapters, and npm tooling usable in the user's own project. Application models, services, databases, and deployment choices belong to that project.
 - Keep the repository root for reusable libraries and shared build/test tooling. Put the runnable integration demo, including its Scala application code, under `examples/nuxt/`. The documentation site is a separate Nuxt application under `website/`. Label these roles explicitly; neither application is the h34s product or a required scaffold for consumers.
 - The user authorized the private GitHub repository **yuri4n/h34s**, with remote `https://github.com/yuri4n/h34s.git`. Keep it private unless explicitly asked to change visibility. The user approved private GitHub Packages Maven publication under `dev.yuri4n`, starting with `0.1.0-alpha.1`, including a matching Git tag and GitHub release. Keep both repository and packages private.
@@ -29,6 +29,7 @@ These notes record the user's intended direction. They are not a description of 
 - The desired application entry point is `AppHandler.define: ...`.
 - `AppHandler` belongs to the example/application, not the reusable toolbox. It should be a thin composition over a library entry point such as `ZHandler.define`, supplying application-specific services, resources, and policy.
 - `AppHandler` is an optional name for code the application author writes, not an h34s export or generated object. Users may call `ZHandler.define` or `KHandler.define` directly when they do not need an application wrapper.
+- The user chose native Kyo APIs, including evaluating Kyo SQL directly for PostgreSQL, for the `yurian.land` application. Keep Cats interoperability optional for existing Cats libraries; keep the ZIO/Skunk integration documented as an optional application recipe. Do not make a Cats/Skunk workaround the default Kyo database path.
 - The user chose the first-class Kyo API for the `yurian.land` application. Its handlers and service composition should use Kyo; the ZIO Notes example does not select the runtime for that downstream application.
 - Offer an equally ergonomic, idiomatic Kyo API for applications that do not use ZIO. The user has also called this “KIO”; confirm public naming before finalizing it.
 
