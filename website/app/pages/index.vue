@@ -3,7 +3,7 @@ definePageMeta({ layout: 'default' })
 useSeoMeta({
   title: 'Scala handlers for Nuxt',
   description:
-    'Build Nuxt backends in Scala with ZIO or Kyo programs, app-owned services, and native JavaScript responses.',
+    'Use the h34s toolbox to run Scala.js in your Nuxt app. Choose ZIO or Kyo handlers and provide your own services.',
 })
 
 const example = `@JSExportTopLevel("default", "notes-get")
@@ -28,8 +28,8 @@ const paths = [
     icon: 'i-lucide-terminal',
     title: 'Start a new project',
     description:
-      'Run the example, make your first request, then add a model and a database.',
-    to: '/guide/getting-started',
+      'Create a Nuxt app, choose your h34s modules, and add your first Scala handler.',
+    to: '/guide/adoption',
     label: 'Start building',
   },
   {
@@ -69,7 +69,8 @@ const guides = [
   {
     icon: 'i-lucide-database',
     title: 'PostgreSQL with Skunk',
-    description: 'Models, typed queries, and scoped connections inside Node.',
+    description:
+      'Configure an optional database in your app with typed queries.',
     to: '/guide/database',
     tag: 'DATABASE',
   },
@@ -96,15 +97,15 @@ const guides = [
       <div class="hero-copy">
         <NuxtLink class="preview-note" to="/reference/status">
           <span class="status-dot" aria-hidden="true" />
-          Development preview
+          Published alpha
           <UIcon name="i-lucide-arrow-up-right" aria-hidden="true" />
         </NuxtLink>
         <h1 id="hero-title">
           Scala handlers.<br /><span>Nuxt applications.</span>
         </h1>
         <p class="hero-description">
-          Write your server logic in Scala. Compose services with ZIO or Kyo.
-          Deliver it all through Nuxt, with h3 doing the HTTP work.
+          Use h34s to run Scala.js in your Nuxt app. Choose ZIO or Kyo handlers,
+          define your services, and provide their dependencies in your app.
         </p>
         <div class="hero-actions">
           <UButton
@@ -124,7 +125,8 @@ const guides = [
           </UButton>
         </div>
         <p class="hero-footnote">
-          Source checkout today. ZIO and Kyo have dedicated handler guides.
+          Install the Maven libraries and npm tooling. The repository demo is
+          optional.
         </p>
       </div>
 
@@ -154,8 +156,8 @@ const guides = [
 <span class="syntax-keyword">val</span> listNotes = <span class="syntax-type">AppHandler</span>.define:
   <span class="syntax-type">ZIO</span>.serviceWithZIO[<span class="syntax-type">Notes</span>](_.list)</code></pre>
           <div class="code-scope">
-            <UIcon name="i-lucide-layers" aria-hidden="true" /> Services
-            provided by your AppHandler
+            <UIcon name="i-lucide-layers" aria-hidden="true" /> Define
+            AppHandler to provide your services
           </div>
           <div class="response-example">
             <div class="response-label">
@@ -169,19 +171,19 @@ const guides = [
           </p>
         </div>
         <div class="code-caption">
-          <span class="caption-rule" /> Ordinary ZIO. Native JSON. One Node
-          process.
+          <span class="caption-rule" /> AppHandler and Notes are your
+          application code.
         </div>
       </div>
     </section>
 
     <div
       class="technology-line"
-      aria-label="Built with Scala.js, ZIO, Kyo, h3, Nuxt, and Skunk"
+      aria-label="Scala.js with h3 and Nuxt; choose ZIO or Kyo. Skunk is an optional example."
     >
-      <span class="technology-label">A familiar stack, connected.</span>
-      <span>Scala.js</span><span>ZIO</span><span>Kyo</span><span>h3</span
-      ><span>Nuxt</span><span>Skunk</span>
+      <span class="technology-label">Choose your integrations.</span>
+      <span>Scala.js</span><span>ZIO or</span><span>Kyo</span><span>h3</span
+      ><span>Nuxt</span><span>Skunk example</span>
     </div>
 
     <section class="home-section" aria-labelledby="paths-title">
@@ -191,7 +193,7 @@ const guides = [
           <h2 id="paths-title">Start where you are.</h2>
         </div>
         <p>
-          One repository. Three ways in.<br />Choose the path that fits your
+          One toolbox. Three ways in.<br />Choose the path that fits your
           application.
         </p>
       </div>
@@ -259,10 +261,10 @@ const guides = [
       </div>
       <div class="status-description">
         <p>
-          The current slice includes ZIO handlers, Skunk persistence, and Scala
-          source maps. A separate Kyo slice adds native handlers and services.
-          Published packages, automatic routes, and production packaging remain
-          planned.
+          Private Maven libraries and npm tooling are published. Choose ZIO or
+          Kyo handlers and configure your own services. ZIO Schema decoding is
+          optional; the demo shows Skunk database access. Automatic routes and
+          production packaging remain planned.
         </p>
         <NuxtLink class="text-link" to="/reference/status"
           >What works today

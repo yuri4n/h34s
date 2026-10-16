@@ -1,8 +1,8 @@
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const description = 'Write Scala handlers for Nuxt. '
-  + 'Learn ZIO, Skunk, streaming, and Scala.js debugging with h34s.'
+const description = 'Use h34s to run Scala.js in your Nuxt app. '
+  + 'Choose ZIO or Kyo handlers, optional adapters, and build tooling.'
 const docsLayerApp = fileURLToPath(
   new URL('./vendor/yuri4n.dev/layers/docs/app/', import.meta.url),
 )
@@ -68,10 +68,15 @@ export default defineNuxtConfig({
     description,
     sections: [],
     notes: [
-      'h34s is an unpublished Scala.js toolbox for Nuxt/Nitro. '
-      + 'ZIO is implemented; the first-class Kyo API is planned.',
-      'Application modules own models, Skunk connections, and provisioning. '
-      + 'Production packaging and published artifacts are not verified.',
+      'h34s is a Scala.js toolbox for Nuxt/Nitro. Private Maven libraries '
+      + 'and npm tooling are published at 0.1.0-alpha.1. Choose independent '
+      + 'ZIO or Kyo APIs; their handlers execute on their own runtime.',
+      'Define models and services, provide their dependencies, and mount '
+      + 'handler exports in your application. AppHandler is an optional '
+      + 'user-defined helper. Database setup and resource ownership are yours.',
+      'examples/nuxt contains an optional demo with Skunk database access. '
+      + 'website contains this separate documentation app. Automatic route '
+      + 'generation, Nix, and deployable application packaging remain planned.',
     ],
   },
   mcp: { name: 'h34s documentation' },
