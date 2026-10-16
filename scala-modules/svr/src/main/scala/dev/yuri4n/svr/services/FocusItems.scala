@@ -1,6 +1,7 @@
 package dev.yuri4n.svr.services
 
 import dev.yuri4n.svr.model.{FocusItem, FocusItemRow, User}
+import zio.stream.Stream
 
 trait FocusItems[F[_]]:
     def create(
@@ -9,4 +10,4 @@ trait FocusItems[F[_]]:
         description: Option[String],
     ): F[FocusItem.Id]
 
-    def getAll: TaskStream[FocusItemRow]
+    def getAll: Stream[Throwable, FocusItemRow]

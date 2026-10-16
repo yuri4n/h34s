@@ -1,16 +1,5 @@
--- Initial database setup
--- This file will be executed automatically when the container starts for the first time
-
--- Create extensions if needed
--- CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- Example: Create a users table
--- CREATE TABLE IF NOT EXISTS users (
---     id SERIAL PRIMARY KEY,
---     username VARCHAR(255) NOT NULL UNIQUE,
---     email VARCHAR(255) NOT NULL UNIQUE,
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
--- );
-
--- Add your initial schema and data here
+-- Run once for an empty development database; application requests never modify the schema.
+CREATE TABLE IF NOT EXISTS h34s_notes (
+  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  text text NOT NULL CHECK (length(trim(text)) BETWEEN 1 AND 2000)
+);

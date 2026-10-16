@@ -2,29 +2,65 @@
 
 A Scala.js toolbox for Nuxt/Nitro server handlers, with developer experience as a first-class requirement.
 
-**Status: recovered playground baseline, not a verified MVP or a published library.** This import preserves the existing ZIO-based implementation for review. It does not introduce a Kyo core, a new handler API, or a production packaging pipeline.
+**Status: `0.1.0-alpha.1` release candidate.** Native h3 bindings, ZIO and Kyo APIs, and optional ZIO Schema adapters are configured as separately consumable `dev.yuri4n` libraries. Installation requires a successful matching tag release workflow; this status does not mean the artifacts are already published. See the [installation and release guide](docs/releases.md) for private GitHub Packages access, module coordinates, and validation steps.
+
+Both effect APIs use their own runtimes, native conversion, and application-owned services. The ZIO example also covers streaming and Skunk. Kyo streaming and Kyo Schema adapters, automatic route/type generation, and application packaging remain planned.
+
+## Write application code in ZIO
+
+The application supplies its services in `AppHandler`; endpoint code stays small:
+
+```scala
+val listNotes = AppHandler.define:
+    ZIO.serviceWithZIO[Notes](_.list)
+```
+
+The example's `Services.layer` composes database configuration, a scoped Skunk connection, and `NotesLive`. Models and connection policy live in the application module. The library supplies request context, scopes execution, handles native conversion, and hides runtime/Promise plumbing.
+
+Schema support is optional. The plain `ZHandler.readBody[A: NativeConverter]` API remains complete without schema dependencies. The Notes example opts into `ZHandler.readBodyWithSchema[CreateNote]`, keeping trimming and validation in the model's ZIO Schema. See the [optional schema guide](docs/schema.md) for the explicit native-value bridge and its supported forms.
+
+Start with the [development guide](docs/development.md). It covers the dependency-free stream route and the PostgreSQL insert/read example. The [adoption guide](docs/adoption.md) describes new projects, existing Nuxt applications, and existing Scala projects, including current validation limits.
+
+Nuxt development mode exposes failure details and maps generated JavaScript back to Scala source locations. The [debugging guide](docs/debugging.md) explains diagnostics and Node debugging; production error responses stay opaque.
+
+## Write application code in Kyo
+
+The separate Kyo application supplies `Greetings` with ordinary `Env.run` in its own `AppHandler`:
+
+```scala
+val greeting = AppHandler.define:
+    Env.use[Greetings](_.greet("Kyo"))
+```
+
+`KHandler.define` supplies request context, runs Kyo, scopes cleanup, and converts the response. It does not depend on ZIO. See the [Kyo guide](docs/kyo.md) for models, body decoding, service composition, lifecycle limits, and a runnable Nitro example.
+
+## Documentation website
+
+The separate [Nuxt/Docus website](website/README.md) uses the shared
+`yuri4n.dev` docs layer. From the repository root:
+
+```sh
+git submodule update --init --recursive
+pnpm --dir website install --frozen-lockfile
+pnpm docs:dev
+```
+
+The website runs on port 3001 without Scala linking or PostgreSQL. Its own
+lockfile keeps documentation dependencies separate from the example app.
+
+## Module direction
+
+Keep one repository with separately consumable native h3 bindings, ZIO integration, and a first-class Kyo integration. ZIO is the main documented experience; each effect API uses its own runtime. See [architecture and lifecycle](docs/architecture.md) for the agreed boundaries and next slices.
 
 ## What is here
 
-- `scala-modules/exts/`: the existing h3/ZIO wrappers, native-conversion integrations, stream conversion and tests, and experimental migration helpers.
-- `scala-modules/svr/`: the existing application services, Skunk/PostgreSQL groundwork, handler, and SQL resources.
-- `server/api/test.ts`: a route that re-exports linked Scala.js output. Generated output is not committed.
-- `app/` and `content/focuses/`: the retained non-CV frontend and shared UI. These are legacy playground content, not the final h34s example application.
-- `build.sbt`, `project/`, and dependency lockfiles: the recovered build inputs, including the ScalablyTyped npm lockfile.
+- `scala-modules/exts/`: native h3 bindings, ZIO handlers, conversion integrations, streaming tests, and recovered experimental migration helpers.
+- `scala-modules/kyo-example/`: Kyo models, application services, `AppHandler`, and exported GET/POST handlers.
+- `scala-modules/svr/`: the application-owned Notes model, Skunk service, environment composition, handlers, and schema, alongside recovered playground services.
+- `server/api/`: mounts for linked Scala.js handlers. Generated output is ignored.
+- `scripts/smoke.mjs`: direct HTTP streaming and database insert/read checks against a running development instance.
+- `app/` and `content/`: retained playground UI/content; this slice does not redesign the frontend.
 
-See [the baseline report](docs/baseline.md) for exclusions, validation, and known limitations. Existing scripts are historical build inputs, not a verified quickstart. In particular, the current Scala compiler options include `-rewrite`, and the production output path is not fully wired.
+The [baseline report](docs/baseline.md) records the original import and its historical limitations. The current integration removes source rewriting and the missing `TaskStream` reference. `pnpm build` now links both example applications for production before building Nuxt, with a guard against stale linked output. Full application packaging, Nix support, and Scala-to-TypeScript generation remain separate work.
 
-## Intended direction
-
-- Kyo as the core effect system, with an optional ZIO integration that preserves idiomatic ZIO handler code.
-- Application-owned `AppHandler.define`, standard ZIO layer/environment composition, and request/stream resource lifetimes.
-- Direct native conversions, generated TypeScript wire types through scala-ts, and separate public-safe and unsafe error channels.
-- An unpublished Nuxt example with streaming and Skunk database operations inside Scala.js/Nitro.
-- First-class sbt/Nix development and application packaging with sbt-native-packager, while retaining a non-Nix workflow.
-- Verified setup and adoption guides; compiler-derived interactive documentation as an explicit post-MVP priority.
-
-These are requirements, not claims of implemented support. [AGENTS.md](AGENTS.md) records the detailed direction and delivery rules. Public APIs, module boundaries, artifact names, supported versions, and packaging targets still need focused review.
-
-## Contributing
-
-Use small feature, fix, or documentation branches and focused pull requests. Include relevant tests and documentation with each change. Do not treat this recovered source layout or its known limitations as approved final architecture.
+Use small feature branches, focused commits, and reviewable pull requests. [AGENTS.md](AGENTS.md) records the detailed project direction and delivery rules.

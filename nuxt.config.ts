@@ -1,3 +1,7 @@
+import { resolve } from 'node:path'
+import { scalaDevModules } from './build/scala-dev-modules.mjs'
+import { scalaSourceMaps } from './build/scala-source-maps.mjs'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: [
@@ -29,6 +33,38 @@ export default defineNuxtConfig({
   },
 
   compatibilityDate: '2025-05-15',
+
+  hooks: {
+    'nitro:config': (config) => {
+      if (!config.dev)
+        return
+      config.sourceMap = true
+      const scalaOutputs = ['server/.scala', 'server/.scala-kyo']
+      config.devServer ??= {}
+      config.devServer.watch ??= []
+      config.devServer.watch.push(
+        ...scalaOutputs.map(directory => resolve(config.rootDir!, directory)),
+      )
+      config.rollupConfig ??= {}
+      // Load linked ESM directly in Node; relinking restarts the Nitro worker.
+      // This avoids retaining large Scala.js graphs in Rollup's development cache.
+      const existingPlugins = config.rollupConfig.plugins
+      config.rollupConfig.plugins = [
+        ...(Array.isArray(existingPlugins)
+          ? existingPlugins
+          : existingPlugins ? [existingPlugins] : []),
+        scalaDevModules(config.rootDir!, scalaOutputs),
+        scalaSourceMaps(
+          config.rootDir!,
+          scalaOutputs,
+        ),
+      ]
+      config.rollupConfig.output = {
+        ...config.rollupConfig.output,
+        sourcemapExcludeSources: false,
+      }
+    },
+  },
 
   eslint: {
     config: {

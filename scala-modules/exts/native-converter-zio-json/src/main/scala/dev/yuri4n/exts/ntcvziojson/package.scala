@@ -11,7 +11,7 @@ given NativeConverter[Json] with
         j match
             case Json.Null        => null
             case Json.Bool(value) => js.Any.fromBoolean(value)
-            case Json.Num(value)  => js.Any.fromDouble(value.floatValue().toDouble)
+            case Json.Num(value)  => js.Any.fromDouble(value.doubleValue())
             case Json.Str(value)  => js.Any.fromString(value)
             case Json.Arr(values) => js.Array(values.map(_.toNative)*)
             case Json.Obj(fields) =>

@@ -5,7 +5,7 @@ These notes record the user's intended direction. They are not a description of 
 ## Project identity
 
 - The user has chosen **h34s** as the project name.
-- The user authorized the private GitHub repository **yuri4n/h34s**, with remote `https://github.com/yuri4n/h34s.git`. Keep it private unless explicitly asked to change visibility. Published package/artifact namespaces remain to be agreed.
+- The user authorized the private GitHub repository **yuri4n/h34s**, with remote `https://github.com/yuri4n/h34s.git`. Keep it private unless explicitly asked to change visibility. The user approved private GitHub Packages Maven publication under `dev.yuri4n`, starting with `0.1.0-alpha.1`, including a matching Git tag and GitHub release. Keep both repository and packages private.
 - Do not rename the existing workspace directory, Scala packages, or build artifacts as a side effect of recording the name.
 
 ## Highest priority: developer experience
@@ -17,10 +17,12 @@ These notes record the user's intended direction. They are not a description of 
 - Do not make ordinary handlers configure conversion plumbing, construct transport objects, or manually import generated server files.
 - Avoid introducing a large framework or a mandatory build-system overhaul before the basic handler API is satisfactory.
 
-## Preserve the ZIO API philosophy
+## Agreed effect architecture and ZIO API philosophy
 
-- Keep ZIO as an optional integration with the same application-facing API style and operations as the existing wrappers. Preserve existing call sites where practical; explicitly identify necessary error-typing changes.
-- The ZIO integration should delegate to the Kyo-backed toolbox, rather than become a separate HTTP implementation or require application code to switch effect systems.
+- Keep one repository with separately consumable modules: thin native h3 bindings, an idiomatic ZIO API, and a first-class Kyo API.
+- ZIO is the primary documented developer experience. ZIO handlers use the ZIO runtime; Kyo handlers use the Kyo runtime. Keep effect-specific dependencies out of the native h3 bindings.
+- Share native transport contracts and behavior tests. Do not translate arbitrary ZIO programs into Kyo or introduce a mandatory dual-runtime bridge. A shared Kyo core is only a future option after explicit interoperability, cancellation, and lifecycle validation.
+- Preserve existing call sites where practical; explicitly identify necessary error-typing changes.
 - Application handlers should remain ordinary ZIO programs using `for` comprehensions, `ZIO.service`, typed errors, and streams.
 - The desired application entry point is `AppHandler.define: ...`.
 - `AppHandler` belongs to the example/application, not the reusable toolbox. It should be a thin composition over a library entry point such as `ZHandler.define`, supplying application-specific services, resources, and policy.
@@ -35,6 +37,10 @@ These notes record the user's intended direction. They are not a description of 
 
 ## Conversions and efficiency
 
+- Schema support is optional. NativeConverter-only users must retain a complete supported path without schema dependencies, new implicit requirements, or ambiguous converter defaults.
+- Applications that choose a schema should define structural and domain validation once in their model schema. Handlers request validated models; they should not repeat null, trimming, or length checks that belong to that schema.
+- Keep ZIO Schema and eventual Kyo Schema integrations as optional, independent bridges. Native values, NativeConverter, JSON, and YAML adapters should reuse that model definition where supported; do not claim all formats or schema systems are implemented before their adapters are validated.
+- Optional bridges must be explicit about converter ownership and supported schema shapes. Do not install a blanket schema-derived NativeConverter that competes with an application's existing converter.
 - Prefer `NativeConverter` and direct Scala.js/native-value conversion. Avoid JSON string round trips merely to move data between Scala and JavaScript; HTTP wire serialization is a separate concern.
 - Keep conversions and runtime machinery out of endpoint business logic.
 - Conversion integrations must compose predictably. Avoid duplicate defaults and ambiguous instances when users install multiple optional modules.
@@ -45,17 +51,21 @@ These notes record the user's intended direction. They are not a description of 
 
 - The user wants modules to be independently deliverable and usable, with a smart compatibility strategy for converters and integrations.
 - The current interpretation is separately publishable/consumable library artifacts, not separate deployed services; confirm if runtime deployment separation is intended.
-- Kyo should be the core effect system; ZIO should remain optional for Kyo-only consumers.
+- Kyo is a first-class independent integration, not a mandatory runtime beneath ZIO. Kyo-only consumers should not need ZIO, and ZIO-only consumers should not need Kyo.
+- The user explicitly selected current Kyo with required tooling updates over an older Kyo release chosen only to retain the existing compiler pin. Keep the effect modules independently consumable and record compiler, linker, and build-JDK requirements in the compatibility profile. Validate existing ZIO behavior when shared build tooling changes.
 - Application services, database configuration, and example DTOs belong in examples, not mandatory core dependencies.
-- Final module boundaries, naming, release/version policy, and converter compatibility rules remain design decisions to agree on.
+- The alpha release keeps native, ZIO, Kyo, optional ZIO Schema, and optional NuxtHub KV modules independently consumable in this repository. `version.sbt` controls the shared release version; `docs/releases.md` records coordinates and the tag/publish verification workflow. Future compatibility guarantees and broader module additions remain design decisions.
+- Maintain an explicit compatibility matrix for the native, ZIO, and optional schema integrations. Distinguish locally verified development combinations, CI/release validation, and untested combinations; list the evidence and platform constraints rather than implying broad support from one pinned build.
+- Tie compatibility entries to tested build profiles: record the Nix lock/toolchain reference when available, OS/architecture, the shared sbt/pnpm pipeline, and CI evidence. Track Nix/NixOS support as pending until that profile is implemented and tested; a local non-Nix run does not establish Nix compatibility.
 
 ## Previously requested capabilities
 
 - An unpublished `examples` module demonstrating a Nuxt frontend consuming Scala.js server handlers, a displayed stream, generated TypeScript types, and database writes.
-- The database example runs inside Scala.js/Nitro using **Skunk**, not Doobie/JDBC or a separate JVM service.
+- The database example runs inside Scala.js/Nitro using **Skunk**. The user reconfirmed Skunk after discussing Doobie: Doobie/JDBC would require a JVM backend. Models, database configuration, service layers, and AppHandler environment composition belong in the application modules.
 - Scala-to-TypeScript generation using **scala-ts**. Distinguish this from ScalablyTyped, which generates Scala facades from TypeScript.
 - Improved code generation and Nuxt imports, potentially through an sbt plugin and Nuxt integration, without making endpoint authors manage the plumbing.
 - Distinct public-safe errors and an unsafe `Throwable` channel. Only explicitly approved safe error data may be displayed; internal exceptions, causes, and defects must not leak to clients.
+- The user explicitly wants development diagnostics tied to Nuxt development mode. In that mode, responses may include original errors, causes, and traces for debugging. Production remains opaque. Compose Scala.js and Nitro source maps so Node debugging can locate the original Scala source.
 
 ## First-class sbt, Nix, and packaging support
 

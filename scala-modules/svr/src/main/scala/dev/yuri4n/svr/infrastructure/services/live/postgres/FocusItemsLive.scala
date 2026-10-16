@@ -1,11 +1,12 @@
 package dev.yuri4n.svr.infrastructure.services.live.postgres
 
 import dev.yuri4n.svr.model.{FocusItem, FocusItemRow, User}
-import dev.yuri4n.svr.services.{FocusItems, TaskStream}
+import dev.yuri4n.svr.services.FocusItems
 import skunk.Session
 import skunk.codec.all.*
 import skunk.implicits.*
 import zio.Task
+import zio.stream.Stream
 import zio.stream.interop.fs2z.*
 import zio.ZLayer
 
@@ -25,7 +26,7 @@ final class FocusItemsLive(session: Session[Task]) extends FocusItems[Task]:
       )
       .apply(creatorId, title, description)
 
-    override def getAll: TaskStream[FocusItemRow] = session
+    override def getAll: Stream[Throwable, FocusItemRow] = session
       .stream(
         sql"""
           SELECT id, creator_id, title, description
