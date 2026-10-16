@@ -40,7 +40,7 @@ The repository example uses the local package. A packed-tarball check verifies t
 
 Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, and a production bundle that runs without the original generated files.
 
-The npm release workflow also downloads the published archive with registry authentication, compares its bytes with the tested tarball, and installs that download offline in a clean consumer. It checks the CLI and all three JavaScript entry points without installing Nuxt as a peer. The release attaches the tarball and `registry.json`, which records its stable registry URL and integrity.
+The [successful npm release workflow](https://github.com/yuri4n/h34s/actions/runs/38937318206) downloaded the published archive with registry authentication, compared its bytes with the tested tarball, and installed that download offline in a clean consumer. It checked the CLI and all three JavaScript entry points without installing Nuxt as a peer. The release attaches the tarball and `registry.json`, which records its stable registry URL and integrity.
 
 Nuxt 4.3.1 passes the packed-package development and production HTTP checks in CI. Nuxt 4.4.2 passes the same checks locally on Linux x86_64 with Node 24.19.0. Package-level tests also cover Node 22.18.0 and 24. These results establish those explicit profiles, not every Nuxt 4.x version or a Nix/NixOS build.
 
