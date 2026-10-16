@@ -118,8 +118,10 @@ function linkedModule(revision) {
 }
 
 try {
-  const nuxtPackage = join(root, 'node_modules/nuxt')
-  assert.ok(existsSync(join(nuxtPackage, 'package.json')), 'Install the repository dependencies first')
+  const nuxtPackage = process.env.H34S_NUXT_PACKAGE
+    ? resolve(process.env.H34S_NUXT_PACKAGE)
+    : join(root, 'node_modules/nuxt')
+  assert.ok(existsSync(join(nuxtPackage, 'package.json')), 'Install the repository dependencies first, or set H34S_NUXT_PACKAGE to an installed Nuxt package directory')
   const nuxtVersion = JSON.parse(readFileSync(join(nuxtPackage, 'package.json'), 'utf8')).version
   const [packed] = JSON.parse(execFileSync(npm, [
     'pack', './packages/nuxt', '--ignore-scripts', '--json',

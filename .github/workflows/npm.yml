@@ -133,7 +133,7 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict'
-          import { readFileSync } from 'node:fs'
+          import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
           import { createHash } from 'node:crypto'
           import { join, basename } from 'node:path'
           import { execFileSync } from 'node:child_process'
@@ -151,9 +151,59 @@ jobs:
           const registry = 'https://npm.pkg.github.com'
           const tag = artifact.version.includes('-') ? 'alpha' : 'latest'
           execFileSync('npm', ['publish', tarball, '--ignore-scripts', '--access', 'restricted', '--tag', tag, '--registry', registry], { stdio: 'inherit' })
-          const publishedIntegrity = execFileSync('npm', ['view', `${artifact.name}@${artifact.version}`, 'dist.integrity', '--registry', registry], { encoding: 'utf8' }).trim()
-          assert.equal(publishedIntegrity, integrity, 'Published package must match the tested tarball')
+          const spec = `${artifact.name}@${artifact.version}`
+          const registryCache = join(process.env.RUNNER_TEMP, 'h34s-registry-cache')
+          const metadata = JSON.parse(execFileSync('npm', ['view', spec, '--json', '--cache', registryCache, '--registry', registry], { encoding: 'utf8' }))
+          assert.equal(metadata.name, artifact.name)
+          assert.equal(metadata.version, artifact.version)
+          assert.equal(metadata.dist.integrity, integrity, 'Published package must match the tested tarball')
+          // Attach only stable package coordinates and integrity, never auth or signed URLs.
+          let locator
+          try { locator = new URL(metadata.dist.tarball) }
+          catch { throw new Error('Registry metadata has an invalid tarball locator') }
+          assert.equal(locator.protocol, 'https:')
+          assert.equal(locator.host, 'npm.pkg.github.com')
+          assert.ok(!locator.username && !locator.password && !locator.search && !locator.hash, 'Registry locator must not contain credentials, query parameters or fragments')
+
+          const downloaded = join(process.env.RUNNER_TEMP, 'h34s-registry-download')
+          mkdirSync(downloaded)
+          const downloads = JSON.parse(execFileSync('npm', ['pack', spec, '--ignore-scripts', '--json', '--cache', registryCache, '--pack-destination', downloaded, '--registry', registry], { encoding: 'utf8' }))
+          assert.equal(downloads.length, 1)
+          const [download] = downloads
+          assert.equal(download.name, artifact.name)
+          assert.equal(download.version, artifact.version)
+          assert.equal(download.filename, artifact.filename)
+          assert.equal(download.integrity, integrity)
+          const registryTarball = join(downloaded, download.filename)
+          assert.ok(readFileSync(registryTarball).equals(readFileSync(tarball)), 'Registry download must be byte-identical to the tested tarball')
+
+          const consumer = join(process.env.RUNNER_TEMP, 'h34s-registry-consumer')
+          mkdirSync(consumer)
+          writeFileSync(join(consumer, 'package.json'), '{"name":"registry-consumer","private":true,"type":"module"}\n')
+          execFileSync('npm', ['install', '--offline', '--ignore-scripts', '--omit=optional', '--legacy-peer-deps', '--no-audit', '--no-fund', '--cache', join(process.env.RUNNER_TEMP, 'h34s-consumer-cache'), registryTarball], { cwd: consumer, stdio: 'pipe' })
+          const help = execFileSync(join(consumer, 'node_modules/.bin/h34s-scala'), ['--help'], { cwd: consumer, encoding: 'utf8' })
+          assert.match(help, /Usage: h34s-scala/)
+          execFileSync(process.execPath, ['--input-type=module', '-e', `
+            import assert from 'node:assert/strict'
+            import h34sNuxt from '@yuri4n/h34s-nuxt'
+            import { defineConfig, buildScala } from '@yuri4n/h34s-nuxt/build'
+            import { scalaDevModules, scalaSourceMaps } from '@yuri4n/h34s-nuxt/rollup'
+            for (const exported of [h34sNuxt, defineConfig, buildScala, scalaDevModules, scalaSourceMaps])
+              assert.equal(typeof exported, 'function')
+          `], { cwd: consumer, stdio: 'pipe' })
+          writeFileSync(join(directory, 'registry.json'), JSON.stringify({
+            name: metadata.name,
+            version: metadata.version,
+            dist: { tarball: locator.href, integrity: metadata.dist.integrity },
+          }, null, 2) + '\n')
+          console.log(`Verified authenticated registry download and isolated offline consumer: ${spec}`)
           NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: h34s-npm-registry-metadata
+          path: ${{ runner.temp }}/h34s-npm/registry.json
+          if-no-files-found: error
+          retention-days: 7
 
   release:
     needs: publish
@@ -165,6 +215,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: h34s-npm-package
+          path: ${{ runner.temp }}/h34s-npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: h34s-npm-registry-metadata
           path: ${{ runner.temp }}/h34s-npm
       - name: Create the separate npm GitHub release
         env:
@@ -179,7 +233,7 @@ jobs:
 
           This package provides the Nuxt module, Scala.js build CLI, and Rollup integration. Configure the \`@yuri4n\` npm scope to use \`https://npm.pkg.github.com\` and authenticate with package read access before installing it.
 
-          Both supported Node versions passed package tests and a clean consumer installed the packed archive. The published registry integrity matches that tested archive.
+          Both supported Node versions passed package tests, and Nuxt development and production HTTP checks passed. An authenticated registry download was byte-identical to the tested archive; a clean offline consumer installed that download and verified the CLI and all three JavaScript entry points. The attached \`registry.json\` records the stable registry location and integrity for the attached package archive.
 
           See [package setup instructions](https://github.com/yuri4n/h34s/blob/${RELEASE_TAG}/packages/nuxt/README.md). Scala.js Maven libraries use their own \`v*\` releases.
           EOF
@@ -187,7 +241,7 @@ jobs:
           if [[ "$release_version" == *-* ]]; then
             release_flags+=(--prerelease)
           fi
-          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/h34s-npm/*.tgz \
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/h34s-npm/*.tgz "$RUNNER_TEMP/h34s-npm/registry.json" \
             --verify-tag "${release_flags[@]}" \
             --title "h34s Nuxt tooling ${release_version}" \
             --notes-file "$notes_file"
