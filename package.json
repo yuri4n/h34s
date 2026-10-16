@@ -14,10 +14,13 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "scala:types": "sbt h3Ext/compile",
-    "scala:fast": "sbt nuxtsvr/fastLinkJS kyoExample/fastLinkJS",
-    "scala:full": "node scripts/build-scala.mjs",
+    "scala:fast": "h34s-scala dev",
+    "scala:full": "h34s-scala build",
     "dev:scala": "pnpm run scala:fast && pnpm run dev",
-    "build:scala": "pnpm run build"
+    "build:scala": "pnpm run build",
+    "scala:watch": "h34s-scala watch",
+    "test:tooling": "node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs",
+    "test:package": "node scripts/check-npm-package.mjs && node scripts/check-npm-nuxt.mjs"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^7.4.2",
@@ -34,6 +37,7 @@
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/typography": "^0.5.19",
     "@vueuse/nuxt": "^14.2.1",
+    "@yuri4n/h34s-nuxt": "workspace:*",
     "better-sqlite3": "^12.6.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

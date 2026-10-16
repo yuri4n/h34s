@@ -1,0 +1,24 @@
+{
+  "name": "@yuri4n/h34s-nuxt",
+  "version": "0.1.0-alpha.1",
+  "description": "Scala.js linking, development modules and source maps for Nuxt",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22.18.0" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuri4n/h34s.git",
+    "directory": "packages/nuxt"
+  },
+  "publishConfig": { "registry": "https://npm.pkg.github.com" },
+  "files": ["src", "README.md"],
+  "bin": { "h34s-scala": "./src/cli.mjs" },
+  "exports": {
+    ".": { "types": "./src/module.d.mts", "import": "./src/module.mjs" },
+    "./build": { "types": "./src/build.d.mts", "import": "./src/build.mjs" },
+    "./rollup": { "types": "./src/rollup.d.mts", "import": "./src/rollup.mjs" },
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": { "nuxt": "4.3.1 || 4.4.2" },
+  "peerDependenciesMeta": { "nuxt": { "optional": true } }
+}

@@ -1,0 +1,247 @@
+name: Nuxt build tooling
+
+on:
+  pull_request:
+    paths:
+      - packages/nuxt/**
+      - scripts/check-npm-package.mjs
+      - scripts/check-npm-nuxt.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/npm.yml
+  push:
+    branches: [main]
+    tags: ['npm-v*']
+    paths:
+      - packages/nuxt/**
+      - scripts/check-npm-package.mjs
+      - scripts/check-npm-nuxt.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/npm.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ['22.18.0', '24']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Check package identity and release tag
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { readFileSync } from 'node:fs'
+          const pkg = JSON.parse(readFileSync('packages/nuxt/package.json', 'utf8'))
+          assert.equal(pkg.name, '@yuri4n/h34s-nuxt')
+          assert.match(pkg.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)
+          assert.notEqual(pkg.private, true)
+          assert.equal(pkg.publishConfig?.registry, 'https://npm.pkg.github.com')
+          const repository = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url
+          assert.equal(repository, 'git+https://github.com/yuri4n/h34s.git')
+          if (process.env.RELEASE_REF.startsWith('refs/tags/'))
+            assert.equal(process.env.RELEASE_REF, `refs/tags/npm-v${pkg.version}`)
+          NODE
+      - name: Test the dependency-free package
+        run: node --test packages/nuxt/test/*.test.mjs
+      - name: Pack and verify a clean consumer
+        run: |
+          mkdir -p "$RUNNER_TEMP/h34s-npm"
+          npm pack ./packages/nuxt --ignore-scripts --json \
+            --pack-destination "$RUNNER_TEMP/h34s-npm" > "$RUNNER_TEMP/h34s-npm/pack.json"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { readFileSync } from 'node:fs'
+          import { join, basename } from 'node:path'
+          import { execFileSync } from 'node:child_process'
+          const directory = join(process.env.RUNNER_TEMP, 'h34s-npm')
+          const packed = JSON.parse(readFileSync(join(directory, 'pack.json'), 'utf8'))
+          assert.equal(packed.length, 1)
+          assert.equal(packed[0].filename, basename(packed[0].filename))
+          assert.match(packed[0].filename, /^yuri4n-h34s-nuxt-[0-9A-Za-z.-]+\.tgz$/)
+          execFileSync(process.execPath, ['scripts/check-npm-package.mjs', '--tarball', join(directory, packed[0].filename)], { stdio: 'inherit' })
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: matrix.node == '24'
+        with:
+          name: h34s-npm-package
+          path: ${{ runner.temp }}/h34s-npm/
+          if-no-files-found: error
+          retention-days: 7
+
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      NUXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify the packed module with Nuxt development and production HTTP
+        run: node scripts/check-npm-nuxt.mjs
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/npm-v')
+    needs: [validate, integration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: h34s-npm-package
+          path: ${{ runner.temp }}/h34s-npm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://npm.pkg.github.com
+          scope: '@yuri4n'
+      - name: Publish the verified tarball to private GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+          import { createHash } from 'node:crypto'
+          import { join, basename } from 'node:path'
+          import { execFileSync } from 'node:child_process'
+          const directory = join(process.env.RUNNER_TEMP, 'h34s-npm')
+          const packed = JSON.parse(readFileSync(join(directory, 'pack.json'), 'utf8'))
+          assert.equal(packed.length, 1)
+          const [artifact] = packed
+          assert.equal(artifact.name, '@yuri4n/h34s-nuxt')
+          assert.equal(process.env.RELEASE_TAG, `npm-v${artifact.version}`)
+          assert.equal(artifact.filename, basename(artifact.filename))
+          assert.match(artifact.filename, /^yuri4n-h34s-nuxt-[0-9A-Za-z.-]+\.tgz$/)
+          const tarball = join(directory, artifact.filename)
+          const integrity = `sha512-${createHash('sha512').update(readFileSync(tarball)).digest('base64')}`
+          assert.equal(integrity, artifact.integrity)
+          const registry = 'https://npm.pkg.github.com'
+          const tag = artifact.version.includes('-') ? 'alpha' : 'latest'
+          execFileSync('npm', ['publish', tarball, '--ignore-scripts', '--access', 'restricted', '--tag', tag, '--registry', registry], { stdio: 'inherit' })
+          const spec = `${artifact.name}@${artifact.version}`
+          const registryCache = join(process.env.RUNNER_TEMP, 'h34s-registry-cache')
+          const metadata = JSON.parse(execFileSync('npm', ['view', spec, '--json', '--cache', registryCache, '--registry', registry], { encoding: 'utf8' }))
+          assert.equal(metadata.name, artifact.name)
+          assert.equal(metadata.version, artifact.version)
+          assert.equal(metadata.dist.integrity, integrity, 'Published package must match the tested tarball')
+          // Attach only stable package coordinates and integrity, never auth or signed URLs.
+          let locator
+          try { locator = new URL(metadata.dist.tarball) }
+          catch { throw new Error('Registry metadata has an invalid tarball locator') }
+          assert.equal(locator.protocol, 'https:')
+          assert.equal(locator.host, 'npm.pkg.github.com')
+          assert.ok(!locator.username && !locator.password && !locator.search && !locator.hash, 'Registry locator must not contain credentials, query parameters or fragments')
+
+          const downloaded = join(process.env.RUNNER_TEMP, 'h34s-registry-download')
+          mkdirSync(downloaded)
+          const downloads = JSON.parse(execFileSync('npm', ['pack', spec, '--ignore-scripts', '--json', '--cache', registryCache, '--pack-destination', downloaded, '--registry', registry], { encoding: 'utf8' }))
+          assert.equal(downloads.length, 1)
+          const [download] = downloads
+          assert.equal(download.name, artifact.name)
+          assert.equal(download.version, artifact.version)
+          assert.equal(download.filename, artifact.filename)
+          assert.equal(download.integrity, integrity)
+          const registryTarball = join(downloaded, download.filename)
+          assert.ok(readFileSync(registryTarball).equals(readFileSync(tarball)), 'Registry download must be byte-identical to the tested tarball')
+
+          const consumer = join(process.env.RUNNER_TEMP, 'h34s-registry-consumer')
+          mkdirSync(consumer)
+          writeFileSync(join(consumer, 'package.json'), '{"name":"registry-consumer","private":true,"type":"module"}\n')
+          execFileSync('npm', ['install', '--offline', '--ignore-scripts', '--omit=optional', '--legacy-peer-deps', '--no-audit', '--no-fund', '--cache', join(process.env.RUNNER_TEMP, 'h34s-consumer-cache'), registryTarball], { cwd: consumer, stdio: 'pipe' })
+          const help = execFileSync(join(consumer, 'node_modules/.bin/h34s-scala'), ['--help'], { cwd: consumer, encoding: 'utf8' })
+          assert.match(help, /Usage: h34s-scala/)
+          execFileSync(process.execPath, ['--input-type=module', '-e', `
+            import assert from 'node:assert/strict'
+            import h34sNuxt from '@yuri4n/h34s-nuxt'
+            import { defineConfig, buildScala } from '@yuri4n/h34s-nuxt/build'
+            import { scalaDevModules, scalaSourceMaps } from '@yuri4n/h34s-nuxt/rollup'
+            for (const exported of [h34sNuxt, defineConfig, buildScala, scalaDevModules, scalaSourceMaps])
+              assert.equal(typeof exported, 'function')
+          `], { cwd: consumer, stdio: 'pipe' })
+          writeFileSync(join(directory, 'registry.json'), JSON.stringify({
+            name: metadata.name,
+            version: metadata.version,
+            dist: { tarball: locator.href, integrity: metadata.dist.integrity },
+          }, null, 2) + '\n')
+          console.log(`Verified authenticated registry download and isolated offline consumer: ${spec}`)
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: h34s-npm-registry-metadata
+          path: ${{ runner.temp }}/h34s-npm/registry.json
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: h34s-npm-package
+          path: ${{ runner.temp }}/h34s-npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: h34s-npm-registry-metadata
+          path: ${{ runner.temp }}/h34s-npm
+      - name: Create the separate npm GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          release_version="${RELEASE_TAG#npm-v}"
+          notes_file="$RUNNER_TEMP/h34s-npm-notes.md"
+          cat > "$notes_file" <<EOF
+          Published \`@yuri4n/h34s-nuxt@${release_version}\` to the private GitHub Packages npm registry.
+
+          This package provides the Nuxt module, Scala.js build CLI, and Rollup integration. Configure the \`@yuri4n\` npm scope to use \`https://npm.pkg.github.com\` and authenticate with package read access before installing it.
+
+          Both supported Node versions passed package tests, and Nuxt development and production HTTP checks passed. An authenticated registry download was byte-identical to the tested archive; a clean offline consumer installed that download and verified the CLI and all three JavaScript entry points. The attached \`registry.json\` records the stable registry location and integrity for the attached package archive.
+
+          See [package setup instructions](https://github.com/yuri4n/h34s/blob/${RELEASE_TAG}/packages/nuxt/README.md). Scala.js Maven libraries use their own \`v*\` releases.
+          EOF
+          release_flags=()
+          if [[ "$release_version" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/h34s-npm/*.tgz "$RUNNER_TEMP/h34s-npm/registry.json" \
+            --verify-tag "${release_flags[@]}" \
+            --title "h34s Nuxt tooling ${release_version}" \
+            --notes-file "$notes_file"

@@ -72,8 +72,8 @@ export function scalaDevModules(
           if (actualRoot !== root && within(actualRoot, candidate)) {
             candidate = resolve(root, relative(actualRoot, candidate))
           }
-          const linked = linkedDirectories.find(
-            directory => within(directory, candidate),
+          const linked = linkedDirectories.find(directory =>
+            within(directory, candidate),
           )
           if (!linked) {
             return null
@@ -82,15 +82,14 @@ export function scalaDevModules(
             realpath(linked),
             realpath(candidate),
           ])
-          if (actualDirectory === actualRoot || !within(
-            actualRoot,
-            actualDirectory,
-          )
-          || !within(
-            actualDirectory,
-            actualFile,
-          ) || !(await stat(actualFile))
-            .isFile()) { return null }
+          if (
+            actualDirectory === actualRoot
+            || !within(actualRoot, actualDirectory)
+            || !within(actualDirectory, actualFile)
+            || !(await stat(actualFile)).isFile()
+          ) {
+            return null
+          }
           return { id: pathToFileURL(actualFile).href, external: true }
         }
         catch (error) {

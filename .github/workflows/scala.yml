@@ -6,6 +6,7 @@ on:
       - scala-modules/**
       - project/**
       - build/**
+      - packages/nuxt/**
       - scripts/**
       - build.sbt
       - version.sbt
@@ -16,12 +17,14 @@ on:
       - nuxt.config.ts
       - .github/workflows/scala.yml
       - .github/workflows/release.yml
+      - .github/workflows/npm.yml
   push:
     branches: [main]
     paths:
       - scala-modules/**
       - project/**
       - build/**
+      - packages/nuxt/**
       - scripts/**
       - build.sbt
       - version.sbt
@@ -32,6 +35,7 @@ on:
       - nuxt.config.ts
       - .github/workflows/scala.yml
       - .github/workflows/release.yml
+      - .github/workflows/npm.yml
   workflow_call:
   workflow_dispatch:
 
@@ -69,7 +73,7 @@ jobs:
         # These library checks do not need Nuxt's postinstall preparation.
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Test Nuxt development integration
-        run: node --test scripts/*.test.mjs
+        run: node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
       - name: Install the isolated KV test fixture
         run: npm ci --prefix scala-modules/exts/nuxthub/test-js --ignore-scripts
       - name: Test native, ZIO, Kyo, optional schema, and KV APIs
