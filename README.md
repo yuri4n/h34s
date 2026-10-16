@@ -4,7 +4,7 @@ A Scala.js toolbox for Nuxt/Nitro server handlers, with developer experience as 
 
 **Status: [Maven alpha `0.1.0-alpha.1` released](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1).** Eleven independently consumable `dev.yuri4n` libraries are available through private GitHub Packages, including native h3 bindings, ZIO/Kyo APIs, and optional Schema and NuxtHub KV adapters. See the [installation and release guide](docs/releases.md) for authentication, coordinates, and validation.
 
-Reusable build scripts and Nuxt development integration live in **`@yuri4n/h34s-nuxt`**. Its separate npm release is pending; the [npm tooling guide](docs/npm-tooling.md) covers source-tarball review and the installation/configuration contract. Applications keep their sbt build and services; the package supplies the CLI, source-map support, development loading, and diagnostics plugin.
+Reusable build scripts and Nuxt development integration are published as **`@yuri4n/h34s-nuxt@0.1.0-alpha.1`** in the [separate npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The [npm tooling guide](docs/npm-tooling.md) covers installation and application configuration. Applications keep their sbt build and services; the package supplies the CLI, source-map support, development loading, and diagnostics plugin.
 
 Both effect APIs use their own runtimes, native conversion, and application-owned services. The ZIO example also covers streaming and Skunk. Kyo streaming and Kyo Schema adapters, automatic route/type generation, and application packaging remain planned.
 

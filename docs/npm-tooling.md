@@ -2,13 +2,13 @@
 
 `@yuri4n/h34s-nuxt` owns the reusable JavaScript build and development integration. Applications configure their Scala.js modules once, then use its `h34s-scala` CLI and Nuxt module. They do not copy build scripts, source-map loaders, or the development-error plugin.
 
-**Publication status:** version `0.1.0-alpha.1` is prepared in `packages/nuxt`; its npm release is pending. The existing Maven release `v0.1.0-alpha.1` does not contain or publish this npm package. The registry installation below applies after the separate npm release succeeds. During review, use a packed tarball from the source checkout.
+**[`@yuri4n/h34s-nuxt@0.1.0-alpha.1` is published](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1)** in the private GitHub npm registry. Its `npm-v0.1.0-alpha.1` tag is separate from the immutable Maven `v0.1.0-alpha.1` release.
 
 ## Install the tooling
 
 The package is a build-time dependency. Keep `h3` as an application runtime dependency and Scala libraries as sbt/Maven dependencies; [releases.md](releases.md) documents the latter.
 
-After npm publication, configure the private GitHub npm registry in the application's `.npmrc`:
+Configure the private GitHub npm registry in the application's `.npmrc`:
 
 ```ini
 @yuri4n:registry=https://npm.pkg.github.com
@@ -24,7 +24,7 @@ pnpm add -D @yuri4n/h34s-nuxt@0.1.0-alpha.1
 pnpm add h3@1.15.4
 ```
 
-For source review before publication, run this from the h34s checkout:
+For local source review, run this from the h34s checkout:
 
 ```sh
 npm pack ./packages/nuxt --pack-destination /tmp
@@ -36,9 +36,13 @@ Then install the resulting tarball in a disposable consumer:
 pnpm add -D /tmp/yuri4n-h34s-nuxt-0.1.0-alpha.1.tgz
 ```
 
-The repository example uses the local package. A packed-tarball check verifies that consumers receive the runtime plugin and helpers without referencing files outside the package. A local tarball path is a review setup; use the pinned registry dependency for an independently installable application after publication.
+The repository example uses the local package. A packed-tarball check verifies that consumers receive the runtime plugin and helpers without referencing files outside the package. A local tarball path is a review setup; use the pinned registry dependency for an independently installable application.
 
 Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, and a production bundle that runs without the original generated files.
+
+The npm release workflow also downloads the published archive with registry authentication, compares its bytes with the tested tarball, and installs that download offline in a clean consumer. It checks the CLI and all three JavaScript entry points without installing Nuxt as a peer. The release attaches the tarball and `registry.json`, which records its stable registry URL and integrity.
+
+Nuxt 4.3.1 passes the packed-package development and production HTTP checks in CI. Nuxt 4.4.2 passes the same checks locally on Linux x86_64 with Node 24.19.0. Package-level tests also cover Node 22.18.0 and 24. These results establish those explicit profiles, not every Nuxt 4.x version or a Nix/NixOS build.
 
 ## Configure the Scala.js outputs
 

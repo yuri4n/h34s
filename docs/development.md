@@ -2,7 +2,7 @@
 
 This repository example uses the `0.1.0-alpha.1` libraries. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates.
 
-The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. Its first npm publication is pending. The [npm tooling guide](npm-tooling.md) explains how external applications configure the same integration without copying scripts.
+The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications can install its [published `0.1.0-alpha.1` package](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The [npm tooling guide](npm-tooling.md) explains how to configure the same integration without copying scripts.
 
 ## Prerequisites
 

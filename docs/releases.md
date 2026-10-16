@@ -2,7 +2,7 @@
 
 **`dev.yuri4n` version `0.1.0-alpha.1` is published** in the private GitHub Packages Maven registry for `yuri4n/h34s`. The [prerelease](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1) and [successful release workflow](https://github.com/yuri4n/h34s/actions/runs/38779659501) record publication of all eleven artifacts and authenticated ZIO/Kyo/Schema consumer checks.
 
-The reusable JavaScript tooling is a separate npm package, `@yuri4n/h34s-nuxt`. Its first release is pending and is not included in the Maven tag above. See [npm-tooling.md](npm-tooling.md) for package installation, shared configuration, and local tarball review.
+The reusable JavaScript tooling is published separately as `@yuri4n/h34s-nuxt@0.1.0-alpha.1` in the [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The Maven tag above remains unchanged. See [npm-tooling.md](npm-tooling.md) for package installation, shared configuration, and local tarball review.
 
 ## Toolchain
 
@@ -148,6 +148,8 @@ Treat published release versions as immutable. If a release stops after some pac
 
 ## Release the npm build tooling separately
 
-`packages/nuxt/package.json` owns the npm version. Its `npm-v<version>` tag workflow is separate from the Maven `v<version>` workflow and targets `https://npm.pkg.github.com`. Releasing or consuming the build tooling does not republish Scala artifacts. The prepared initial npm version is `0.1.0-alpha.1`; it remains unpublished until its own workflow succeeds.
+`packages/nuxt/package.json` owns the npm version. Its `npm-v<version>` tag workflow is separate from the Maven `v<version>` workflow and targets `https://npm.pkg.github.com`. Releasing or consuming the build tooling does not republish Scala artifacts. The initial npm version `0.1.0-alpha.1` is published under [its own immutable tag](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1).
 
 Validate package tests and a packed tarball before publishing. The tarball must contain the CLI, Nuxt module, runtime plugin, configuration helpers, and source-map/development loaders; a workspace import alone does not prove the published contents are complete. Validate an external Nuxt consumer as well as the repository example, then inspect the separate npm release checks before recommending registry installation. Keep package versions immutable and pin the application dependency.
+
+The npm workflow gates publication on Node 22.18.0/24 package checks and Nuxt 4.3.1 development/production HTTP checks. It publishes using the repository's `GITHUB_TOKEN` with `packages: write`, then downloads the exact registry version into a fresh cache. The downloaded archive must match the tested bytes before an isolated offline installation verifies its CLI and three JavaScript entry points. The GitHub release includes that tarball and sanitized `registry.json` metadata with its registry location and integrity. Nuxt 4.4.2 also passed the same HTTP checks locally on Linux x86_64 with Node 24.19.0; it is an explicit additional profile, not evidence for all Nuxt 4.x releases or Nix/NixOS.
