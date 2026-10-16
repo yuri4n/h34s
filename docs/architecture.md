@@ -1,6 +1,6 @@
 # Direction: one repository, independent effect integrations
 
-h34s keeps the native h3 bindings and the effect integrations in one repository. Modules should be separately consumable; splitting Git repositories is not needed to achieve that.
+h34s is a toolbox for adding Scala.js server code to your Nuxt application. Install the native bindings or the effect integration you need. The repository also contains an optional integration demo in `examples/nuxt/` and an independent documentation app in `website/`.
 
 | Module responsibility | Dependencies and execution |
 | --- | --- |
@@ -8,24 +8,25 @@ h34s keeps the native h3 bindings and the effect integrations in one repository.
 | ZIO API | Ordinary ZIO handlers, services, scopes, streams, and the ZIO runtime |
 | Optional ZIO Schema bridges | Schema-driven native conversion and request validation; no schema requirement in the NativeConverter-only core |
 | Kyo API | Native Kyo handlers, Env services, Scope cleanup, and Kyo runtime execution; see [Kyo guide](kyo.md) |
-| Application | Models, database configuration, service layers, connection ownership, and `AppHandler` |
-| Nuxt integration | Connect linked Scala.js handlers to Nitro routes |
+| Your application | Define models, configure databases, compose service layers, and own resources; optionally write an `AppHandler` wrapper |
+| npm/Nuxt integration | Invoke Scala linking and install development loading, source maps, and the diagnostics plugin after configuration |
+| Your Nuxt routes | Mount each exported Scala.js handler in a route file |
 
 ZIO defines the primary documented developer experience. It is not a neutral representation of arbitrary effects, and its programs are not automatically translated into native Kyo execution. Share transport contracts and behavior tests between integrations. A shared Kyo implementation can be evaluated later behind explicit interoperability tests; neither consumer should acquire a second runtime by default.
 
-The current source module names are retained. Published artifact names and a release/compatibility policy are still undecided. The current aggregate also contains historical experimental modules; this change does not claim that its packaging is ready for independent publication.
+Eleven reusable Maven artifacts and the separate npm tooling are published at `0.1.0-alpha.1`. See [releases](releases.md) for coordinates and [npm tooling](npm-tooling.md) for setup. The demo, aggregates, and experimental migration module are excluded from publication. Installing the toolbox does not install the demo's database service or UI.
 
 ## Application-owned environments
 
 `ZHandler.define` supplies the HTTP request context, scopes request execution, hides the ZIO runtime/JavaScript Promise boundary, and converts the result through `NativeConverter`.
 
-The example's `AppHandler.define` provides `Services.layer` before crossing that boundary. `Services` composes configuration, a scoped Skunk connection, and `NotesLive`. Endpoint programs use `ZIO.serviceWithZIO[Notes]`; they do not construct connections, runtimes, or transport objects.
+Define your services and compose their `ZLayer` values in your application. If you want a shared entry point, write your own `AppHandler.define` to provide that environment before calling `ZHandler.define`. `AppHandler` is the demo's naming convention, not a library export. The optional Notes demo shows this with `Services.layer`, database configuration, a scoped Skunk connection, and `NotesLive`. Its endpoints request `Notes` with `ZIO.serviceWithZIO[Notes]`.
 
 This first example opens one connection per request and closes it when that request completes or fails. It is not an application-wide pool. Reusing a `ZLayer` value does not memoize it across requests. A pool will require explicit startup/shutdown ownership and request-scoped leases in a subsequent change.
 
 Skunk runs directly in Scala.js/Nitro. Doobie depends on JDBC and would require a JVM backend; that is not the selected application architecture.
 
-The independent Kyo application supplies `Greetings` through `Env.run` in its own `AppHandler`. It depends on `kyoH3Ext` and the native bindings, without ZIO. Its compiler is Scala 3.9.0 for Kyo 1.0.0-RC7; existing ZIO modules remain on Scala 3.5.2. Both use the Scala.js 1.22.0 linker. See [Kyo](kyo.md) for runtime and lifecycle differences.
+For Kyo, define your services and resolve their `Env` requirements before calling `KHandler.define`. Follow the demo's optional `AppHandler` wrapper to provide `Greetings` with `Env.run`. Choose `kyoH3Ext` and the native bindings for this path. Its compiler is Scala 3.9.0 for Kyo 1.0.0-RC7; the ZIO modules use Scala 3.5.2. Both use the Scala.js 1.22.0 linker. See [Kyo](kyo.md) for runtime and lifecycle differences.
 
 ## Errors and streaming
 
@@ -41,8 +42,8 @@ The Web Stream adapter pulls one upstream chunk at a time and awaits scoped clea
 
 ## Next coherent slices
 
-1. Package the native bindings and ZIO API as independently consumable artifacts, with a version matrix and fresh-consumer test.
+1. Extend the tested consumer profiles for the published libraries and npm tooling.
 2. Automate route discovery and type generation so adding an endpoint does not require a TypeScript mounting file.
 3. Extend the Kyo handler API with optional Schema and streaming adapters, preserving independent runtimes and transport contracts.
 4. Add an application-scoped Skunk pool with startup/shutdown and stream lease tests.
-5. Verify the production Nuxt/Scala.js pipeline, then add the planned Nix and native-packager paths.
+5. Extend the verified production Nuxt/Scala.js pipeline with the planned Nix and native-packager paths.

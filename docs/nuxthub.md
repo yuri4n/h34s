@@ -64,7 +64,7 @@ val update = cache.set("profiles:42", Profile("Yuri", 1)).map { _ =>
 } // Option[Profile] < (Async & Abort[Throwable])
 ```
 
-Provide the adapter through ordinary `ZLayer`/ZIO services or Kyo `Env` when the application needs dependency injection. Application `AppHandler` composition remains responsible for those services; the KV adapter does not supply an HTTP handler or an effect runtime.
+Provide the adapter through your ordinary ZIO layers or Kyo `Env` when you need service composition. If you use an `AppHandler` wrapper, write that composition in your application before calling the h34s handler boundary. The KV adapter wraps the store you supply; it does not create your application services or HTTP routes.
 
 Both adapters expose `get[A](key)`, `set[A](key, value, ttlSeconds = None)`, `has(key)`, `delete(key)`, and `keys(base = None)`. Storage calls and conversion are deferred until execution. Reusing an operation executes a new storage call each time. Synchronous native exceptions, rejected Promises, and conversion errors enter the effect's `Throwable` failure channel.
 

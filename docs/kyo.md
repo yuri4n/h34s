@@ -1,6 +1,6 @@
 # Kyo handlers in Nuxt
 
-The Kyo integration runs ordinary Kyo programs on Kyo's own runtime. The reusable `kyoH3Ext` module depends on native h3 bindings and Kyo, without ZIO. It is configured as `"dev.yuri4n" %%% "kyo-h3-ext" % "0.1.0-alpha.1"` for the alpha release candidate. Installation requires a successful matching tag release workflow; see [releases.md](releases.md) for registry access and setup. The combined demonstration mounts both APIs in the same Nuxt application; each application module has its own dependency graph.
+The Kyo integration runs ordinary Kyo programs on Kyo's own runtime. Install `"dev.yuri4n" %%% "kyo-h3-ext" % "0.1.0-alpha.1"` from the published private Maven release; see [releases.md](releases.md) for registry access and setup. The module depends on native h3 bindings and Kyo, without ZIO. The optional demo in `examples/nuxt/` mounts both APIs in one Nuxt application; each Scala application module has its own dependency graph.
 
 ## Run the example
 
@@ -21,7 +21,7 @@ curl --fail -H 'Content-Type: application/json' \
 node scripts/kyo-smoke.mjs
 ```
 
-The responses are `{"message":"Hello, Kyo!"}` and `{"message":"Hello, Scala!"}`. Run `kyoExample/fastLinkJS` again after changing Kyo application source; Nitro watches `server/.scala-kyo`. Nitro loads the linked ES modules directly in Node and replaces its worker after relinking. `pnpm dev` enables Node source maps automatically; no heap override is needed. The application pins runtime `h3` 1.15.4 for those native imports.
+The responses are `{"message":"Hello, Kyo!"}` and `{"message":"Hello, Scala!"}`. Run `kyoExample/fastLinkJS` again after changing Kyo application source; Nitro watches `examples/nuxt/server/.scala-kyo`. Nitro loads the linked ES modules directly in Node and replaces its worker after relinking. `pnpm dev` enables Node source maps automatically; no heap override is needed. The application pins runtime `h3` 1.15.4 for those native imports.
 
 In the prepared cloud environment, run `source /workspace/tooling/activate-kyo.sh` before sbt to select the separately installed Java 25. The existing Java 21 activation remains available for ZIO-only work.
 
@@ -35,7 +35,7 @@ The reusable `kyoH3Ext` module retains Kyo's upstream dependency graph. Applicat
 
 ## Keep endpoints small
 
-The compiled examples live under `scala-modules/kyo-example/src/main/scala/dev/yuri4n/kyoexample`:
+Define `Greetings` in your application and write the `AppHandler` wrapper shown below before using these endpoints. Both names belong to the example. The compiled source lives under `examples/nuxt/scala/kyo/src/main/scala/dev/yuri4n/kyoexample`:
 
 ```scala
 val greeting = AppHandler.define:
@@ -48,9 +48,9 @@ val personalizedGreeting = AppHandler.define:
     yield greeting
 ```
 
-`Greetings` is an ordinary application service. `KHandler` supplies the request context, runs Kyo, converts the result, and owns the request lifecycle. Endpoint code does not create a runtime or a JavaScript Promise.
+`KHandler` supplies the request context, runs Kyo, converts the result, and owns the request lifecycle.
 
-The full source includes `JSExportTopLevel` annotations. The two TypeScript files under `server/api/kyo` mount these linked exports. Route discovery and generated TypeScript types remain planned.
+Export your handler with `JSExportTopLevel`, then create a TypeScript route file to mount it. The demo's two files under `examples/nuxt/server/api/kyo` show that setup. Route discovery and generated TypeScript types remain planned.
 
 ## NativeConverter is enough
 
@@ -65,7 +65,7 @@ No Schema derivation is required. NativeConverter defines representation, not do
 
 ## Resolve services in the application
 
-The application's `AppHandler` supplies `Greetings` before entering the library:
+Create an application module that constructs your services. If you want a shared handler entry point, write your own `AppHandler` to resolve `Env[Greetings]` before calling `KHandler.define`:
 
 ```scala
 import dev.yuri4n.exts.h3.CommonEvHandler
@@ -80,7 +80,7 @@ object AppHandler:
       KHandler.define(Env.run(Services.greetings)(program))
 ```
 
-`Services` constructs a `GreetingConfig` and `Greetings.live(config)` outside the handlers. These are immutable application values; sharing them does not require cleanup. Replace these services and provisioning with your own ordinary Kyo composition.
+Define `Services.greetings` from your `GreetingConfig` and `Greetings.live(config)` outside the endpoints. These example values are immutable and need no cleanup. Adapt the services and provisioning to your application. Use `KHandler.define` directly when an application wrapper adds no useful composition.
 
 `HandlerEffects` covers `Async`, `Scope`, `Abort[Throwable]`, and `Env[KH3Event]`. `KHandler.getEvent` reads the HTTP context. `KHandler.setResponseStatus` changes the status. A Unit overload returns JavaScript `undefined` without asking the application for a converter.
 
