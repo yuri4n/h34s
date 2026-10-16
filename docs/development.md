@@ -47,7 +47,11 @@ The independent [Kyo example](kyo.md) adds GET and POST `/api/kyo/greeting`. Its
 
 ## 2. Run the model and database example
 
-Set `MY_APP_DB_HOST`, `MY_APP_DB_PORT`, `MY_APP_DB_USER`, `MY_APP_DB_PASSWORD`, and `MY_APP_DB_NAME` in your process or an ignored local environment file. For local Compose, use host `127.0.0.1` and port `5432` (or a free port of your choice). Supply your own local password; do not commit it.
+Export `MY_APP_DB_HOST`, `MY_APP_DB_PORT`, `MY_APP_DB_USER`, `MY_APP_DB_PASSWORD`, and `MY_APP_DB_NAME` in the shell you use for both Compose and Nuxt. For local Compose, use host `127.0.0.1` and port `5432` (or a free port of your choice). Supply your own local password; do not commit it.
+
+If you prefer a local environment file, put it in the ignored `examples/nuxt/.env` and add `--env-file examples/nuxt/.env` to each Compose command below. Nuxt development reads that file from the example's application root.
+
+Keep the default Compose project name `h34s` to reuse the existing `h34s_postgres_data` volume after the demo's move. If you previously used another project name, set `COMPOSE_PROJECT_NAME` to that name or add `-p <existing-name>` to each Compose command below.
 
 ```sh
 docker compose -f examples/nuxt/docker-compose.yml up -d postgres
