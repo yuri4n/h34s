@@ -33,7 +33,15 @@ ThisBuild / credentials ++= (for {
 
 GitHub's Maven registry uses [repository-scoped permissions](https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages#permissions-for-repository-scoped-packages). The h34s repository's own workflows can publish and verify these packages with their `GITHUB_TOKEN`.
 
-A different repository, including `yurian.land`, needs a classic PAT with `read:packages` from an account that can read private `yuri4n/h34s`. Store it as that consumer repository's `GITHUB_PACKAGES_TOKEN` Actions secret and provide the token owner's username as `GITHUB_PACKAGES_USER`. Pass those values to the sbt step. The consumer's own `GITHUB_TOKEN` and the granular package “Manage Actions access” settings do not establish cross-repository Maven access.
+A different repository, including `yurian.land`, needs a classic PAT with `read:packages` from an account that can read private `yuri4n/h34s`. Store it as that consumer repository's `PACKAGES_READ_TOKEN` Actions secret and provide the token owner's username as the `PACKAGES_USER` Actions variable. GitHub reserves the `GITHUB_` prefix for saved secret and variable names. Map the saved values into the environment names read by sbt:
+
+```yaml
+env:
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+  GITHUB_PACKAGES_USER: ${{ vars.PACKAGES_USER }}
+```
+
+The consumer's own `GITHUB_TOKEN` and the granular package “Manage Actions access” settings do not establish cross-repository Maven access.
 
 HTTP 401 usually means missing or invalid credentials. HTTP 403, or a package appearing absent despite a successful release, can mean that the account or workflow repository lacks access. Check the registry URL, package version, token scope, and package access before changing dependency versions.
 

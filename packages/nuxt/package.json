@@ -19,6 +19,6 @@
     "./rollup": { "types": "./src/rollup.d.mts", "import": "./src/rollup.mjs" },
     "./package.json": "./package.json"
   },
-  "peerDependencies": { "nuxt": "4.3.1" },
+  "peerDependencies": { "nuxt": "4.3.1 || 4.4.2" },
   "peerDependenciesMeta": { "nuxt": { "optional": true } }
 }

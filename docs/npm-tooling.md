@@ -17,6 +17,8 @@ After npm publication, configure the private GitHub npm registry in the applicat
 
 Provide `GITHUB_PACKAGES_TOKEN` from your shell or secret manager using a classic PAT with `read:packages` and access to the private package. Commit only the environment-variable placeholder. This npm scope mapping does not configure sbt's Maven resolver.
 
+In GitHub Actions, save the token as `PACKAGES_READ_TOKEN` and map `${{ secrets.PACKAGES_READ_TOKEN }}` into the `GITHUB_PACKAGES_TOKEN` process environment variable. Save the username as `PACKAGES_USER` when the same workflow also resolves Maven artifacts. GitHub reserves `GITHUB_` for saved secret and variable names.
+
 ```sh
 pnpm add -D @yuri4n/h34s-nuxt@0.1.0-alpha.1
 pnpm add h3@1.15.4
@@ -74,7 +76,7 @@ Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
   (LocalRootProject / baseDirectory).value / "server" / ".scala",
 ```
 
-The npm package requires Node 22.18 or later and the pinned Nuxt 4.3.1 profile. Use the compiler, linker, and JDK versions from the [toolchain profile](releases.md#toolchain); the combined repository profile uses Node 24. The package does not install Java or sbt.
+The npm package requires Node 22.18 or later and Nuxt 4.3.1 or 4.4.2. These are explicit compatibility profiles; other Nuxt versions need validation. Use the compiler, linker, and JDK versions from the [toolchain profile](releases.md#toolchain); the combined repository profile uses Node 24. The package does not install Java or sbt.
 
 ## Add the Nuxt module and scripts
 
