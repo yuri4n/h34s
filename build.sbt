@@ -2,7 +2,7 @@ import org.scalajs.linker.interface.{ESVersion, ModuleKind, OutputPatterns}
 
 // Explicitly exclude aggregate projects, applications and the migration experiment.
 lazy val releaseModules = Seq(
-  "h3Ext", "zioH3Ext", "kyoH3Ext", "zioJsExt", "nativeConverterZIOExt",
+  "h3Ext", "zioH3Ext", "kyoH3Ext", "kyoCatsExt", "zioJsExt", "nativeConverterZIOExt",
   "nativeConverterZIOJsonExt", "nativeConverterZIOSchemaExt", "zioH3SchemaExt",
   "nuxtHubExt", "zioNuxtHubExt", "kyoNuxtHubExt",
 )
@@ -63,7 +63,7 @@ lazy val configureCommonJsProject: Project => Project =
     )
 
 lazy val root = (project in file("."))
-  .aggregate(exts, nuxtsvr, kyoH3Ext, kyoExample, nuxtHubExt, zioNuxtHubExt, kyoNuxtHubExt)
+  .aggregate(exts, nuxtsvr, kyoH3Ext, kyoCatsExt, kyoExample, nuxtHubExt, zioNuxtHubExt, kyoNuxtHubExt)
   .settings(
     publish / skip := true,
   )
@@ -162,6 +162,21 @@ lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
     ),
   )
   .dependsOn(h3Ext)
+
+// Optional Cats Effect interoperability; no transport, database, or ZIO dependency.
+lazy val kyoCatsExt: Project = (project in file("scala-modules/exts/kyo-cats"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    name := "kyo-cats-ext",
+    scalaVersion := "3.9.0",
+    libraryDependencies ++= Seq(
+      "io.getkyo" %%% "kyo-core" % "1.0.0-RC7",
+      "org.typelevel" %%% "cats-effect" % "3.6.3",
+      "org.scalameta" %%% "munit" % "1.2.1" % Test,
+    ),
+    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
+      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
+  )
 
 lazy val kyoExample: Project = (project in file("examples/nuxt/scala/kyo"))
   .enablePlugins(ScalaJSPlugin)

@@ -10,6 +10,7 @@ export const releaseModules = [
   ['h3', 'h3-ext', '3.5.2'],
   ['zio-h3', 'zio-h3-ext', '3.5.2'],
   ['kyo-h3', 'kyo-h3-ext', '3.9.0'],
+  ['kyo-cats', 'kyo-cats-ext', '3.9.0'],
   ['zio-js', 'zio-js-ext', '3.5.2'],
   ['native-converter-zio', 'native-converter-zio-ext', '3.5.2'],
   ['native-converter-zio-json', 'native-converter-zio-json-ext', '3.5.2'],
@@ -20,19 +21,19 @@ export const releaseModules = [
   ['kyo-nuxthub', 'kyo-nuxthub-ext', '3.9.0'],
 ]
 
-export function releaseVersion(root = repository) {
+export function releaseVersion(root = repository, { allowSnapshot = false } = {}) {
   const version = readFileSync(resolve(root, 'version.sbt'), 'utf8').match(
     /ThisBuild\s*\/\s*version\s*:=\s*"([^"]+)"/,
   )?.[1]
   assert(
-    version && !version.endsWith('-SNAPSHOT'),
+    version && (allowSnapshot || !version.endsWith('-SNAPSHOT')),
     'A concrete release version is required in version.sbt',
   )
   return version
 }
 
-export function checkRelease(root = repository, environment = process.env) {
-  const version = releaseVersion(root)
+export function checkRelease(root = repository, environment = process.env, { allowSnapshot = false } = {}) {
+  const version = releaseVersion(root, { allowSnapshot: allowSnapshot && environment.GITHUB_REF_TYPE !== 'tag' })
   if (environment.GITHUB_REF_TYPE === 'tag') {
     assert.equal(
       environment.GITHUB_REF_NAME,
@@ -104,6 +105,12 @@ export function checkRelease(root = repository, environment = process.env) {
           'Native h3 must remain effect-neutral',
         )
       }
+      if (artifact === 'kyo-cats-ext') {
+        assert(
+          dependency.group !== 'dev.yuri4n' && dependency.group !== 'org.tpolecat',
+          'Cats interoperability must not depend on h3 or a database adapter',
+        )
+      }
       if (artifact.startsWith('kyo-'))
         assert(dependency.group !== 'dev.zio', 'Kyo must not depend on ZIO')
       if (['zio-h3-ext', 'zio-nuxthub-ext'].includes(artifact)) {
@@ -122,4 +129,4 @@ export function checkRelease(root = repository, environment = process.env) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(
   resolve(process.argv[1]),
-).href) { checkRelease() }
+).href) { checkRelease(repository, process.env, { allowSnapshot: process.argv.includes('--allow-snapshot') }) }

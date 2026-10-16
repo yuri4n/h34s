@@ -16,8 +16,8 @@ import { releaseVersion } from './check-release.mjs'
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const temporary = mkdtempSync(join(tmpdir(), 'h34s-consumers-'))
 const maven = join(temporary, 'maven')
-const version = releaseVersion()
 const published = process.argv.includes('--published')
+const version = releaseVersion(repository, { allowSnapshot: !published })
 const resolver = published
   ? '"GitHub Packages" at "https://maven.pkg.github.com/yuri4n/h34s"'
   : `"release-staging" at "${pathToFileURL(`${maven}/`).href}"`
@@ -163,6 +163,65 @@ server.listen(0, '127.0.0.1', async () => {
 `)
     run(process.execPath, ['smoke.cjs'], directory)
   }
+  // Keep the generic Cats bridge consumable without HTTP or database libraries.
+  const catsDirectory = join(temporary, 'kyo-cats')
+  write(join(catsDirectory, '.jvmopts'), readFileSync(resolve(repository, '.jvmopts'), 'utf8'))
+  write(join(catsDirectory, 'project/build.properties'), 'sbt.version=1.11.7\n')
+  write(join(catsDirectory, 'project/plugins.sbt'), 'addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0")\n')
+  write(join(catsDirectory, 'build.sbt'), `
+scalaVersion := "3.9.0"
+enablePlugins(ScalaJSPlugin)
+externalResolvers := {
+  require(!sys.props.get("sbt.override.build.repos").exists(_.equalsIgnoreCase("true")), "Fresh consumer checks require their explicit Maven resolvers; disable sbt.override.build.repos in the sbt launcher.")
+  Seq(${resolver}, "Maven Central" at "https://repo.maven.apache.org/maven2")
+}
+${published
+  ? 'credentials ++= (for { actor <- sys.env.get("GITHUB_ACTOR").toSeq; token <- sys.env.get("GITHUB_TOKEN").toSeq } yield Credentials("GitHub Package Registry", "maven.pkg.github.com", actor, token))'
+  : ''}
+libraryDependencies += "dev.yuri4n" %%% "kyo-cats-ext" % "${version}"
+scalaJSLinkerConfig ~= (_.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule).withOutputPatterns(org.scalajs.linker.interface.OutputPatterns.fromJSFile("%s.cjs")))
+Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / "out"
+TaskKey[Unit]("writeDependencies") := IO.write(baseDirectory.value / "dependencies.txt", (Compile / update).value.allModules.map(m => m.organization + ":" + m.name + ":" + m.revision).sorted.mkString("\\n"))
+TaskKey[Unit]("writeArtifactPaths") := IO.write(baseDirectory.value / "artifacts.txt", (Compile / update).value.allFiles.map(_.getAbsolutePath).sorted.mkString("\\n"))
+`)
+  write(join(catsDirectory, 'src/main/scala/Consumer.scala'), `
+import cats.effect.{IO, Resource}
+import dev.yuri4n.exts.kyocats.CatsEffect
+import kyo.*
+import scala.concurrent.ExecutionContext
+import scala.scalajs.js
+import scala.scalajs.js.JSConverters.*
+import scala.scalajs.js.annotation.JSExportTopLevel
+object Consumer:
+  @JSExportTopLevel("run")
+  def run(): js.Promise[String] =
+    import kyo.AllowUnsafe.embrace.danger
+    given ExecutionContext = ExecutionContext.global
+    var released = false
+    val io = Resource.make(IO.pure("published-kyo-cats"))(_ => IO { released = true }).use(IO.pure)
+    Fiber.Unsafe.init(Abort.run[Throwable](Scope.run(CatsEffect.run(io)))).toFuture().map { result =>
+      val value = result.fold(identity, error => throw error, error => throw error)
+      assert(released, "Cats Resource release must finish before the result")
+      value
+    }.toJSPromise
+`)
+  run('sbt', ['compile', 'writeDependencies', 'writeArtifactPaths', 'fastLinkJS'], catsDirectory)
+  const catsDependencies = readFileSync(join(catsDirectory, 'dependencies.txt'), 'utf8')
+  const catsArtifacts = readFileSync(join(catsDirectory, 'artifacts.txt'), 'utf8')
+  assert(!/[/\\]local[/\\]dev\.yuri4n[/\\]/.test(catsArtifacts), 'Cats consumer resolved a local Ivy h34s artifact')
+  if (!published)
+    assert(catsArtifacts.includes(maven), 'Cats consumer did not use the isolated Maven staging repository')
+  assert(!/^(?:dev\.zio:|org\.tpolecat:|org\.scalablytyped(?:\.|:))/m.test(catsDependencies), 'Cats consumer acquired ZIO, Skunk, or generated facade dependencies')
+  assert(!/^dev\.yuri4n:(?!kyo-cats-ext_sjs1_3:)/m.test(catsDependencies), 'Cats consumer acquired another h34s module')
+  write(join(catsDirectory, 'smoke.cjs'), `
+const assert = require('node:assert/strict');
+const timeout = setTimeout(() => { console.error('Cats consumer timed out'); process.exitCode = 1; }, 10000);
+require('./out/main.cjs').run().then(value => {
+  assert.equal(value, 'published-kyo-cats');
+  console.log('Standalone Cats consumer ran IO and awaited Resource release');
+}).catch(error => { console.error(error); process.exitCode = 1; }).finally(() => clearTimeout(timeout));
+`)
+  run(process.execPath, ['smoke.cjs'], catsDirectory)
   console.log(`Fresh Maven consumers passed for ${version}`)
 }
 finally {

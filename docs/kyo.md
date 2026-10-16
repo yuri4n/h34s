@@ -4,7 +4,7 @@ The Kyo integration runs ordinary Kyo programs on Kyo's own runtime. Install `"d
 
 ## Run the example
 
-Use the development toolchain from [development](development.md). Kyo 1.0.0-RC7 requires Java 25 for its build-time macros and Scala 3.9.0, selected only for `kyoH3Ext` and `kyoExample`. Existing ZIO modules keep Scala 3.5.2; the shared Scala.js linker is 1.22.0.
+Use the development toolchain from [development](development.md). Kyo 1.0.0-RC7 requires Java 25 for its build-time macros and Scala 3.9.0, selected for Kyo modules and `kyoExample`. Existing ZIO modules keep Scala 3.5.2; the shared Scala.js linker is 1.22.0.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -91,6 +91,10 @@ A typed `Abort.fail` with `SafeError` from `dev.yuri4n.exts.kyoh3` exposes an ap
 Unexpected exceptions, panics, and response conversion failures return status 500 with `{"errors":["Internal server error"]}`. Server diagnostics keep the original exception. Nuxt's existing development plugin enables `debug.cause` only when the server context contains boolean `true`; request headers and query values do not enable it.
 
 Kyo and ZIO keep their own trace formats. [Development source maps](debugging.md) map generated JavaScript back to project Scala sources for both output directories.
+
+## Use an existing Cats Effect library
+
+Keep native Kyo APIs in your Kyo services. When you need an existing Cats Effect library, use the optional development [`kyo-cats-ext` bridge](kyo-cats.md) to run a complete `IO`/`Resource.use` program with cancellation and cleanup tied to the Kyo scope. It is not in the published alpha.1, and it is independent of h3, ZIO, and Skunk. Do not add a Cats bridge merely to select a database for a new Kyo service; evaluate Kyo SQL directly.
 
 ## Resource lifetime
 

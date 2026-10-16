@@ -76,11 +76,12 @@ jobs:
         run: node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
       - name: Install the isolated KV test fixture
         run: npm ci --prefix scala-modules/exts/nuxthub/test-js --ignore-scripts
-      - name: Test native, ZIO, Kyo, optional schema, and KV APIs
+      - name: Test native, ZIO, Kyo, optional Cats, schema, and KV APIs
         run: >-
           sbt -batch
           'zioH3Ext/test'
           'kyoH3Ext/test'
+          'kyoCatsExt/test'
           'nativeConverterZIOSchemaExt/test'
           'zioH3SchemaExt/test'
           'nuxtsvr/test'
@@ -91,7 +92,7 @@ jobs:
       - name: Check publication metadata
         run: |
           sbt -batch releaseCheck
-          node scripts/check-release.mjs
+          node scripts/check-release.mjs --allow-snapshot
       - name: Stage reusable libraries locally
         run: sbt -batch releasePublishLocal
       - name: Verify independent Maven consumers

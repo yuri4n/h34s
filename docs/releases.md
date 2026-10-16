@@ -2,6 +2,8 @@
 
 **`dev.yuri4n` version `0.1.0-alpha.1` is published** in the private GitHub Packages Maven registry for `yuri4n/h34s`. The [prerelease](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1) and [successful release workflow](https://github.com/yuri4n/h34s/actions/runs/38779659501) record publication of all eleven artifacts and authenticated ZIO/Kyo/Schema consumer checks.
 
+Development now uses `0.1.0-alpha.2-SNAPSHOT`, including the optional `kyo-cats-ext` bridge. That snapshot is not a registry release; the eleven alpha.1 packages and their immutable tag remain the published baseline. See [Cats Effect interoperability](kyo-cats.md) for local development consumption.
+
 The reusable JavaScript tooling is published separately as `@yuri4n/h34s-nuxt@0.1.0-alpha.1` in the [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The Maven tag above remains unchanged. See [npm-tooling.md](npm-tooling.md) for package installation, shared configuration, and local tarball review.
 
 ## Toolchain
@@ -122,27 +124,27 @@ Run the same core checks from a clean checkout with the toolchain above:
 pnpm install --frozen-lockfile --ignore-scripts
 node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
 npm ci --prefix scala-modules/exts/nuxthub/test-js --ignore-scripts
-sbt 'zioH3Ext/test' 'kyoH3Ext/test' \
+sbt 'zioH3Ext/test' 'kyoH3Ext/test' 'kyoCatsExt/test' \
   'nativeConverterZIOSchemaExt/test' 'zioH3SchemaExt/test' 'nuxtsvr/test' \
   'zioNuxtHubExt/test' 'kyoNuxtHubExt/test'
 pnpm run scala:full
 sbt releaseCheck
-node scripts/check-release.mjs
+node scripts/check-release.mjs --allow-snapshot
 sbt releasePublishLocal
 node scripts/check-consumers.mjs
 ```
 
 The installation step skips Nuxt's postinstall preparation because these library checks do not start Nuxt. Use the ordinary installation and startup commands in the development guide when running the application.
 
-`releaseCheck` generates the intended library POMs. The metadata check rejects inconsistent release versions, unexpected internal dependencies, local generated-facade dependencies, and a tag that does not exactly match the configured version. `releasePublishLocal` publishes only the reusable modules to local Ivy for validation. `releasePublish` publishes that same module set to `https://maven.pkg.github.com/yuri4n/h34s`.
+`releaseCheck` generates the intended library POMs. On development branches, `--allow-snapshot` explicitly permits local metadata validation. Tag validation and `check-consumers.mjs --published` still require a concrete release version; a snapshot cannot be released through the tag workflow. The metadata check rejects inconsistent release versions, unexpected internal dependencies, local generated-facade dependencies, and a tag that does not exactly match the configured version. `releasePublishLocal` publishes only the reusable modules to local Ivy for validation. `releasePublish` publishes that same module set to `https://maven.pkg.github.com/yuri4n/h34s`.
 
-`check-consumers.mjs` redirects publication to a disposable local Maven repository. It creates three independent projects: Scala 3.5.2/ZIO, Scala 3.9.0/Kyo, and ZIO with the optional Schema and JSON adapters. They depend only on release artifact coordinates, with Maven Central and the staged repository as their resolvers. None references repository source projects or locally published Ivy artifacts. Each compiles, links, checks that the other effect runtime is absent, and serves a real HTTP request through h3. The base ZIO consumer also checks that it has no optional Schema dependency. The Schema consumer decodes a request with `readBodyWithSchema` and checks decimal JSON conversion without a Float precision loss.
+`check-consumers.mjs` redirects publication to a disposable local Maven repository. It creates four independent projects: a standalone Cats/Kyo bridge consumer plus Scala 3.5.2/ZIO, Scala 3.9.0/Kyo, and ZIO with the optional Schema and JSON adapters. They depend only on release artifact coordinates, with Maven Central and the staged repository as their resolvers. None references repository source projects or locally published Ivy artifacts. The three HTTP consumers compile, link, check that the other effect runtime is absent, and serve a real HTTP request through h3. The standalone Cats/Kyo consumer checks that no h3, ZIO, Skunk, or other h34s module is present, runs an IO, and waits for its resource release. The base ZIO consumer also checks that it has no optional Schema dependency. The Schema consumer decodes a request with `readBodyWithSchema` and checks decimal JSON conversion without a Float precision loss.
 
 The consumers also compile their respective NuxtHub KV adapter constructors. KV operations are exercised separately by the adapter test suites against the pinned JavaScript fixture; the consumer HTTP checks do not start NuxtHub or a storage service. The script removes its temporary projects and Maven repository afterward.
 
 `pnpm run scala:full` clears previous linked output before linking both application modules for production, then checks that their output exists. The normal `pnpm build` command runs this step before Nuxt's production build, so a failed link cannot package stale development code.
 
-The `v0.1.0-alpha.1` tag is already released and must not be moved. For a future release, update the Maven version, review the commit and checks, then create its matching `v<version>` tag. The tag workflow validates that exact revision, then publishes packages using `GITHUB_ACTOR` and the repository's `GITHUB_TOKEN`. It next runs `node scripts/check-consumers.mjs --published` against GitHub Packages to verify all three consumers through the authenticated registry, without local staging. Only the package publication job receives `packages: write`, which also permits this download check. A separate job receives `contents: write` to create the GitHub prerelease after publication and registry verification succeed. No additional release secret is required, and repository/package visibility remains private.
+The `v0.1.0-alpha.1` tag is already released and must not be moved. For a future release, update the Maven version, review the commit and checks, then create its matching `v<version>` tag. The tag workflow validates that exact revision, then publishes packages using `GITHUB_ACTOR` and the repository's `GITHUB_TOKEN`. It next runs `node scripts/check-consumers.mjs --published` against GitHub Packages to verify all four consumers through the authenticated registry, without local staging. Only the package publication job receives `packages: write`, which also permits this download check. A separate job receives `contents: write` to create the GitHub prerelease after publication and registry verification succeed. No additional release secret is required, and repository/package visibility remains private.
 
 Treat published release versions as immutable. If a release stops after some packages have uploaded, inspect the workflow and registry before retrying; do not overwrite artifacts with different contents under the same version. A corrected release should use a new version and matching tag.
 
