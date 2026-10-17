@@ -1,23 +1,18 @@
 package dev.yuri4n.kyoexample
 
-import dev.yuri4n.exts.h3.CommonEvHandler
-import dev.yuri4n.exts.kyoh3.{HandlerEffects, KHandler}
+import dev.yuri4n.exts.kyoh3.{EventHandler, HandlerEffects, KHandler, Request, ResponseBody, ResponseHead}
 import kyo.*
-import org.getshaka.nativeconverter.NativeConverter
 
 /** Immutable, application-owned services. No resource lifetime is implied by Env.run. */
 object Services:
     private val config = GreetingConfig("Hello")
     val greetings: Greetings = Greetings.live(config)
 
-/** Resolve application effects here; KHandler supplies the HTTP context and runtime. */
+/** The application's one wiring point: it provides services around each handler function.
+  * KHandler supplies the request snapshot, runs Kyo, and writes the response.
+  */
 object AppHandler:
-    def define[A: NativeConverter](
-        program: => A < (HandlerEffects & Env[Greetings]),
-    )(using Frame): CommonEvHandler =
-      KHandler.define(Env.run(Services.greetings)(program))
-
-    def define(
-        program: => Unit < (HandlerEffects & Env[Greetings]),
-    )(using Frame): CommonEvHandler =
-      KHandler.define(Env.run(Services.greetings)(program))
+    def define[B: ResponseBody](
+        program: Request => B < (HandlerEffects & Env[Greetings]),
+    )(using Frame): EventHandler =
+      KHandler.define(ResponseHead.noStore)(request => Env.run(Services.greetings)(program(request)))

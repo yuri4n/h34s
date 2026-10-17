@@ -1,16 +1,17 @@
 package dev.yuri4n.kyoexample
 
-import dev.yuri4n.exts.kyoh3.KHandler
+import dev.yuri4n.exts.kyoh3.*
 import kyo.*
+
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 @JSExportTopLevel("default", "kyo-greeting-get")
-val greeting = AppHandler.define:
+val greeting: EventHandler = AppHandler.define: _ =>
     Env.use[Greetings](_.greet("Kyo"))
 
 @JSExportTopLevel("default", "kyo-greeting-post")
-val personalizedGreeting = AppHandler.define:
+val personalizedGreeting: EventHandler = AppHandler.define: request =>
     for
-      input <- KHandler.readBody[GreetingRequest]
+      input    <- request.body.json[GreetingRequest]
       greeting <- Env.use[Greetings](_.greet(input.name))
     yield greeting
