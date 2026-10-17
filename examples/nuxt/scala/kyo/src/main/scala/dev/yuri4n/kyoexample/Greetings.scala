@@ -1,10 +1,19 @@
 package dev.yuri4n.kyoexample
 
+import dev.yuri4n.exts.ntcvkyoschema.NativeSchema
 import kyo.*
-import org.getshaka.nativeconverter.NativeConverter
 
-final case class GreetingRequest(name: String) derives NativeConverter
-final case class Greeting(message: String) derives NativeConverter
+/** The request model. Its one schema carries the validation; `NativeSchema` derives from it, so
+  * `request.body.json[GreetingRequest]` answers 422 with these messages and the `name` path.
+  */
+final case class GreetingRequest(name: String) derives NativeSchema
+
+object GreetingRequest:
+    given Schema[GreetingRequest] = Schema[GreetingRequest]
+      .check(_.name)(_.trim.nonEmpty, "must not be blank")
+      .checkMaxLength(_.name)(80)
+
+final case class Greeting(message: String) derives Schema, NativeSchema
 
 final case class GreetingConfig(prefix: String)
 
