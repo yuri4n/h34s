@@ -1,40 +1,95 @@
 package dev.yuri4n.exts.ntcvzioschema
 
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput}
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.{Chunk, Unsafe}
 import zio.schema.{Schema, StandardType}
 import zio.schema.annotation.validate
-import zio.schema.validation.Validation
+import zio.schema.validation.{Validation, ValidationError}
 
 import scala.scalajs.js
 
-/** An explicit, optional bridge. No Schema-derived NativeConverter is installed implicitly. */
+/** A `NativeConverter` derived from a ZIO `Schema`. Opt in per type:
+  *
+  * {{{
+  * final case class CreateNote(@validate(Validation.minLength(1)) text: String) derives Schema, NativeSchema
+  * }}}
+  *
+  * Decoding converts the native value directly (no JSON text) and runs the schema's transforms and
+  * validations. Invalid input throws `InvalidInput`: h34s body reads answer it with a 422. A value
+  * of the wrong shape gives one generic entry; validation failures give one entry per failed check,
+  * with the field path (`pair.first`, `names[1]`) and a message built from the check and its
+  * bounds, never from the input value. Encoding exceptions and unsupported schemas are defects.
+  *
+  * No converter is installed implicitly: only types that derive `NativeSchema` (or call
+  * `NativeSchema.derived`) get one.
+  */
+trait NativeSchema[A] extends NativeConverter[A]
+
 object NativeSchema:
     case object InvalidValue
 
     final class UnsupportedSchema(message: String) extends IllegalArgumentException(message)
 
+    /** The converter for `derives NativeSchema`. Fails with `UnsupportedSchema` for schema shapes
+      * this bridge does not support.
+      */
+    def derived[A](using schema: Schema[A]): NativeSchema[A] = apply(schema).converter
+
+    /** An explicit codec for one schema. */
     def apply[A](schema: Schema[A]): Codec[A] =
       checkSupported(schema, Nil)
       new Codec(schema)
 
     final class Codec[A] private[NativeSchema] (schema: Schema[A]):
         /** Expected input failures are values; schema/validator exceptions are not swallowed. */
-        def decode(value: js.Any): Either[InvalidValue.type, A] =
-          read(schema, value, 0).map(_.asInstanceOf[A])
+        def decode(value: js.Any): Either[InvalidValue.type, A] = validate(value).left.map(_ => InvalidValue)
+
+        /** Like `decode`, with the public details of the rejection. */
+        def validate(value: js.Any): Either[InvalidInput, A] =
+          read(schema, value, 0, Path.root) match
+              case Right(decoded)                => Right(decoded.asInstanceOf[A])
+              case Left(Rejection.Shape)         => Left(InvalidInput())
+              case Left(Rejection.Invalid(list)) => Left(InvalidInput(list.toList))
 
         def encode(value: A): js.Any = write(schema, value, 0)
 
-        /** Opt in explicitly, preserving existing custom/derived converter ownership. */
-        def converter: NativeConverter[A] = new NativeConverter[A]:
+        /** This schema as a `NativeConverter`. Rejected input throws `InvalidInput`. */
+        def converter: NativeSchema[A] = new NativeSchema[A]:
             extension (value: A) def toNative: js.Any = encode(value)
 
-            def fromNative(state: ParseState): A = decode(state.json) match
-                case Right(value) => value
-                case Left(_)      => state.fail("Value does not match schema")
+            def fromNative(state: ParseState): A = validate(state.json) match
+                case Right(value)   => value
+                case Left(rejected) => throw rejected
+    end Codec
 
-    private type Result = Either[InvalidValue.type, Any]
+    /** Why input was rejected. A shape failure hides the details; validation failures are listed. */
+    private enum Rejection:
+        case Shape
+        case Invalid(entries: Vector[ErrorEntry])
+
+    private type Result = Either[Rejection, Any]
     private val maxDepth = 128
+
+    /** A field path for error entries, for example `pair.first` or `names[1]`. */
+    private final case class Path(segments: Vector[String]):
+        def field(name: String): Path = Path(segments :+ (if segments.isEmpty then name else s".$name"))
+        def index(position: Int): Path = Path(segments :+ s"[$position]")
+        def render: Option[String]     = Option.when(segments.nonEmpty)(segments.mkString)
+
+    private object Path:
+        val root: Path = Path(Vector.empty)
+
+    /** Combines independent results: any shape failure wins, otherwise validation entries add up. */
+    private def collect(values: Iterable[Result]): Either[Rejection, Chunk[Any]] =
+      values.foldLeft[Either[Rejection, Chunk[Any]]](Right(Chunk.empty)) {
+        case (Left(Rejection.Shape), _)                              => Left(Rejection.Shape)
+        case (_, Left(Rejection.Shape))                              => Left(Rejection.Shape)
+        case (Left(Rejection.Invalid(left)), Left(Rejection.Invalid(right))) => Left(Rejection.Invalid(left ++ right))
+        case (Left(invalid), Right(_))                               => Left(invalid)
+        case (Right(_), Left(invalid))                               => Left(invalid)
+        case (Right(elements), Right(element))                       => Right(elements :+ element)
+      }
 
     private def checkSupported(schema: Schema[?], seen: List[Schema[?]]): Unit =
       if !seen.exists(previous => previous.asInstanceOf[AnyRef] eq schema.asInstanceOf[AnyRef]) then
@@ -67,30 +122,56 @@ object NativeSchema:
     private def valid(schema: Schema[?], value: Any): Boolean =
       validators(schema).forall(_.validate(value).isRight)
 
-    private def read(schema: Schema[?], value: js.Any, depth: Int): Result =
-      if depth > maxDepth then Left(InvalidValue)
+    /** Runs every validator once and turns failures into entries at `path`. */
+    private def check(validations: Iterable[Validation[Any]], value: Any, path: Path): Result =
+      val entries = validations.toVector.flatMap(_.validate(value).left.toOption.toVector.flatMap(_.toVector))
+        .map(error => ErrorEntry(describe(error), path.render))
+      if entries.isEmpty then Right(value) else Left(Rejection.Invalid(entries.distinct))
+
+    /** A public message for a failed check: the rule and its application-authored bounds only. ZIO
+      * Schema's own messages quote the input, so they are never used.
+      */
+    private def describe(error: ValidationError): String = error match
+        case ValidationError.MinLength(minimum, _, _)  => s"must have at least ${characters(minimum)}"
+        case ValidationError.MaxLength(maximum, _, _)  => s"must have at most ${characters(maximum)}"
+        case ValidationError.GreaterThan(_, expected)  => s"must be greater than $expected"
+        case ValidationError.LessThan(_, expected)     => s"must be less than $expected"
+        case ValidationError.EqualTo(_, expected)      => s"must be equal to $expected"
+        case ValidationError.NotEqualTo(_, expected)   => s"must not be equal to $expected"
+        case ValidationError.EqualToNone()             => "is required"
+        case ValidationError.MissingField(_)           => "is required"
+        case ValidationError.RegexMatch(_, _)          => "does not have the expected format"
+        case ValidationError.NotRegexMatch(_, _)       => "does not have the expected format"
+        case _                                         => "is not valid"
+
+    private def characters(count: Int): String = if count == 1 then "1 character" else s"$count characters"
+
+    private def read(schema: Schema[?], value: js.Any, depth: Int, path: Path): Result =
+      if depth > maxDepth then Left(Rejection.Shape)
       else
         val result: Result = schema match
             case primitive: Schema.Primitive[?] => readPrimitive(primitive.standardType, value)
-            case record: Schema.Record[?] => readRecord(record.asInstanceOf[Schema.Record[Any]], value, depth)
+            case record: Schema.Record[?] => readRecord(record.asInstanceOf[Schema.Record[Any]], value, depth, path)
             case optional: Schema.Optional[?] =>
               if value == null || js.isUndefined(value) then Right(None)
-              else read(optional.schema, value, depth + 1).map(Some(_))
+              else read(optional.schema, value, depth + 1, path).map(Some(_))
             case sequence: Schema.Sequence[?, ?, ?] =>
-              if !js.Array.isArray(value) then Left(InvalidValue)
+              if !js.Array.isArray(value) then Left(Rejection.Shape)
               else
                 val typed = sequence.asInstanceOf[Schema.Sequence[Any, Any, Any]]
                 val values = value.asInstanceOf[js.Array[js.Any]]
-                collect(values.toSeq.map(element => read(typed.elementSchema, element, depth + 1)))
-                  .map(typed.fromChunk)
+                collect(values.toSeq.zipWithIndex.map((element, position) =>
+                  read(typed.elementSchema, element, depth + 1, path.index(position)),
+                )).map(typed.fromChunk)
             case transform: Schema.Transform[?, ?, ?] =>
               val typed = transform.asInstanceOf[Schema.Transform[Any, Any, Any]]
-              read(typed.schema, value, depth + 1).flatMap(typed.f(_).left.map(_ => InvalidValue))
-            case deferred: Schema.Lazy[?] => read(deferred.schema, value, depth + 1)
+              // A transform rejection message is application text that may quote the input: hide it.
+              read(typed.schema, value, depth + 1, path).flatMap(typed.f(_).left.map(_ => Rejection.Shape))
+            case deferred: Schema.Lazy[?] => read(deferred.schema, value, depth + 1, path)
             case _ => throw new UnsupportedSchema("Unsupported native schema")
         result.flatMap { decoded =>
           if decoded == null then throw new IllegalStateException("Schema returned null")
-          if valid(schema, decoded) then Right(decoded) else Left(InvalidValue)
+          check(validators(schema), decoded, path)
         }
 
     private def readPrimitive(standardType: StandardType[?], value: js.Any): Result =
@@ -100,28 +181,29 @@ object NativeSchema:
           case StandardType.IntType if js.typeOf(value) == "number" =>
             val number = value.asInstanceOf[Double]
             if number >= Int.MinValue && number <= Int.MaxValue && number == math.floor(number) then Right(number.toInt)
-            else Left(InvalidValue)
+            else Left(Rejection.Shape)
           case StandardType.DoubleType if js.typeOf(value) == "number" =>
             val number = value.asInstanceOf[Double]
-            if number.isNaN || number.isInfinity then Left(InvalidValue) else Right(number)
-          case _ => Left(InvalidValue)
+            if number.isNaN || number.isInfinity then Left(Rejection.Shape) else Right(number)
+          case _ => Left(Rejection.Shape)
 
-    private def readRecord(record: Schema.Record[Any], value: js.Any, depth: Int): Result =
-      if value == null || js.typeOf(value) != "object" || js.Array.isArray(value) then Left(InvalidValue)
+    private def readRecord(record: Schema.Record[Any], value: js.Any, depth: Int, path: Path): Result =
+      if value == null || js.typeOf(value) != "object" || js.Array.isArray(value) then Left(Rejection.Shape)
       else
         val objectValue = value.asInstanceOf[js.Object]
         val prototype = js.Object.getPrototypeOf(objectValue)
-        if prototype != null && prototype != js.Dynamic.global.Object.prototype then Left(InvalidValue)
+        if prototype != null && prototype != js.Dynamic.global.Object.prototype then Left(Rejection.Shape)
         else
           val keys = js.Object.keys(objectValue).toSeq.toSet
           val known = record.fields.flatMap(_.nameAndAliases).toSet
-          if record.rejectExtraFields && !keys.subsetOf(known) then Left(InvalidValue)
+          if record.rejectExtraFields && !keys.subsetOf(known) then Left(Rejection.Shape)
           else
             val fields = record.fields.map { field =>
               val present = field.nameAndAliases.intersect(keys)
               val useDefault = field.transient || (present.isEmpty && field.optional)
+              val fieldPath = path.field(field.fieldName)
               val decoded: Result =
-                if present.size > 1 then Left(InvalidValue)
+                if present.size > 1 then Left(Rejection.Shape)
                 else if useDefault then
                   // Defaults are already typed values. Validate through the encoding
                   // direction without executing decode transforms a second time.
@@ -130,26 +212,21 @@ object NativeSchema:
                   Right(default)
                 else
                   val raw = present.headOption.fold[js.Any](js.undefined)(name => value.asInstanceOf[js.Dynamic].selectDynamic(name))
-                  read(field.schema, raw, depth + 1)
+                  read(field.schema, raw, depth + 1, fieldPath)
               decoded.flatMap { result =>
-                if field.validation.asInstanceOf[Validation[Any]].validate(result).isRight then Right(result)
-                else if useDefault then throw new IllegalArgumentException("Invalid schema field default")
-                else Left(InvalidValue)
+                val checked = check(List(field.validation.asInstanceOf[Validation[Any]]), result, fieldPath)
+                if checked.isLeft && useDefault then throw new IllegalArgumentException("Invalid schema field default")
+                checked
               }
             }
             collect(fields).map { values =>
-              Unsafe.unsafe { implicit unsafe =>
+              Unsafe.unsafely {
                 record.construct(values).fold(
                   _ => throw new IllegalStateException("Schema record construction failed"),
                   identity,
                 )
               }
             }
-
-    private def collect(values: Iterable[Result]): Either[InvalidValue.type, Chunk[Any]] =
-      values.foldLeft[Either[InvalidValue.type, Chunk[Any]]](Right(Chunk.empty)) { (acc, value) =>
-        for elements <- acc; element <- value yield elements :+ element
-      }
 
     private def write(schema: Schema[?], value: Any, depth: Int): js.Any =
       require(depth <= maxDepth, "Native schema value exceeds maximum depth")
@@ -186,3 +263,4 @@ object NativeSchema:
             write(typed.schema, original, depth + 1)
           case deferred: Schema.Lazy[?] => write(deferred.schema, value, depth + 1)
           case _ => throw new UnsupportedSchema("Unsupported native schema")
+end NativeSchema

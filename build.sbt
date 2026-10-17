@@ -272,7 +272,8 @@ lazy val nativeConverterZIOJsonExt: Project =
     )
     .dependsOn(nativeConverterZIOExt)
 
-// Optional schema integrations. NativeConverter-only users need neither project.
+// Optional ZIO Schema integration (`derives Schema, NativeSchema`). NativeConverter-only users
+// do not need it. It depends on h3-ext for InvalidInput/ErrorEntry (effect-free).
 lazy val nativeConverterZIOSchemaExt: Project =
   (project in file("scala-modules/exts/native-converter-zio-schema"))
     .enablePlugins(ScalaJSPlugin)
@@ -288,6 +289,7 @@ lazy val nativeConverterZIOSchemaExt: Project =
       testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
       commonJsTests,
     )
+    .dependsOn(h3Ext)
 
 lazy val zioH3SchemaExt: Project = (project in file("scala-modules/exts/zio-h3-schema"))
   .enablePlugins(ScalaJSPlugin)
