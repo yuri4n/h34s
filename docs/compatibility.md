@@ -43,13 +43,13 @@ On macOS 15.7.5, x86_64, during the refactor (2026-10-17):
 | `nativeConverterZIOJsonExt`, `zioMigrationsExt` | compile |
 | `kyoExample/fastLinkJS`, `nuxtsvr/fastLinkJS` | link |
 | `releaseCheck` (POMs for the 9 release modules) | passed |
-| Node tests: `scripts/*.test.mjs`, `packages/nuxt/test/*.test.mjs` | 37 passed at the Phase A+/B tip |
+| Node tests: `scripts/*.test.mjs`, `packages/nuxt/test/*.test.mjs` | All passed (37 at the Phase A+/B tip; 46 after the Phase C1 script tests) |
+| Fresh Maven consumers (`scripts/check-consumers.mjs`) for Kyo, ZIO, Kyo Schema and ZIO Schema, from a temporary Maven repository | Compiled, linked and served real h3 requests with the new wire format; the Kyo consumers resolved no `dev.zio` artifact |
 | Kyo demo over a plain h3 server with a preemptive router (Nitro's router mode) | GET and POST 200 with `{"data":...}`; 422 entries with `path` for a blank or 81-character name; generic 422 for a wrong shape; 400 for invalid JSON; `Cache-Control: no-store` on every response |
 | ZIO demo over the same h3 server | `/api/test` answers `abc`; `/api/notes` without the plugin is an opaque 500; with a fake plugin record and no database, a 500 with `debug.cause` and no password in it, and one close hook registered and released |
+| Production build of the demo (Scala full link, `nuxt build`, then the Node server from `.output/`) | Built with `NODE_OPTIONS=--max-old-space-size=8192` (the default heap ran out of memory). Kyo routes: the same 200, 422, 400 responses, and 415 for `text/plain`. `/api/test` streamed `abc`. `/api/notes` without a database: opaque 500. With `NUXT_H34S_DEBUG=true`: `debug.cause` present, password absent. `SIGTERM`: the `ZShared` pool registered on the first Notes request was released, exit status 0 |
 
-The Scala tests use real h3 1.15.4 events with mocked Node responses. They do not start Nuxt or Nitro.
-
-Phase C1 of the refactor (scripts, CI and the demo) adds isolated Maven consumer checks for `0.2.0-SNAPSHOT` (Kyo, ZIO, Kyo Schema, ZIO Schema; Kyo consumers must not resolve `dev.zio`) and real Nuxt build checks. Their results are recorded in [development](development.md) and [releases](releases.md) when that work lands.
+The Scala tests use real h3 1.15.4 events with mocked Node responses. They do not start Nuxt or Nitro. The consumer and production-build checks come from Phase C1 of the refactor, on the same machine.
 
 ### CI-validated
 
@@ -59,9 +59,9 @@ None yet. The branch has not been pushed, so no workflow has run on it. The work
 
 | Area | Status |
 | --- | --- |
-| A real `nuxt dev` or production server running this branch | Not recorded here; part of the Phase C verification |
-| The ZIO demo against a real PostgreSQL | Not run on this branch |
-| `NUXT_H34S_DEBUG=true` and the Nitro close hook inside a real Nitro server | Tested with stubs and fake plugin records only |
+| `nuxt dev` with this branch (development diagnostics, source maps, relinking) | Not recorded |
+| The ZIO demo against a real PostgreSQL | Not run on this branch (no database was available) |
+| The Nitro close hook when `nuxt dev` replaces its worker | Not checked; `SIGTERM` in production was |
 | kyo-sql / kyo-sql-postgres inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) is a sketch |
 | NuxtHub KV as a Nitro storage mount | Not verified; storage tests use Unstorage 1.17.3's memory driver |
 | Nitro presets other than Node (serverless, edge, Workers) | Not tested; streaming needs a Node HTTP response |
@@ -74,6 +74,7 @@ None yet. The branch has not been pushed, so no workflow has run on it. The work
 - **ZIO YAML on Scala.js.** zio-json-yaml is published for the JVM only (no `_sjs1_3` artifact on Maven Central), so a ZIO model has no YAML codec in Nitro. Kyo models get YAML from kyo-schema-yaml.
 - **ZIO Schema shapes.** The ZIO bridge supports strings, booleans, `Int`, `Double`, records, options, sequences, lazy and transformed schemas. Enums, sealed traits and maps are not supported yet. See [schemas](schema.md).
 - **Kyo finalizer errors** are logged and do not change the response; ZIO finalizer defects turn a value response into a 500. See [lifetimes](lifetimes.md).
+- **Build memory.** The demo links both a Kyo and a ZIO application; its `nuxt build` needed `NODE_OPTIONS=--max-old-space-size=8192`. A single-runtime application links less code, but check your own build.
 
 ## Profile `alpha-0.1.0` (published)
 

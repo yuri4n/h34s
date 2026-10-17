@@ -116,7 +116,7 @@ KYO_NET_BACKEND=node node .output/server/index.mjs
 
 ## ZIO: Skunk in a `ZShared` layer
 
-The demo's Notes example uses Skunk 1.0.0-M12 through zio-interop-cats. This code is compiled and its handler is unit-tested; the full flow against a real PostgreSQL has not been run on this branch yet (see [compatibility](compatibility.md)).
+The demo's Notes example uses Skunk 1.0.0-M12 through zio-interop-cats. This code is compiled and its handlers are unit-tested. A production build of the demo loaded the configuration, built the pool on the first request and released it on `SIGTERM`, but no PostgreSQL server was available: the insert and read flow has not been run on this branch (see [compatibility](compatibility.md)).
 
 ### Configure
 
@@ -176,6 +176,8 @@ object NotesLive:
     val layer: ZLayer[SessionPool & Scope, Throwable, Notes] =
       ZLayer.fromZIO(ZIO.serviceWithZIO[SessionPool](_.session).map(NotesLive(_)))
 ```
+
+The demo's `AppHandler` builds `NotesLive.layer` before the handler runs, so every Notes request takes a session before it reads the body. When the database is down, even invalid input gets a 500 instead of a 422 (seen in a production build of the demo without PostgreSQL). If you want input errors first, read and validate the body before you take a session, for example by providing the layer inside the handler after `request.body.json`.
 
 Skunk's `$text` is a parameter codec; the value is bound separately. For a transaction, open Skunk's `session.transaction` resource (`Resource[Task, Transaction[Task]]`) in the same request scope, for example with `.toScopedZIO`. To map a unique violation to your own `SafeError`, match `case SqlState.UniqueViolation(_) =>` on the failure inside the service (`skunk.SqlState`, SQLSTATE 23505). These two recipes come from the Skunk API; the demo does not use them.
 

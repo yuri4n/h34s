@@ -114,4 +114,4 @@ Follow these rules:
 
 - `RuntimeConfig.get` and `load` decoding, path-only error messages, a throwing read, the missing plugin, and the opaque 500: Kyo `RuntimeConfigSuite` and ZIO `ZRuntimeConfigSpec`, with a fake plugin record.
 - The demo's `AppConfig` decoding with a redacted password: `AppConfigSpec`.
-- A run against a real Nitro server with `NUXT_*` overrides is part of the Phase C verification and is not recorded here yet.
+- A production build of the demo (`nuxt build`, then the Node server, macOS x86_64): `ZRuntimeConfig.load` read the database settings, and a marker password supplied at runtime appeared neither in the server logs nor in the debug response. A separate test of each `NUXT_*` override has not been run.

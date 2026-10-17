@@ -127,6 +127,8 @@ Run `pnpm dev:scala` for the first link and Nuxt startup. Keep `pnpm scala:watch
 
 For production, `pnpm build` clears each generated output directory, runs `fullLinkJS`, verifies the configured entry files, and only then starts the Nuxt build. A linker failure or missing entry stops the command. The Nuxt module alone does not run a production link; keep that ordering in the application build script.
 
+Large linked outputs make Nitro's production bundling memory-hungry. The repository demo, which links a Kyo and a ZIO application, needed `NODE_OPTIONS=--max-old-space-size=8192` for `nuxt build` on this branch. If your build stops with a JavaScript heap error, raise the limit the same way.
+
 The CLI accepts `--root <directory>` and `--config <file>` for projects with a different layout. Configure an alternate file in Nuxt with `modules: [['@yuri4n/h34s-nuxt', { configFile: 'custom.mjs' }]]`. Keep the Nuxt integration and CLI pointed at the same application configuration. sbt must be available on `PATH`.
 
 The `./build` entry point also exports `loadConfig`, `buildScala`, and `linkScala` for custom orchestration. The `./rollup` entry point exports `scalaDevModules` and `scalaSourceMaps` for custom integrations. Ordinary Nuxt applications use the module above; they do not need to wire these helpers individually.

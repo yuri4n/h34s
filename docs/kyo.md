@@ -221,7 +221,7 @@ curl -H 'content-type: application/json' --data '{"name":"  "}' http://127.0.0.1
 
 Expected bodies: `{"data":{"message":"Hello, Kyo!"}}`, `{"data":{"message":"Hello, Scala!"}}`, and a 422 with `{"errors":[{"message":"must not be blank","path":"name"}]}`.
 
-**Evidence.** These responses were checked by serving the linked modules through a plain h3 server with a preemptive router (Nitro's router mode), on macOS x86_64 with Node 24.19.0. A run inside a real `nuxt dev` server with this branch is part of the Phase C verification and is not recorded here yet. See [compatibility](compatibility.md).
+**Evidence.** On macOS x86_64 with Node 24.19.0, these responses came back from a production build of the demo (`nuxt build`, then the Node server), and earlier from the linked modules behind a plain h3 server in Nitro's router mode. A run under `nuxt dev` with this branch is not recorded yet. See [compatibility](compatibility.md).
 
 ## Next steps
 

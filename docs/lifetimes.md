@@ -80,7 +80,7 @@ The h34s Nitro plugin listens to Nitro's `close` hook and releases every registe
 - The `node-server` preset calls the hook on `SIGTERM` or `SIGINT` (graceful shutdown, 30 seconds by default; see `NITRO_SHUTDOWN_TIMEOUT` and `NITRO_SHUTDOWN_DISABLED`).
 - `nuxt dev` calls it when it replaces the development worker, for example after relinking.
 
-These facts come from Nitro's source. h34s tested the release path with a fake plugin record; a real Nitro shutdown is part of the Phase C verification and is not recorded here yet.
+These facts come from Nitro's source. h34s tests the release path with a fake plugin record. In a production build of the demo, `SIGTERM` released the `ZShared` pool registered by the first Notes request, and the server exited with status 0. A `nuxt dev` worker replacement has not been checked.
 
 Without the h34s plugin (for example in unit tests), nothing is registered. Call `close` yourself in that case.
 

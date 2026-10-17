@@ -45,7 +45,7 @@ Without the plugin, both flags are `false` and every failure is opaque.
 
 **Keep debug mode off in production.** Diagnostics send exception messages and stack text to anyone who can trigger a failure. Libraries can put connection details, SQL text or file paths in exception messages. Use debug mode only on a server that only you can reach, and turn it off again. If you turned it on by mistake, unset `NUXT_H34S_DEBUG` (or set it to `false`) and restart.
 
-These flags are tested with a stubbed Nitro runtime (`packages/nuxt/test`) and with fake plugin records in the Scala suites. A check in a real Nuxt server is part of the Phase C verification and is not recorded here yet.
+These flags are tested with a stubbed Nitro runtime (`packages/nuxt/test`) and with fake plugin records in the Scala suites. In a production build of the demo (macOS x86_64), an unexpected failure was opaque without the variable and carried `debug.cause` with `NUXT_H34S_DEBUG=true`; the database password did not appear in either response.
 
 ## Map JavaScript back to Scala
 
