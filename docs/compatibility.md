@@ -44,6 +44,7 @@ On macOS 15.7.5, x86_64, during the refactor (2026-10-17):
 | `kyoExample/fastLinkJS`, `nuxtsvr/fastLinkJS` | link |
 | `releaseCheck` (POMs for the 9 release modules) | passed |
 | Node tests: `scripts/*.test.mjs`, `packages/nuxt/test/*.test.mjs` | All passed (37 at the Phase A+/B tip; 46 after the Phase C1 script tests) |
+| Documentation snippets that do not come from compiled sources (Kyo and ZIO guides, configuration, lifetimes, storage, streaming, testing, adoption, and the kyo-sql code with kyo-sql-postgres 1.0.0-RC7) | Compiled in a temporary test file against this branch (`kyoNuxtHubExt/Test/compile`, `zioNuxtHubExt/Test/compile`); not run |
 | Fresh Maven consumers (`scripts/check-consumers.mjs`) for Kyo, ZIO, Kyo Schema and ZIO Schema, from a temporary Maven repository | Compiled, linked and served real h3 requests with the new wire format; the Kyo consumers resolved no `dev.zio` artifact |
 | Kyo demo over a plain h3 server with a preemptive router (Nitro's router mode) | GET and POST 200 with `{"data":...}`; 422 entries with `path` for a blank or 81-character name; generic 422 for a wrong shape; 400 for invalid JSON; `Cache-Control: no-store` on every response |
 | ZIO demo over the same h3 server | `/api/test` answers `abc`; `/api/notes` without the plugin is an opaque 500; with a fake plugin record and no database, a 500 with `debug.cause` and no password in it, and one close hook registered and released |
@@ -62,7 +63,7 @@ None yet. The branch has not been pushed, so no workflow has run on it. The work
 | `nuxt dev` with this branch (development diagnostics, source maps, relinking) | Not recorded |
 | The ZIO demo against a real PostgreSQL | Not run on this branch (no database was available) |
 | The Nitro close hook when `nuxt dev` replaces its worker | Not checked; `SIGTERM` in production was |
-| kyo-sql / kyo-sql-postgres inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) is a sketch |
+| kyo-sql / kyo-sql-postgres at runtime, inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) code compiles only |
 | NuxtHub KV as a Nitro storage mount | Not verified; storage tests use Unstorage 1.17.3's memory driver |
 | Nitro presets other than Node (serverless, edge, Workers) | Not tested; streaming needs a Node HTTP response |
 | Linux, Windows | Not run on this branch |
