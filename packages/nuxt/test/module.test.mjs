@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import h34sNuxt from '../src/module.mjs'
+import './nitro-runtime-stub.mjs'
 
 async function setup(t, options) {
   const root = await mkdtemp(join(tmpdir(), 'h34s-nuxt-'))
@@ -55,7 +56,7 @@ test('registers maps, direct loading, output watches and diagnostics in developm
     sourcemapExcludeSources: false,
   })
   assert.equal(nitro.plugins[0], 'existing-plugin')
-  assert.ok(nitro.plugins[1].endsWith('/runtime/development.mjs'))
+  assert.ok(nitro.plugins[1].endsWith('/runtime/h34s.mjs'))
   assert.ok(nitro.externals.inline[0].endsWith('/runtime/'))
 })
 
@@ -75,15 +76,17 @@ test('production leaves source maps, bundling and watches unchanged and denies d
   plugin({
     hooks: {
       hook(name, fn) {
-        assert.equal(name, 'request')
-        request = fn
+        if (name === 'request')
+          request = fn
+        else
+          assert.equal(name, 'close')
       },
     },
   })
   const event = { context: { application: true } }
   request(event)
-  assert.deepEqual(event.context, {
-    application: true,
-    h34s: { development: false },
-  })
+  assert.equal(event.context.application, true)
+  assert.equal(event.context.h34s.version, 1)
+  assert.equal(event.context.h34s.development, false)
+  delete globalThis[Symbol.for('h34s.nitro')]
 })

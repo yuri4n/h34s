@@ -13,10 +13,11 @@ export default async function h34sNuxt(options, nuxt) {
     const runtime = fileURLToPath(new URL('./runtime/', import.meta.url))
     nitro.plugins ??= []
     nitro.plugins.push(
-      fileURLToPath(new URL('./runtime/development.mjs', import.meta.url)),
+      fileURLToPath(new URL('./runtime/h34s.mjs', import.meta.url)),
     )
     // Installed packages live in node_modules. Nitro must transform this plugin
-    // so import.meta.dev reflects its build mode rather than native Node ESM.
+    // so import.meta.dev reflects its build mode rather than native Node ESM, and
+    // so `nitropack/runtime` resolves to Nitro's own runtime.
     nitro.externals ??= {}
     nitro.externals.inline ??= []
     nitro.externals.inline.push(runtime)
