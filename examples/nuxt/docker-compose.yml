@@ -1,21 +1,24 @@
 name: h34s
 
+# Local PostgreSQL for the ZIO Notes example. It reads the same NUXT_DATABASE_* variables that
+# Nitro maps to runtimeConfig.database (see nuxt.config.ts). Set NUXT_DATABASE_PASSWORD yourself;
+# Compose refuses to start without it.
 services:
   postgres:
     image: postgres:16-alpine
     container_name: my_app_postgres
     restart: unless-stopped
     ports:
-      - "${MY_APP_DB_PORT:-5432}:5432"
+      - "${NUXT_DATABASE_PORT:-5432}:5432"
     environment:
-      POSTGRES_USER: ${MY_APP_DB_USER}
-      POSTGRES_PASSWORD: ${MY_APP_DB_PASSWORD}
-      POSTGRES_DB: ${MY_APP_DB_NAME}
+      POSTGRES_USER: ${NUXT_DATABASE_USER:-h34s}
+      POSTGRES_PASSWORD: ${NUXT_DATABASE_PASSWORD:?Set NUXT_DATABASE_PASSWORD to your local database password}
+      POSTGRES_DB: ${NUXT_DATABASE_NAME:-h34s}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scala/zio/src/main/resources/sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${MY_APP_DB_USER} -d ${MY_APP_DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 5

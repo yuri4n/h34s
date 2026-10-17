@@ -19,7 +19,9 @@ pnpm run scala:fast
 pnpm dev
 ```
 
-Request `http://localhost:3000/api/kyo/greeting` for a Kyo greeting or `/api/test` for the ZIO stream. For PostgreSQL setup, development linking, and production builds, follow the [development guide](../../docs/development.md).
+Request `http://localhost:3000/api/kyo/greeting` for a Kyo greeting. The response is `{"data":{"message":"Hello, Kyo!"}}`: with the default handler options, h34s wraps a value body in `data`. Request `/api/test` for the ZIO stream; it returns `abc`, because streamed bodies are sent as they are. Errors use one shape for both runtimes: `{"errors":[{"message":"...","path":"..."}]}`, where `path` names the invalid field when it is known.
+
+The ZIO Notes routes (`/api/notes`) need PostgreSQL. Copy `.env.example` to `.env` in this directory and set your own `NUXT_DATABASE_PASSWORD`. Nitro maps the `NUXT_DATABASE_*` variables to `runtimeConfig.database` in `nuxt.config.ts`; Docker Compose reads the same names. For PostgreSQL setup, development linking, and production builds, follow the [development guide](../../docs/development.md).
 
 Configure the example in `h34s.config.mjs`. The Nuxt module resolves paths relative to this application. `h34s.build.config.mjs` adapts those paths for the shared sbt build at the repository root. Root `pnpm dev`, `build`, `generate`, and `preview` commands delegate to this application; the production output is `.output/` here.
 
