@@ -13,6 +13,25 @@ object ResponseHeadSpec extends ZIOSpecDefault:
     final case class Input(name: String) derives NativeConverter
 
     def spec = suite("ZIO response head and options")(
+      test("deleteCookie sends Secure, can match a domain, and can be kept on failure") {
+        val ok = Call()
+        val failed = Call()
+        for
+          _ <- ok.invoke(ZHandler.define(_ =>
+            Response.deleteCookie("__Host-session") *> Response.deleteCookie("wide", domain = Some("example.com")).as(Greeting("bye")),
+          ))
+          _ <- failed.invoke(ZHandler.define[String](_ =>
+            Response.deleteCookie("session", onFailure = OnFailure.Keep) *> ZIO.fail(HttpError.unauthorized("Sign in again")),
+          ))
+        yield
+          val cookies = ok.response.headerValues("set-cookie")
+          assertTrue(
+            cookies.exists(c => c.startsWith("__Host-session=") && c.contains("Max-Age=0") && c.contains("Secure")),
+            cookies.exists(c => c.startsWith("wide=") && c.contains("Domain=example.com")),
+            failed.response.status == 401,
+            failed.response.headerValues("set-cookie").exists(_.startsWith("session=")),
+          )
+      },
       test("success applies the status, headers in order and cookies once the program finished") {
         var headersDuringProgram: List[String] = List("unset")
         val call = Call()
@@ -134,7 +153,7 @@ object ResponseHeadSpec extends ZIOSpecDefault:
           redirect.response.status == 500,
         )
       },
-      test("Data wraps value bodies; Raw sends them as is; SingleOrList sends one error as error") {
+      test("Data wraps value bodies; Raw sends text as text and other values as JSON; SingleOrList sends one error as error") {
         val raw = HandlerOptions(success = SuccessEnvelope.Raw)
         val single = HandlerOptions(errors = ErrorEnvelope.SingleOrList)
         val calls = List.fill(5)(Call())
@@ -146,8 +165,10 @@ object ResponseHeadSpec extends ZIOSpecDefault:
           singleSeveral <- calls(4).invoke(ZHandler.define(single)(_ => ZHandler.failWith(400, "a", "b").as("never")))
         yield assertTrue(
           wire(dataModel) == "{\"data\":{\"message\":\"hi\"}}",
-          wire(rawModel) == "{\"message\":\"hi\"}",
+          rawModel.asInstanceOf[String] == "{\"message\":\"hi\"}",
+          calls(1).response.header("content-type").contains("application/json"),
           rawText.asInstanceOf[String] == "hi",
+          calls(2).response.header("content-type").contains("text/plain; charset=utf-8"),
           wire(singleOne) == "{\"error\":{\"message\":\"No such note\"}}",
           wire(singleSeveral) == errors("a", "b"),
         )

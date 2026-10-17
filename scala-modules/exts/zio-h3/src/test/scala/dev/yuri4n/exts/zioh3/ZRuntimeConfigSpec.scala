@@ -32,6 +32,11 @@ object ZRuntimeConfigSpec extends ZIOSpecDefault:
       }).map(body => data(body).asInstanceOf[String])
 
     def spec = suite("ZRuntimeConfig")(
+      test("Request.fake with runtimeConfig supports ZRuntimeConfig.get without Nitro") {
+        val request = Request.fake(runtimeConfig = Some("{\"database\":{\"url\":\"postgres://db\"},\"apiBase\":\"/api\"}"))
+        for config <- ZRuntimeConfig.get[AppConfig](request)
+        yield assertTrue(config.apiBase == "/api")
+      },
       test("get decodes the request's Nuxt runtime config") {
         for text <- configured(Call(record = Some(record(valid))))
         yield assertTrue(text == "/api Secret(<redacted>)")

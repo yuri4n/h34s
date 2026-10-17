@@ -3,8 +3,8 @@ package dev.yuri4n.exts.zioh3.internal
 import dev.yuri4n.exts.h3.ResponseHead
 import dev.yuri4n.exts.kyoh3.HandlerEffects
 import dev.yuri4n.exts.zioh3.HandlerEnv
-import kyo.{Frame, Kyo, Maybe, Scope, Sync, Var, `<`}
-import zio.{Exit, Runtime, UIO, ZEnvironment, ZIO}
+import kyo.{Frame, Scope, Sync, Var, `<`}
+import zio.{Exit, Runtime, UIO, Unsafe, ZEnvironment, ZIO}
 
 /** One ZIO handler program inside the Kyo request worker.
   *
@@ -13,7 +13,8 @@ import zio.{Exit, Runtime, UIO, ZEnvironment, ZIO}
   *   - value and Unit bodies: the fiber closes the request scope itself, so a dying finalizer turns
   *     the response into a 500 (it surfaces in the Exit);
   *   - stream bodies: the scope stays open while the core sends the stream; a Kyo request finalizer
-  *     closes it after the stream ended or was cancelled;
+  *     closes it after the stream ended or was cancelled (the Kyo side creates and always closes
+  *     the scope, whatever the fiber's Exit says);
   *   - interruption (client disconnect): the Kyo finalizer interrupts the fiber and waits until the
   *     request scope is closed, so ZIO finalizers finish before the core settles the response.
   *
@@ -21,14 +22,21 @@ import zio.{Exit, Runtime, UIO, ZEnvironment, ZIO}
   * failure renderer sees what the program set.
   */
 private[exts] object ZioRequest:
-    final case class Completed[+B](head: ResponseHead, exit: Exit[Throwable, B], kept: Option[zio.Scope.Closeable])
+    final case class Completed[+B](head: ResponseHead, exit: Exit[Throwable, B])
 
-    def run[B](runtime: Runtime[Any], streamed: Boolean)(program: => ZIO[HandlerEnv, Throwable, B])(using
-        Frame,
-    ): B < HandlerEffects =
+    /** `afterProgram` runs inside the fiber's uninterruptible region, after a streamed program
+      * returned (a test seam for interrupts that arrive in that window).
+      */
+    def run[B](runtime: Runtime[Any], streamed: Boolean, afterProgram: UIO[Unit] = ZIO.unit)(
+        program: => ZIO[HandlerEnv, Throwable, B],
+    )(using Frame): B < HandlerEffects =
       Sync.Unsafe.defer {
-        val call = new ZioCall(runtime, fiber(streamed, program))
-        Scope.ensure(release(runtime, call))
+        // The Kyo side owns the ZIO request scope. An interrupt that arrives after the program
+        // returned replaces the fiber's Exit, so the scope must not travel inside that Exit.
+        val scope = Unsafe.unsafely(zio.Scope.unsafe.make)
+        val call  = new ZioCall(runtime, fiber(scope, streamed, afterProgram, program))
+        // Closing a scope that the fiber already closed is a no-op.
+        Scope.ensure(call.stop.andThen(ZioCall.closeScope(runtime, scope, Exit.unit)))
           .andThen(Sync.Unsafe.defer(call.start()))
           .andThen(call.await)
           .map {
@@ -40,23 +48,21 @@ private[exts] object ZioRequest:
           }
       }
 
-    private def release[B](runtime: Runtime[Any], call: ZioCall[Nothing, Completed[B]])(using Frame) =
-      call.stop.map {
-        case Maybe.Present(Exit.Success(Completed(_, _, Some(scope)))) => ZioCall.closeScope(runtime, scope, Exit.unit)
-        case _                                                         => Kyo.unit
-      }
-
-    private def fiber[B](streamed: Boolean, program: => ZIO[HandlerEnv, Throwable, B]): UIO[Completed[B]] =
+    private def fiber[B](
+        scope: zio.Scope.Closeable,
+        streamed: Boolean,
+        afterProgram: UIO[Unit],
+        program: => ZIO[HandlerEnv, Throwable, B],
+    ): UIO[Completed[B]] =
       ZIO.uninterruptibleMask { restore =>
-        zio.Scope.make.flatMap { scope =>
-          restore(stateful(scope, program)).exit.flatMap {
-            case Exit.Success((exit, head)) if streamed && exit.isSuccess =>
-              ZIO.succeed(Completed(head, exit, Some(scope)))
-            case Exit.Success((exit, head))                               =>
-              scope.close(exit).exit.map(closed => Completed(head, afterClose(exit, closed), None))
-            case Exit.Failure(cause)                                      =>
-              scope.close(Exit.failCause(cause)).as(Completed(ResponseHead.empty, Exit.failCause(cause), None))
-          }
+        restore(stateful(scope, program)).exit.flatMap {
+          case Exit.Success((exit, head)) if streamed && exit.isSuccess =>
+            // The scope stays open while the core sends the stream; the Kyo finalizer closes it.
+            afterProgram.as(Completed(head, exit))
+          case Exit.Success((exit, head))                               =>
+            scope.close(exit).exit.map(closed => Completed(head, afterClose(exit, closed)))
+          case Exit.Failure(cause)                                      =>
+            scope.close(Exit.failCause(cause)).as(Completed(ResponseHead.empty, Exit.failCause(cause)))
         }
       }
 

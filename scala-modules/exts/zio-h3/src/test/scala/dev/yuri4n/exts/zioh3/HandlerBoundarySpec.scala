@@ -251,6 +251,48 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
           call.response.writes == 0, call.response.headerNames.isEmpty,
         )
       },
+      test("ZIO.uninterruptible: after a disconnect the step ends, then request finalizers run, then the request settles") {
+        for
+          events <- Ref.make(List.empty[String])
+          started <- Promise.make[Nothing, Unit]
+          call = Call()
+          handler = ZHandler.define[String](_ =>
+            ZIO.acquireRelease(ZIO.unit)(_ => events.update(_ :+ "connection released")) *>
+              (started.succeed(()) *> ZIO.sleep(100.millis) *> events.update(_ :+ "step done")).uninterruptible.as("committed"),
+          )
+          running <- call.invoke(handler).fork
+          _ <- started.await
+          _ <- ZIO.succeed(call.response.disconnect())
+          body <- running.join
+          atSettle <- events.get
+        yield assertTrue(
+          atSettle == List("step done", "connection released"), js.isUndefined(body), call.response.writes == 0,
+        )
+      } @@ TestAspect.withLiveClock,
+      test("an interrupt after a streamed program returned still closes the request scope") {
+        import dev.yuri4n.exts.kyoh3.{KHandler, ResponseBody}
+        import dev.yuri4n.exts.zioh3.internal.ZioRequest
+        import zio.stream.ZStream
+        for
+          released <- Ref.make(0)
+          call = Call()
+          runtime = Runtime.default
+          handler = {
+            given ResponseBody[ZStream[Any, Nothing, String]] =
+              ZResponseBody.core(summon[ZResponseBody[ZStream[Any, Nothing, String]]], runtime)
+            // The interrupt arrives inside the fiber's uninterruptible region, after the program
+            // returned its stream and before the fiber exits: it replaces the fiber's Exit.
+            val window = ZIO.succeed(call.response.disconnect()) *> ZIO.sleep(50.millis)
+            KHandler.define[ZStream[Any, Nothing, String]](HandlerOptions.default)(_ =>
+              ZioRequest.run(runtime, streamed = true, afterProgram = window)(
+                ZIO.acquireRelease(ZIO.unit)(_ => released.update(_ + 1)).as(ZStream("never sent")),
+              ),
+            )
+          }
+          body <- call.invoke(handler)
+          count <- released.get
+        yield assertTrue(count == 1, js.isUndefined(body), call.response.chunks.isEmpty)
+      },
       // K13
       test("an already closed response never starts the request program") {
         var started = false

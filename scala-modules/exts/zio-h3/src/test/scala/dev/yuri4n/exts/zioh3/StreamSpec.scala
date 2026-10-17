@@ -13,11 +13,19 @@ import scala.scalajs.js
 
 /** ZStreams as pull-driven Web streams through the core (Z19-Z24). */
 object StreamSpec extends ZIOSpecDefault:
-    /** Encodes through the same `ZResponseBody` instance that handlers use. */
+    /** Encodes with the adapter's internal stream encoding, so the bridge is tested with any element
+      * type (handlers may return only `ZStream[Any, E, String]`; letters use the public instance).
+      */
     private def reader[E <: Throwable, A: NativeConverter](stream: ZStream[Any, E, A]): UIO[js.Dynamic] =
+      readerWith(ZResponseBody.streamOf[E, A](summon[NativeConverter[A]].toNative(_)), stream)
+
+    private def stringReader[E <: Throwable](stream: ZStream[Any, E, String]): UIO[js.Dynamic] =
+      readerWith(summon[ZResponseBody[ZStream[Any, E, String]]], stream)
+
+    private def readerWith[E <: Throwable, A](body: ZResponseBody[ZStream[Any, E, A]], stream: ZStream[Any, E, A]): UIO[js.Dynamic] =
       ZIO.succeed {
         import AllowUnsafe.embrace.danger
-        Sync.Unsafe.evalOrThrow(summon[ZResponseBody[ZStream[Any, E, A]]].toCore(stream, Runtime.default)) match
+        Sync.Unsafe.evalOrThrow(body.toCore(stream, Runtime.default)) match
             case ResponseBody.Outgoing.Streamed(chunks) => StreamResponse.readable(chunks).asInstanceOf[js.Dynamic].getReader()
             case other                                  => throw IllegalStateException(s"expected a stream, got $other")
       }
@@ -103,7 +111,7 @@ object StreamSpec extends ZIOSpecDefault:
           extension (item: Item) def toNative: js.Any = js.Dynamic.literal(value = item.value)
           def fromNative(state: ParseState): Item = Item(state.json.asInstanceOf[js.Dynamic].value.asInstanceOf[Int])
         for
-          letters <- reader(ZStream.fromIterable(List("a", "b", "c"))).flatMap(readAll)
+          letters <- stringReader(ZStream.fromIterable(List("a", "b", "c"))).flatMap(readAll)
           empty <- reader(ZStream.empty: ZStream[Any, Nothing, String]).flatMap(read)
           failed <- reader(ZStream.fail(new Exception("test error")): ZStream[Any, Exception, Int]).flatMap(read).either
           items <- reader(ZStream(Item(1), Item(2), Item(3))).flatMap(readAll)

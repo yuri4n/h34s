@@ -1,7 +1,6 @@
 package dev.yuri4n.exts.zioh3
 
 import dev.yuri4n.exts.zioh3.ZioTesting.*
-import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
@@ -110,16 +109,27 @@ object HttpStreamSpec extends ZIOSpecDefault:
           call.response.header("x-discarded").isEmpty, call.response.chunks.isEmpty,
         )
       },
-      test("a SafeError thrown by an element converter is a defect, not an approved error") {
-        final case class Leaky(value: String)
+      test("a SafeError thrown inside a stream is a defect, not an approved error; a null element too") {
         final case class Approved(message: String) extends SafeError:
           override def status: Int = 409
-        given NativeConverter[Leaky]:
-          extension (value: Leaky) def toNative: js.Any = throw Approved("private converter detail")
-          def fromNative(state: ParseState): Leaky = Leaky("")
+        val thrown = Call("/stream")
+        val nullElement = Call("/stream")
+        for
+          thrownBody <- thrown.invoke(ZHandler.define(_ => ZIO.succeed(ZStream("x").map[String](_ => throw Approved("private detail")))))
+          nullBody <- nullElement.invoke(ZHandler.define(_ => ZIO.succeed(ZStream[String](null))))
+        yield assertTrue(
+          thrown.response.status == 500, wire(thrownBody) == opaque, thrown.response.chunks.isEmpty,
+          nullElement.response.status == 500, wire(nullBody) == opaque,
+        )
+      },
+      test("a stream without a content type is sent as text/plain with nosniff") {
         val call = Call("/stream")
-        for body <- call.invoke(ZHandler.define(_ => ZIO.succeed(ZStream(Leaky("x")))))
-        yield assertTrue(call.response.status == 500, wire(body) == opaque, call.response.chunks.isEmpty)
+        for _ <- call.invoke(ZHandler.define(_ => ZIO.succeed(ZStream("a"))))
+        yield assertTrue(
+          call.response.header("content-type").contains("text/plain; charset=utf-8"),
+          call.response.header("x-content-type-options").contains("nosniff"),
+          call.response.chunks.toList == List("a"),
+        )
       },
       // Z18
       test("without a Node socket, streaming fails before acquiring stream resources") {

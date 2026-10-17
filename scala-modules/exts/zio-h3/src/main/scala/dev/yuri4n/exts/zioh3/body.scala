@@ -22,7 +22,7 @@ extension (body: RequestBody)
       * Any other exception from the converter, also a thrown `SafeError`, is a defect (opaque 500).
       */
     def json[A: NativeConverter](limit: BodyLimit): IO[HttpError | InvalidInput, A] =
-      if !BodyDecoding.acceptsJson(body.contentType) then ZIO.fail(BodyDecoding.unsupportedMediaType)
+      if !BodyDecoding.acceptsJson(body.contentType, body.requireJsonContentType) then ZIO.fail(BodyDecoding.unsupportedMediaType)
       else
           readText(body, limit).flatMap { text =>
             ZIO.fromEither(BodyDecoding.parseJson(text)).flatMap { native =>

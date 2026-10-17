@@ -35,6 +35,26 @@ object RequestBodySpec extends ZIOSpecDefault:
     private val note = ZHandler.define(_.body.json[Note].map(_.text))
 
     def spec = suite("request bodies")(
+      test("an absent JSON body is a 422 for a model and None for an Option") {
+        val model = ZHandler.define(_.body.json[Input].map(_.name))
+        val optional = ZHandler.define(_.body.json[Option[Input]].map(_.fold("none")(_.name)))
+        def empty = Call(method = "POST", headers = Seq("content-type" -> "application/json", "content-length" -> "0")).body("")
+        val modelCall = empty
+        val optionalCall = empty
+        for
+          modelBody <- modelCall.invoke(model)
+          optionalBody <- optionalCall.invoke(optional)
+        yield assertTrue(
+          modelCall.response.status == 422, wire(modelBody) == errors(InvalidInput.genericMessage),
+          optionalCall.response.status == 200, wire(optionalBody) == "{\"data\":\"none\"}",
+        )
+      },
+      test("requireJsonContentType rejects a JSON body without a content type with 415") {
+        val strict = ZHandler.define(HandlerOptions(requireJsonContentType = true))(_.body.json[Input].map(_.name))
+        val call = Call(method = "POST", headers = Seq("content-length" -> "16")).body("{\"name\":\"Scala\"}")
+        for body <- call.invoke(strict)
+        yield assertTrue(call.response.status == 415, wire(body) == errors("Request body must be JSON"))
+      },
       // K15
       test("decodes a JSON body with a NativeConverter") {
         for body <- post("{\"name\":\"Scala\"}").invoke(ZHandler.define(_.body.json[Input].map(input => s"Hello ${input.name}")))

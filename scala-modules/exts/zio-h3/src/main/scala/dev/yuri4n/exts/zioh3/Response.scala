@@ -39,10 +39,19 @@ object Response:
         ZIO.updateState[ResponseHead](_.withCookie(cookie, onFailure))
       }
 
-    def deleteCookie(name: String, path: Option[String] = Some("/")): URIO[ZState[ResponseHead], Unit] =
+    /** Expires a cookie. `path` and `domain` must match the cookie that was set; `secure` sends the
+      * `Secure` attribute, which browsers require to delete a `__Secure-` or `__Host-` cookie.
+      */
+    def deleteCookie(
+        name: String,
+        path: Option[String] = Some("/"),
+        domain: Option[String] = None,
+        secure: Boolean = true,
+        onFailure: OnFailure = OnFailure.Discard,
+    ): URIO[ZState[ResponseHead], Unit] =
       ZIO.suspendSucceed {
         HeaderRules.requireCookieName(name)
-        ZIO.updateState[ResponseHead](_.withoutCookie(name, path))
+        ZIO.updateState[ResponseHead](_.withoutCookie(name, path, domain, secure, onFailure))
       }
 
     /** Sets a 3xx status and the `Location` header. */
