@@ -113,9 +113,9 @@ const guides = [
           Scala handlers.<br /><span>Nuxt applications.</span>
         </h1>
         <p class="hero-description">
-          Write Nuxt server routes as plain Scala.js functions. h34s runs them on
-          a Kyo core, with a first-class ZIO adapter. Your services stay in your
-          app.
+          Write Nuxt server routes as plain Scala.js functions. h34s runs them
+          on a Kyo core, with a first-class ZIO adapter. Your services stay in
+          your app.
         </p>
         <div class="hero-actions">
           <UButton
@@ -125,12 +125,7 @@ const guides = [
           >
             Get started
           </UButton>
-          <UButton
-            to="/guide/kyo"
-            size="xl"
-            color="neutral"
-            variant="outline"
-          >
+          <UButton to="/guide/kyo" size="xl" color="neutral" variant="outline">
             Explore the handler API
           </UButton>
         </div>
@@ -274,8 +269,8 @@ const guides = [
       <div class="status-description">
         <p>
           The published alpha has the older API. This preview moves the core to
-          Kyo, adds a ZIO adapter, Scala configuration, shared resources and
-          one schema per model. Route generation and packaging remain planned.
+          Kyo, adds a ZIO adapter, Scala configuration, shared resources and one
+          schema per model. Route generation and packaging remain planned.
         </p>
         <NuxtLink class="text-link" to="/reference/status"
           >What works today
