@@ -1,0 +1,9 @@
+{
+  "name": "h34s-h3-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned h3 runtime used by the Scala.js h3, Kyo and ZIO test suites",
+  "dependencies": {
+    "h3": "1.15.4"
+  }
+}
