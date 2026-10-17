@@ -93,12 +93,15 @@ test('production leaves source maps, bundling and watches unchanged and denies d
   delete globalThis[Symbol.for('h34s.nitro')]
 })
 
-test('declares runtimeConfig.h34s.debug from Nuxt debug mode, only for the boolean true', async (t) => {
-  for (const [debug, expected] of [[true, true], [false, false], [{ hooks: true }, false], ['true', false], [undefined, false]]) {
+test('declares runtimeConfig.h34s.debug as false, whatever Nuxt\'s own debug option says', async (t) => {
+  // Nuxt resolves `debug: true` to an object such as this one before modules run, and `DEBUG` in
+  // the build environment can set it: neither may enable diagnostics.
+  const resolved = { templates: true, modules: true, watchers: true, hooks: { server: true, client: true }, nitro: true, router: true, hydration: true }
+  for (const debug of [true, false, resolved, { hooks: true }, 'true', undefined]) {
     const { configure } = await setup(t, undefined, { debug })
     const nitro = { dev: false, runtimeConfig: { app: { baseURL: '/' }, public: {} } }
     configure(nitro)
-    assert.deepEqual(nitro.runtimeConfig.h34s, { debug: expected }, JSON.stringify(debug))
+    assert.deepEqual(nitro.runtimeConfig.h34s, { debug: false }, JSON.stringify(debug))
     assert.deepEqual(nitro.runtimeConfig.app, { baseURL: '/' }, 'other runtime config is kept')
     assert.equal(nitro.runtimeConfig.public.h34s, undefined, 'the flag is private')
   }
@@ -106,10 +109,10 @@ test('declares runtimeConfig.h34s.debug from Nuxt debug mode, only for the boole
 
 test('keeps the application\'s own runtimeConfig.h34s values', async (t) => {
   const { configure } = await setup(t, undefined, { debug: true })
-  const own = { dev: false, runtimeConfig: { h34s: { debug: false, extra: 1 } } }
+  const own = { dev: false, runtimeConfig: { h34s: { debug: true, extra: 1 } } }
   configure(own)
-  assert.deepEqual(own.runtimeConfig.h34s, { debug: false, extra: 1 })
+  assert.deepEqual(own.runtimeConfig.h34s, { debug: true, extra: 1 }, 'runtimeConfig.h34s.debug: true in nuxt.config wins')
   const partial = { dev: false, runtimeConfig: { h34s: { extra: 1 } } }
   configure(partial)
-  assert.deepEqual(partial.runtimeConfig.h34s, { extra: 1, debug: true })
+  assert.deepEqual(partial.runtimeConfig.h34s, { extra: 1, debug: false })
 })

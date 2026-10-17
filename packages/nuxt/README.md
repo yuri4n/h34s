@@ -36,7 +36,7 @@ export default defineNuxtConfig({
 
 The module registers the h34s Nitro plugin (`runtime/h34s.mjs`). The Scala APIs read Nitro through it: `RuntimeConfig` and `ZRuntimeConfig` (Nuxt `runtimeConfig`), `KHubKv.mount` and `ZHubKv.mount` (Nitro storage), and `Shared` and `ZShared` (application resources, released by Nitro's `close` hook; the Node server preset runs it on `SIGTERM` and `SIGINT` unless you change `NITRO_SHUTDOWN_*`). Without the module, those calls fail with `ConfigError("h34s Nitro plugin is not installed")`, and the handler answers an opaque 500.
 
-Remove copied development loaders, source-map hooks, and the `h34s-development` plugin when switching to this module. It installs the diagnostics flags automatically. Detailed errors appear only in Nuxt development mode or when debug mode is on: `debug: true` in `nuxt.config`, or `NUXT_H34S_DEBUG=true` at runtime. Requests can never turn them on. Keep debug mode off in production: it sends error causes and stack text to clients.
+Remove copied development loaders, source-map hooks, and the `h34s-development` plugin when switching to this module. It installs the diagnostics flags automatically. Detailed errors appear only in Nuxt development mode or when debug mode is on: `NUXT_H34S_DEBUG=true` at runtime, or `runtimeConfig: { h34s: { debug: true } }` in `nuxt.config`. Nuxt's own `debug` option does not turn it on. Requests can never turn them on. Keep debug mode off in production: it sends error causes and stack text to clients.
 
 ## Run
 
