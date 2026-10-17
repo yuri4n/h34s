@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import process from 'node:process'
 
 // HTTP smoke check of the ZIO example against a running Nuxt server and its PostgreSQL database.
+// Without PostgreSQL, set H34S_SMOKE_SKIP_DATABASE=true: the input checks still run.
 // Success bodies are `{ data: ... }`; errors are `{ errors: [{ message, path? }] }`.
 const base = process.env.H34S_BASE_URL ?? 'http://127.0.0.1:3000'
 function request(path, options) {
@@ -23,20 +24,7 @@ const stream = await request('/api/test')
 assert.equal(stream.status, 200)
 assert.equal(await stream.text(), 'abc')
 
-const text = `h34s smoke ${crypto.randomUUID()}`
-const created = await post('/api/notes', JSON.stringify({ text: `  ${text}  ` }))
-assert.equal(created.status, 201)
-assert.equal(created.headers.get('cache-control'), 'no-store')
-const { data: note } = await created.json()
-assert.equal(note.text, text)
-assert.ok(Number.isInteger(note.id))
-
-const listed = await request('/api/notes')
-assert.equal(listed.status, 200)
-assert.ok(
-  (await listed.json()).data.some(item => item.id === note.id && item.text === text),
-)
-
+// Input errors come before any database work, so these checks also pass without PostgreSQL.
 // The model schema trims, then checks the length: one entry with the field path.
 for (const [value, message] of [
   [' ', 'must have at least 1 character'],
@@ -69,6 +57,26 @@ const unparsable = await post('/api/notes', '{"text":')
 assert.equal(unparsable.status, 400)
 assert.equal((await unparsable.json()).errors.length, 1)
 
+// Set H34S_SMOKE_SKIP_DATABASE=true to run only the checks above, without PostgreSQL.
+const database = process.env.H34S_SMOKE_SKIP_DATABASE !== 'true'
+if (database) {
+  const text = `h34s smoke ${crypto.randomUUID()}`
+  const created = await post('/api/notes', JSON.stringify({ text: `  ${text}  ` }))
+  assert.equal(created.status, 201)
+  assert.equal(created.headers.get('cache-control'), 'no-store')
+  const { data: note } = await created.json()
+  assert.equal(note.text, text)
+  assert.ok(Number.isInteger(note.id))
+
+  const listed = await request('/api/notes')
+  assert.equal(listed.status, 200)
+  assert.ok(
+    (await listed.json()).data.some(item => item.id === note.id && item.text === text),
+  )
+}
+
 console.log(
-  'Passed: stream response, database insert/read, schema validation entries and malformed-input responses',
+  database
+    ? 'Passed: stream response, schema validation entries, malformed-input responses and database insert/read'
+    : 'Passed: stream response, schema validation entries and malformed-input responses (database skipped)',
 )

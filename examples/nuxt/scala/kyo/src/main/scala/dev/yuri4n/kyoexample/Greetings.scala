@@ -15,7 +15,11 @@ object GreetingRequest:
 
 final case class Greeting(message: String) derives Schema, NativeSchema
 
-final case class GreetingConfig(prefix: String)
+/** `runtimeConfig.greeting` in `nuxt.config.ts`; Nitro overrides it with `NUXT_GREETING_SALUTATION`. */
+final case class GreetingConfig(salutation: String) derives Schema, NativeSchema
+
+/** The part of the Nuxt runtime config that the Kyo example reads. Other keys are ignored. */
+final case class KyoConfig(greeting: GreetingConfig) derives Schema, NativeSchema
 
 trait Greetings:
     def greet(name: String): Greeting < Sync
@@ -23,4 +27,4 @@ trait Greetings:
 object Greetings:
     def live(config: GreetingConfig): Greetings = new Greetings:
         def greet(name: String): Greeting < Sync =
-          Sync.defer(Greeting(s"${config.prefix}, $name!"))
+          Sync.defer(Greeting(s"${config.salutation}, $name!"))

@@ -20,6 +20,10 @@ export default defineNuxtConfig({
   // each key at runtime: NUXT_DATABASE_HOST, NUXT_DATABASE_PORT, NUXT_DATABASE_USER,
   // NUXT_DATABASE_PASSWORD and NUXT_DATABASE_NAME. Supply the password only at runtime.
   runtimeConfig: {
+    // The Kyo example's greeting, read with RuntimeConfig.load. Override: NUXT_GREETING_SALUTATION.
+    greeting: {
+      salutation: 'Hello',
+    },
     database: {
       host: '127.0.0.1',
       port: 5432,
