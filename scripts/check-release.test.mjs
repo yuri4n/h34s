@@ -58,6 +58,15 @@ test('publication refuses tags that do not match the concrete release version', 
   assert.throws(() => checkRelease(fixture(t), { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v0.2.1' }), /Git tag must match/)
 })
 
+test('a tag needs its release notes before anything is published', (t) => {
+  const root = fixture(t)
+  const tag = { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v0.2.0' }
+  assert.throws(() => checkRelease(root, tag), /Write \.github\/release-notes\/0\.2\.0\.md before tagging/)
+  mkdirSync(join(root, '.github/release-notes'), { recursive: true })
+  writeFileSync(join(root, '.github/release-notes/0.2.0.md'), 'Notes\n')
+  assert.equal(checkRelease(root, tag), '0.2.0')
+})
+
 test('a snapshot passes only pull request validation, never a tag', (t) => {
   const root = fixture(t, { version: '0.2.0-SNAPSHOT' })
   assert.throws(() => checkRelease(root, {}), /concrete release version/)

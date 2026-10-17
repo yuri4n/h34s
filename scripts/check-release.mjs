@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -88,6 +88,11 @@ export function checkRelease(root = repository, environment = process.env, { all
       environment.GITHUB_REF_NAME,
       `v${version}`,
       'Git tag must match version.sbt',
+    )
+    // release.yml creates the GitHub release from this file AFTER publishing; check it before.
+    assert(
+      existsSync(resolve(root, `.github/release-notes/${version}.md`)),
+      `Write .github/release-notes/${version}.md before tagging`,
     )
   }
 
