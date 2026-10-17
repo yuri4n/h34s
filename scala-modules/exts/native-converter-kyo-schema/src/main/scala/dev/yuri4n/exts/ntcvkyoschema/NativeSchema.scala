@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.ntcvkyoschema
 
-import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput}
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, Secret}
 import dev.yuri4n.exts.ntcvkyoschema.internal.NativeValues
 import kyo.{Frame, Schema, Structure, ValidationFailedException}
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
@@ -27,6 +27,15 @@ import scala.scalajs.js
   * A type can keep a separately derived `NativeConverter`; the two do not conflict.
   */
 trait NativeSchema[A] extends NativeConverter[A]
+
+/** A Kyo `Schema` for h34s `Secret`: a string on the wire.
+  *
+  * Import it where you derive a schema that holds a secret, such as a config model:
+  * `import dev.yuri4n.exts.ntcvkyoschema.secretSchema`. Decoding never puts the value in an error.
+  * JSON or YAML that you write with this schema contains the plain value, so do not encode a
+  * secret into a response or a log.
+  */
+given secretSchema: Schema[Secret] = summon[Schema[String]].transform(Secret(_))(_.reveal)
 
 object NativeSchema:
     /** The instance for `derives NativeSchema`. It uses the type's `Schema`, with its checks. */

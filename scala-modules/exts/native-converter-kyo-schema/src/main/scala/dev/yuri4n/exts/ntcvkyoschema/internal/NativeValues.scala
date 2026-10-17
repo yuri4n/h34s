@@ -28,6 +28,16 @@ private[ntcvkyoschema] object NativeValues:
     /** Integers above this magnitude are not exact in a JavaScript number. */
     private val MaxSafeInteger: Double = 9007199254740991.0
 
+    /** The longest string-encoded `BigInt` or `BigDecimal` that is parsed. Scala.js parses big
+      * numbers in quadratic time, so a request with a very long digit string could block Node.
+      */
+    val MaxBigNumberLength: Int = 1000
+
+    /** The largest exponent magnitude of a string-encoded `BigDecimal` (`1e10000`). Larger ones parse
+      * cheaply but make later arithmetic (`setScale`, `toBigInt`) explode.
+      */
+    val MaxBigDecimalExponent: Int = 10000
+
     // ---- Structure.Value -> JavaScript ----
 
     def write(value: Value, shape: Option[Type]): js.Any =
@@ -170,10 +180,21 @@ private[ntcvkyoschema] object NativeValues:
                 case PrimitiveKind.Instant  => parsed(Value.Instant(java.time.Instant.parse(text)))
                 case PrimitiveKind.Duration => parsed(Value.Duration(java.time.Duration.parse(text)))
                 case PrimitiveKind.Bytes    => parsed(Value.Bytes(Span.fromUnsafe(java.util.Base64.getDecoder.decode(text))))
-                case PrimitiveKind.BigInt   => parsed(Value.BigNum(BigDecimal(BigInt(text))))
-                case PrimitiveKind.BigDecimal => parsed(Value.BigNum(BigDecimal(text)))
+                case PrimitiveKind.BigInt   => parsed(Value.BigNum(BigDecimal(BigInt(bounded(text, decimal = false)))))
+                case PrimitiveKind.BigDecimal => parsed(Value.BigNum(BigDecimal(bounded(text, decimal = true))))
                 case _                        => Value.Str(text)
           case _ => readAny(native, depth)
+
+    /** Rejects big-number text above the length and exponent limits before it is parsed. */
+    private def bounded(text: String, decimal: Boolean): String =
+      if text.length > MaxBigNumberLength then throw Malformed()
+      else if decimal then
+          val marker = text.indexWhere(char => char == 'e' || char == 'E')
+          if marker >= 0 then
+              text.substring(marker + 1).toIntOption match
+                  case Some(exponent) if math.abs(exponent.toLong) <= MaxBigDecimalExponent => ()
+                  case _                                                                   => throw Malformed()
+      text
 
     private def readInteger(number: Double, min: Double, max: Double): Value =
       if number.isWhole && number >= min && number <= max then Value.Integer(number.toLong) else throw Malformed()

@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.ntcvzioschema
 
-import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput}
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, Secret}
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.{Chunk, Unsafe}
 import zio.schema.{Schema, StandardType}
@@ -25,6 +25,15 @@ import scala.scalajs.js
   * `NativeSchema.derived`) get one.
   */
 trait NativeSchema[A] extends NativeConverter[A]
+
+/** A ZIO `Schema` for h34s `Secret`: a string on the wire.
+  *
+  * Import it where you derive a schema that holds a secret, such as a config model:
+  * `import dev.yuri4n.exts.ntcvzioschema.secretSchema`. Decoding never puts the value in an error.
+  * JSON that you write with this schema (zio-schema-json) contains the plain value, so do not
+  * encode a secret into a response or a log.
+  */
+given secretSchema: Schema[Secret] = Schema[String].transform(Secret(_), _.reveal)
 
 object NativeSchema:
     case object InvalidValue

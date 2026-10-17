@@ -182,6 +182,29 @@ class NativeSchemaSuite extends FunSuite:
       assertEquals(decoded.data.toArrayUnsafe.toList, blob.data.toArrayUnsafe.toList)
     }
 
+    test("string-encoded BigInt and BigDecimal above the length or exponent limits are rejected before parsing") {
+      def bigs(decimal: String, integer: String): js.Any = js.Dynamic.literal(decimal = decimal, integer = integer)
+      val started = System.currentTimeMillis()
+      assertEquals(decode[Bigs](bigs("1", "9" * 100000)), generic)
+      assertEquals(decode[Bigs](bigs("1" * 100000, "1")), generic)
+      assertEquals(decode[Bigs](bigs("1e999999999", "1")), generic)
+      assertEquals(decode[Bigs](bigs("1e-10001", "1")), generic)
+      assert(System.currentTimeMillis() - started < 1000, "rejections must not parse the text")
+      assertEquals(decode[Bigs](bigs("1.5e10000", "9" * 1000)).map(_.integer), Right(BigInt("9" * 1000)))
+      assertEquals(decode[Bigs](bigs("2E+3", "1")).map(_.decimal), Right(BigDecimal("2E+3")))
+    }
+
+    test("Secret fields with the bridge's Schema[Secret]: a string on the wire, never in an error") {
+      val credentials = Credentials("alice", dev.yuri4n.exts.h3.Secret("t0k3n"))
+      assertEquals(credentials.toNative.asInstanceOf[js.Dynamic].token.asInstanceOf[String], "t0k3n")
+      val decoded = decode[Credentials](js.Dynamic.literal(user = "bob", token = "s3cr3t")).toOption.get
+      assert(decoded.token.matches("s3cr3t"))
+      assertEquals(decoded.toString, "Credentials(bob,Secret(<redacted>))")
+      val error = intercept[InvalidInput](summon[NativeConverter[Credentials]].fromNative(js.Dynamic.literal(user = "bob", token = 12345)))
+      assertEquals(error, InvalidInput())
+      assert(!error.getMessage.contains("12345"))
+    }
+
     test("@rename, @alias and @discriminator shapes match kyo-schema-json, and the hint still checks their numbers") {
       val renamed = Renamed("Ada", 36)
       assertWire(renamed)

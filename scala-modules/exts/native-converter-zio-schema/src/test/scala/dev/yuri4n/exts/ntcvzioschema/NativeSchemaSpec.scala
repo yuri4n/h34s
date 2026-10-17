@@ -33,6 +33,11 @@ object NativeSchemaSpec extends ZIOSpecDefault:
     ) derives Schema, NativeSchema
     final case class Team(lead: Member, members: List[Member]) derives Schema, NativeSchema
 
+    /** A config-like model that holds a secret (the package's `secretSchema` is in scope here;
+      * other packages import it).
+      */
+    final case class Credentials(user: String, token: dev.yuri4n.exts.h3.Secret) derives Schema, NativeSchema
+
     private def rejected[A](value: js.Any)(using converter: NativeConverter[A]): Either[Throwable, A] =
       try Right(converter.fromNative(value))
       catch case error: Throwable => Left(error)
@@ -46,6 +51,19 @@ object NativeSchemaSpec extends ZIOSpecDefault:
     given Schema[NestedDefault] = DeriveSchema.gen[NestedDefault]
 
     def spec = suite("optional native schema bridge")(
+      test("Secret fields with the bridge's Schema[Secret]: a string on the wire, never in an error") {
+        val converter = summon[NativeConverter[Credentials]]
+        val written = converter.toNative(Credentials("alice", dev.yuri4n.exts.h3.Secret("t0k3n")))
+        val decoded = converter.fromNative(js.Dynamic.literal(user = "bob", token = "s3cr3t"))
+        val wrong = rejected[Credentials](js.Dynamic.literal(user = "bob", token = 12345))
+        assertTrue(
+          written.asInstanceOf[js.Dynamic].token.asInstanceOf[String] == "t0k3n",
+          decoded.token.matches("s3cr3t"),
+          decoded.toString == "Credentials(bob,Secret(<redacted>))",
+          wrong == Left(InvalidInput()),
+          !wrong.left.toOption.get.getMessage.contains("12345"),
+        )
+      },
       test("constructs records in schema order, independent of JavaScript property order") {
         val codec = NativeSchema(Schema[Pair])
         assertTrue(codec.decode(js.Dynamic.literal(second = "two", first = "one")) == Right(Pair("one", "two")))

@@ -8,6 +8,11 @@ import java.time.{Duration, Instant}
 
 /** Test models. Each one has ONE schema; `NativeSchema` derives from it. */
 object Models:
+    /** A config-like model that holds a secret (the package's `secretSchema` is in scope here;
+      * other packages import it).
+      */
+    final case class Credentials(user: String, token: dev.yuri4n.exts.h3.Secret) derives Schema, NativeSchema
+
     final case class Address(street: String, zip: Option[String]) derives Schema
 
     final case class Person(
