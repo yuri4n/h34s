@@ -16,10 +16,14 @@ export function createH34sPlugin({ useRuntimeConfig, useStorage, development }) 
   // Only the boolean `true` enables diagnostics; requests can never change it.
   const dev = development === true
   return function h34s(nitroApp) {
+    // `runtimeConfig.h34s.debug` (declared by the module, so NUXT_H34S_DEBUG=true can set it) is
+    // read once at startup. Like `development`, only the boolean `true` enables it.
+    const debug = useRuntimeConfig()?.h34s?.debug === true
     const closers = new Set()
     const startup = Object.freeze({
       version: 1,
       development: dev,
+      debug,
       // Nitro's shared, frozen startup copy (no event): for application-scoped resources.
       runtimeConfig: () => useRuntimeConfig(),
       storage: (base = '') => useStorage(base),
@@ -34,6 +38,7 @@ export function createH34sPlugin({ useRuntimeConfig, useStorage, development }) 
       event.context.h34s = Object.freeze({
         version: 1,
         development: dev,
+        debug,
         // Lazy: Nitro clones the config and applies NUXT_* overrides only when asked, then
         // caches it on the event.
         runtimeConfig: () => useRuntimeConfig(event),

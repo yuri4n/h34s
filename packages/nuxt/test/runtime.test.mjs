@@ -18,13 +18,13 @@ function nitroApp() {
   }
 }
 
-function fakes() {
+function fakes(h34s) {
   const calls = []
   return {
     calls,
     useRuntimeConfig: (...args) => {
       calls.push(['useRuntimeConfig', ...args])
-      return { databaseUrl: 'postgres://db:5432/app', public: { apiBase: '/api' } }
+      return { databaseUrl: 'postgres://db:5432/app', public: { apiBase: '/api' }, ...(h34s === undefined ? {} : { h34s }) }
     },
     useStorage: (...args) => {
       calls.push(['useStorage', ...args])
@@ -43,19 +43,21 @@ test('the request hook installs a frozen, versioned record with lazy config and 
   t.after(() => delete globalThis[H34S_NITRO])
   const nitro = fakes()
   const hooks = install({ ...nitro, development: false })
+  assert.deepEqual(nitro.calls, [['useRuntimeConfig']], 'startup reads the debug flag once')
   const event = { context: { application: true } }
   hooks.request(event)
   const record = event.context.h34s
   assert.equal(event.context.application, true)
   assert.equal(record.version, 1)
   assert.equal(record.development, false)
+  assert.equal(record.debug, false)
   assert.ok(Object.isFrozen(record))
-  assert.deepEqual(nitro.calls, [], 'runtime config is read only when Scala asks')
+  assert.deepEqual(nitro.calls, [['useRuntimeConfig']], 'request config is read only when Scala asks')
   assert.deepEqual(record.runtimeConfig(), {
     databaseUrl: 'postgres://db:5432/app',
     public: { apiBase: '/api' },
   })
-  assert.deepEqual(nitro.calls, [['useRuntimeConfig', event]])
+  assert.deepEqual(nitro.calls, [['useRuntimeConfig'], ['useRuntimeConfig', event]])
   assert.deepEqual(record.storage(), { base: '' })
   assert.deepEqual(record.storage('cache'), { base: 'cache' })
 })
@@ -71,6 +73,43 @@ test('development mode is enabled only by the boolean true', (t) => {
   }
 })
 
+test('debug mode comes only from the boolean true in runtimeConfig.h34s.debug, read at startup', (t) => {
+  t.after(() => delete globalThis[H34S_NITRO])
+  const cases = [
+    [{ debug: true }, true],
+    [{ debug: false }, false],
+    [{ debug: 'true' }, false],
+    [{ debug: 1 }, false],
+    [{}, false],
+    [undefined, false],
+    [null, false],
+  ]
+  for (const [h34s, expected] of cases) {
+    const hooks = install({ ...fakes(h34s), development: false })
+    const event = { context: {} }
+    hooks.request(event)
+    assert.equal(event.context.h34s.debug, expected, JSON.stringify(h34s))
+    assert.equal(globalThis[H34S_NITRO].debug, expected, JSON.stringify(h34s))
+    assert.equal(event.context.h34s.development, false, 'debug does not imply development')
+  }
+})
+
+test('a request cannot enable debug or development through headers, query or its own context', (t) => {
+  t.after(() => delete globalThis[H34S_NITRO])
+  const hooks = install({ ...fakes({ debug: false }), development: false })
+  const forged = Object.freeze({ version: 1, development: true, debug: true })
+  const event = {
+    path: '/api/notes?debug=true&development=true&h34s.debug=true',
+    headers: { 'x-h34s-debug': 'true', 'x-h34s-development': 'true' },
+    node: { req: { headers: { 'x-h34s-debug': 'true' }, url: '/api/notes?debug=true' } },
+    context: { h34s: forged, debug: true },
+  }
+  hooks.request(event)
+  assert.notEqual(event.context.h34s, forged, 'the plugin replaces any earlier record')
+  assert.equal(event.context.h34s.debug, false)
+  assert.equal(event.context.h34s.development, false)
+})
+
 test('the startup record serves startup config, storage and close registration', (t) => {
   t.after(() => delete globalThis[H34S_NITRO])
   const nitro = fakes()
@@ -78,7 +117,9 @@ test('the startup record serves startup config, storage and close registration',
   const startup = globalThis[H34S_NITRO]
   assert.equal(startup.version, 1)
   assert.equal(startup.development, true)
+  assert.equal(startup.debug, false)
   assert.ok(Object.isFrozen(startup))
+  nitro.calls.length = 0
   startup.runtimeConfig()
   assert.deepEqual(nitro.calls, [['useRuntimeConfig']], 'the startup copy is read without an event')
   assert.deepEqual(startup.storage('data'), { base: 'data' })
@@ -131,9 +172,10 @@ test('the default export wires Nitro\'s useRuntimeConfig and useStorage outside 
   const event = { context: {} }
   app.hooks_.request(event)
   assert.equal(event.context.h34s.development, false, 'import.meta.dev is not true outside Nitro')
+  assert.equal(event.context.h34s.debug, false, 'the stub config declares no h34s.debug')
   assert.deepEqual(event.context.h34s.runtimeConfig(), { apiBase: '/api' })
   assert.deepEqual(event.context.h34s.storage('cache'), { mount: 'cache' })
-  assert.deepEqual(nitroHub.calls, [['useRuntimeConfig', event], ['useStorage', 'cache']])
+  assert.deepEqual(nitroHub.calls, [['useRuntimeConfig'], ['useRuntimeConfig', event], ['useStorage', 'cache']])
 })
 
 test('development.mjs re-exports the h34s plugin for one release', async () => {

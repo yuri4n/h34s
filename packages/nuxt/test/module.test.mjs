@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url'
 import h34sNuxt from '../src/module.mjs'
 import './nitro-runtime-stub.mjs'
 
-async function setup(t, options) {
+async function setup(t, options, nuxtOptions = {}) {
   const root = await mkdtemp(join(tmpdir(), 'h34s-nuxt-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const file = options?.configFile ?? 'h34s.config.mjs'
@@ -22,7 +22,7 @@ async function setup(t, options) {
   )
   let configure
   await h34sNuxt(options, {
-    options: { rootDir: root },
+    options: { rootDir: root, ...nuxtOptions },
     hook(name, callback) {
       assert.equal(name, 'nitro:config')
       configure = callback
@@ -68,8 +68,10 @@ test('production leaves source maps, bundling and watches unchanged and denies d
     'dev',
     'externals',
     'plugins',
+    'runtimeConfig',
     'sourceMap',
   ])
+  assert.deepEqual(nitro.runtimeConfig, { h34s: { debug: false } })
   assert.equal(nitro.sourceMap, false)
   const { default: plugin } = await import(pathToFileURL(nitro.plugins[0]))
   let request
@@ -89,4 +91,25 @@ test('production leaves source maps, bundling and watches unchanged and denies d
   assert.equal(event.context.h34s.version, 1)
   assert.equal(event.context.h34s.development, false)
   delete globalThis[Symbol.for('h34s.nitro')]
+})
+
+test('declares runtimeConfig.h34s.debug from Nuxt debug mode, only for the boolean true', async (t) => {
+  for (const [debug, expected] of [[true, true], [false, false], [{ hooks: true }, false], ['true', false], [undefined, false]]) {
+    const { configure } = await setup(t, undefined, { debug })
+    const nitro = { dev: false, runtimeConfig: { app: { baseURL: '/' }, public: {} } }
+    configure(nitro)
+    assert.deepEqual(nitro.runtimeConfig.h34s, { debug: expected }, JSON.stringify(debug))
+    assert.deepEqual(nitro.runtimeConfig.app, { baseURL: '/' }, 'other runtime config is kept')
+    assert.equal(nitro.runtimeConfig.public.h34s, undefined, 'the flag is private')
+  }
+})
+
+test('keeps the application\'s own runtimeConfig.h34s values', async (t) => {
+  const { configure } = await setup(t, undefined, { debug: true })
+  const own = { dev: false, runtimeConfig: { h34s: { debug: false, extra: 1 } } }
+  configure(own)
+  assert.deepEqual(own.runtimeConfig.h34s, { debug: false, extra: 1 })
+  const partial = { dev: false, runtimeConfig: { h34s: { extra: 1 } } }
+  configure(partial)
+  assert.deepEqual(partial.runtimeConfig.h34s, { extra: 1, debug: true })
 })

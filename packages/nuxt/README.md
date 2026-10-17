@@ -34,7 +34,7 @@ export default defineNuxtConfig({
 })
 ```
 
-Remove copied development loaders, source-map hooks, and the `h34s-development` plugin when switching to this module. It installs the development diagnostics flag automatically; only Nuxt development mode enables detailed errors.
+Remove copied development loaders, source-map hooks, and the `h34s-development` plugin when switching to this module. It installs the diagnostics flags automatically. Detailed errors appear only in Nuxt development mode or when debug mode is on: `debug: true` in `nuxt.config`, or `NUXT_H34S_DEBUG=true` at runtime. Requests can never turn them on. Keep debug mode off in production: it sends error causes and stack text to clients.
 
 ## Run
 

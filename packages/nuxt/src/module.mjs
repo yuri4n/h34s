@@ -10,6 +10,7 @@ export default async function h34sNuxt(options, nuxt) {
   const config = await loadConfig({ root, configFile: options?.configFile })
   const outputs = config.modules.map(module => module.output)
   nuxt.hook('nitro:config', (nitro) => {
+    declareDebugFlag(nitro, nuxt.options.debug === true)
     const runtime = fileURLToPath(new URL('./runtime/', import.meta.url))
     nitro.plugins ??= []
     nitro.plugins.push(
@@ -41,4 +42,16 @@ export default async function h34sNuxt(options, nuxt) {
       sourcemapExcludeSources: false,
     }
   })
+}
+
+// Declares `runtimeConfig.h34s.debug` (private: never sent to the browser). Declared keys accept
+// `NUXT_H34S_DEBUG=true` at runtime. The Nitro plugin reads it once at startup. A value the
+// application already set wins.
+function declareDebugFlag(nitro, debug) {
+  nitro.runtimeConfig ??= {}
+  const existing = nitro.runtimeConfig.h34s
+  if (existing === undefined || existing === null)
+    nitro.runtimeConfig.h34s = { debug }
+  else if (typeof existing === 'object' && !('debug' in existing))
+    nitro.runtimeConfig.h34s = { ...existing, debug }
 }
