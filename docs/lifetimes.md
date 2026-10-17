@@ -22,7 +22,7 @@ The core runs every handler in a request scope. Acquire a resource in that scope
 
 - For a value or `Unit` body: after your program finishes, before h34s writes the response. Asynchronous finalizers finish before the response settles.
 - For a streamed body: after the stream ends, fails, or is cancelled.
-- When the client disconnects: h34s interrupts the program, waits for the finalizers, and writes nothing.
+- When the client disconnects: h34s interrupts the program, waits for the finalizers, and writes nothing. See [When the client disconnects](#when-the-client-disconnects).
 
 The demo's ZIO handlers take one pooled Skunk session per request this way. `NotesLive.layer` reads the request `Scope` from `HandlerEnv`, so the session returns to the pool when the request ends:
 
@@ -34,6 +34,24 @@ object NotesLive:
 ```
 
 A failing finalizer behaves differently per runtime. Kyo 1.0.0-RC7 logs a failing `Scope` finalizer and keeps the response. A ZIO finalizer that dies turns a value or `Unit` response into a 500. Do work that must affect the response in the program, not in a finalizer.
+
+## When the client disconnects
+
+A client can leave before your handler finishes: the user closes the tab, or the frontend aborts its `fetch`. Kyo and ZIO handlers behave the same way:
+
+1. h34s interrupts your program. In ZIO, the handler's fiber is interrupted.
+2. Your finalizers run: `Scope.acquireRelease` and `Scope.ensure` in Kyo, `ZIO.acquireRelease`, `ZIO.addFinalizer` and scoped layers in ZIO.
+3. h34s waits for those finalizers, including asynchronous ones, before it tells h3 and Nitro that the request is over. No cleanup keeps running after the request is reported as done.
+4. h34s writes nothing to the closed connection.
+
+Interruption can stop work that you expected to finish. If the client leaves during a database transaction, the transaction can roll back instead of committing. For a step that must complete even when the client leaves, make that step uninterruptible:
+
+- Kyo: `Async.uninterruptible(step)`.
+- ZIO: `step.uninterruptible`, or `ZIO.uninterruptibleMask` when only part of the step must be protected.
+
+Keep uninterruptible regions small. A client disconnect cannot stop them, so h34s waits for them to finish before it settles the request.
+
+Interruption does not cancel JavaScript work that has already started, for example a storage Promise. h34s stops waiting for it; the work itself finishes or fails on its own.
 
 ## Application resources
 
