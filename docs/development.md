@@ -2,13 +2,13 @@
 
 Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate `website/` app serves the documentation. To use h34s in your own Nuxt project, follow [adoption.md](adoption.md).
 
-The demo uses the `0.1.0-alpha.1` libraries. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates.
+The demo builds the h34s libraries from this repository's sources (`0.2.0-SNAPSHOT`), not from the published `0.1.0-alpha.1` packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates and how they differ from the current source.
 
 The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications can install its [published `0.1.0-alpha.1` package](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The [npm tooling guide](npm-tooling.md) explains how to configure the same integration without copying scripts.
 
 ## Prerequisites
 
-Use Node 24, pnpm 10.34.4, Java 25 for the combined Kyo/ZIO example (Java 21 remains sufficient for ZIO-only tasks), sbt 1.11.7, and Docker with Compose for the optional database example. The current build selects Scala.js 1.22.0, Scala 3.5.2 for ZIO modules, and Scala 3.9.0 for Kyo 1.0.0-RC7. `project/build.properties` pins sbt; `.jvmopts` supplies the stack and heap sizes needed by the linked dependencies. The recovered Nuxt dependency set uses pnpm 10's build allowlist.
+Use Node 24, pnpm 10.34.4, Java 25, sbt 1.11.7, and Docker with Compose for the optional database example. The build selects Scala.js 1.22.0 and Scala 3.9.0 for every module, with Kyo 1.0.0-RC7 and ZIO 2.1.26. Kyo's macros need Java 25, and the ZIO modules build on the Kyo core, so Java 21 is no longer enough for any task. `project/build.properties` pins sbt; `.jvmopts` supplies the stack and heap sizes needed by the linked dependencies. The recovered Nuxt dependency set uses pnpm 10's build allowlist.
 
 In the prepared cloud environment, first run:
 
@@ -37,7 +37,7 @@ In the prepared cloud environment the linking command is:
 
 Development loads the linked Scala.js ES modules directly in Node. Nitro watches both output directories and replaces its worker after relinking, keeping Node’s module cache fresh. This avoids the large Rollup graphs that exhausted an 8 GB heap during bundled watch rebuilds. The current `pnpm dev` script enables Node source maps automatically and needs no heap override. The application pins `h3` as a direct runtime dependency for the linked modules.
 
-Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `pnpm run scala:watch` in another terminal. The root scripts pass `examples/nuxt/h34s.build.config.mjs` to the CLI. That wrapper uses the demo's `h34s.config.mjs` and resolves its output paths from the repository root.
+Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. It streams its body, and streamed bodies are sent as they are. Value bodies use the default envelope instead: `/api/kyo/greeting` answers `{"data":{"message":"Hello, Kyo!"}}`. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `pnpm run scala:watch` in another terminal. The root scripts pass `examples/nuxt/h34s.build.config.mjs` to the CLI. That wrapper uses the demo's `h34s.config.mjs` and resolves its output paths from the repository root.
 
 Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
 
@@ -47,25 +47,27 @@ The independent [Kyo example](kyo.md) adds GET and POST `/api/kyo/greeting`. Its
 
 ## 2. Run the model and database example
 
-Export `MY_APP_DB_HOST`, `MY_APP_DB_PORT`, `MY_APP_DB_USER`, `MY_APP_DB_PASSWORD`, and `MY_APP_DB_NAME` in the shell you use for both Compose and Nuxt. For local Compose, use host `127.0.0.1` and port `5432` (or a free port of your choice). Supply your own local password; do not commit it.
+The ZIO Notes routes read their PostgreSQL settings from Nuxt `runtimeConfig.database` (see `examples/nuxt/nuxt.config.ts`). Nitro overrides each key at runtime from an environment variable: `NUXT_DATABASE_HOST`, `NUXT_DATABASE_PORT`, `NUXT_DATABASE_USER`, `NUXT_DATABASE_PASSWORD`, and `NUXT_DATABASE_NAME`. Docker Compose reads the same names. The defaults are host `127.0.0.1`, port `5432`, user `h34s`, and database `h34s`. Supply your own local password; do not commit it. Compose refuses to start without `NUXT_DATABASE_PASSWORD`.
 
-If you prefer a local environment file, put it in the ignored `examples/nuxt/.env` and add `--env-file examples/nuxt/.env` to each Compose command below. Nuxt development reads that file from the example's application root.
+The easiest way is a local environment file. Copy `examples/nuxt/.env.example` to `examples/nuxt/.env` (Git ignores it) and set the password there. Nuxt development reads that file from the example's application root. Add `--env-file examples/nuxt/.env` to each Compose command below. Instead of a file, you can export the variables in the shell you use for both Compose and Nuxt.
+
+Earlier versions of this guide used `MY_APP_DB_*` variables. Rename them to the `NUXT_DATABASE_*` names; the example no longer reads the old ones.
 
 Keep the default Compose project name `h34s` to reuse the existing `h34s_postgres_data` volume after the demo's move. If you previously used another project name, set `COMPOSE_PROJECT_NAME` to that name or add `-p <existing-name>` to each Compose command below.
 
 ```sh
-docker compose -f examples/nuxt/docker-compose.yml up -d postgres
-docker compose -f examples/nuxt/docker-compose.yml exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose --env-file examples/nuxt/.env -f examples/nuxt/docker-compose.yml up -d postgres
+docker compose --env-file examples/nuxt/.env -f examples/nuxt/docker-compose.yml exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
 Compose mounts the example schema into PostgreSQL's initialization directory. PostgreSQL runs those scripts only when initializing an empty volume. For an existing development database, apply the additive example schema explicitly:
 
 ```sh
-docker compose -f examples/nuxt/docker-compose.yml exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+docker compose --env-file examples/nuxt/.env -f examples/nuxt/docker-compose.yml exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < examples/nuxt/scala/zio/src/main/resources/sql/01-init.sql
 ```
 
-Pass the same `MY_APP_DB_*` variables to the Nuxt process, rebuild Scala.js, then start Nuxt. Exercise the endpoints with:
+Rebuild Scala.js, then start Nuxt with the same variables. Exercise the endpoints with:
 
 ```sh
 curl --fail -H 'Content-Type: application/json' \
@@ -73,11 +75,17 @@ curl --fail -H 'Content-Type: application/json' \
 curl --fail http://127.0.0.1:3000/api/notes
 ```
 
-POST returns status 201 with `{ "id": 1, "text": "My first note" }` for a new empty database. GET lists notes by ID. Blank text returns a safe 422 response. The ID may differ when the database already contains rows.
+POST returns status 201 with `{"data":{"id":1,"text":"My first note"}}` for a new empty database. GET returns `{"data":[...]}` with the notes ordered by ID. The ID may differ when the database already contains rows. Every response has `Cache-Control: no-store`, the default that the example's `AppHandler` sets.
 
-`notes/Notes.scala` defines the application model, request DTO, service, and Skunk implementation. The `Note` response derives `NativeConverter`. The `CreateNote` input opts into ZIO Schema: its schema trims and validates text, and the handler calls `readBodyWithSchema` without repeating those rules. Invalid input returns HTTP 422 with `Request body does not match schema`. The plain NativeConverter-only reader remains available without schema dependencies; see [schema.md](schema.md).
+Blank text returns status 422 with `{"errors":[{"message":"must have at least 1 character","path":"text"}]}`. A body of the wrong shape, for example `{"text":42}`, returns 422 with one generic entry, `Request body does not match the expected shape`. Text that is not valid JSON returns 400. The entries never repeat the input.
 
-Skunk's typed SQL interpolator encodes input values as bound parameters; it never concatenates them into SQL. In your own application, define your database layer in a composition module such as this demo's `Services.scala`, then write an `AppHandler` wrapper to provide it to your endpoints. These are application-owned files. Initialize the database schema during setup, not during requests.
+`notes/Notes.scala` defines the application model, the request model, the service, and the Skunk implementation. Each model has one ZIO Schema and derives its native converter from it (`derives Schema, NativeSchema`). The `CreateNote` schema trims the text and checks its length, so the handler reads the body with `request.body.json[CreateNote]` and repeats none of those rules. See [schema.md](schema.md) for supported schema forms; plain `derives NativeConverter` models need no schema dependency.
+
+The database pool is an application-scoped resource. `resources/SessionPool.scala` builds a Skunk pool (at most four sessions) from the startup runtime config, and the example's `app/AppHandler.scala` wraps it in `ZShared.layer`. The first request that needs it builds the pool; every later request reuses it. Each request takes one pooled session for its request scope and returns it when the response is complete. Nitro's `close` hook releases the pool. The Node server runs that hook on `SIGTERM` and `SIGINT`. These files belong to the example: write your own `AppHandler` and resource layers in your application.
+
+`AppHandler` provides `Notes` before the handler runs, so every Notes request takes a database session first. When PostgreSQL is unreachable, even invalid input answers an opaque 500 instead of 422. Provide the service inside the handler, after decoding the body, if your application must validate without a database.
+
+Skunk's typed SQL interpolator encodes input values as bound parameters; it never concatenates them into SQL. Initialize the database schema during setup, not during requests.
 
 The demo includes `examples/nuxt/server/plugins/skunk-node-crypto.ts`: the pinned Skunk version calls Node's `require('crypto')` for SCRAM authentication, so the plugin installs Node's loader before Nitro accepts requests. Add this plugin when adapting the database example to an ES-module application. PostgreSQL's default SCRAM authentication stays enabled. Restart Nuxt if authentication ran before the plugin was installed; the failed library initializer cannot recover in the same process.
 
@@ -91,23 +99,54 @@ pnpm build
 
 This runs `pnpm run scala:full` before the demo's Nuxt production build. The packaged `h34s-scala build` step reads `examples/nuxt/h34s.build.config.mjs`, clears previous output from both `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, and checks that both outputs exist. A failed link stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own. Nuxt writes the deployable output to `examples/nuxt/.output/`.
 
+The example's `build` and `generate` scripts run Nuxt with an 8 GiB Node heap (`node --max-old-space-size=8192`). Nitro bundles the linked Scala.js output for production, about 16 MB of JavaScript for the two applications. With Node's default heap (about 4 GiB on a 16 GB machine), that step ran out of memory. Give your own application's Nuxt build the same option if its linked Scala.js output is similarly large.
+
+A production build needs a complete dependency installation. `pnpm install --frozen-lockfile` runs the install scripts of the packages that `pnpm-workspace.yaml` allows, including the `better-sqlite3` addon that Nuxt Content uses, and the example's `postinstall` step, `nuxt prepare`. An installation with `--ignore-scripts`, as the library checks use, skips both. `nuxt build` then fails with `Could not locate the bindings file` or with `failed to resolve "extends":"./.nuxt/tsconfig.json"`. To recover, run `pnpm install --frozen-lockfile` without `--ignore-scripts`. If the addon cannot be built on your machine, select Node's built-in SQLite for Nuxt Content instead: put `content.experimental.sqliteConnector=native` in the ignored `examples/nuxt/.nuxtrc`, then run `pnpm --dir examples/nuxt exec nuxt prepare` before the build.
+
+Start the built server from the example directory:
+
+```sh
+cd examples/nuxt
+node .output/server/index.mjs
+```
+
+It listens on port 3000; set `NITRO_PORT` and `NITRO_HOST` (or `PORT` and `HOST`) to change that. The production server does not read `.env`. Pass `NUXT_DATABASE_*` in its environment. To include error causes and stack text in its 500 responses while you investigate a problem, start it with `NUXT_H34S_DEBUG=true`; keep that off on any server the public can reach. On `SIGTERM` or `SIGINT`, Nitro runs its `close` hook, which releases the shared database pool, and then exits.
+
 This build entry point does not establish complete application packaging or a tested Nix deployment. The [release checks](releases.md#validate-and-publish-a-release) validate reusable library artifacts separately from packaging the example application.
 
 ## Checks
 
+Run the library and example tests, link both applications, and run the tooling tests:
+
 ```sh
-sbt 'nativeConverterZIOSchemaExt/test' 'zioH3SchemaExt/test' 'zioH3Ext/test' 'kyoH3Ext/test' 'nuxtsvr/test' 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
-node --test scripts/scala-source-maps.test.mjs scripts/scala-dev-modules.test.mjs
-node scripts/smoke.mjs
-node scripts/kyo-smoke.mjs
+for fixture in scala-modules/exts/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
+sbt 'h3Ext/test' 'kyoH3Ext/test' 'kyoNuxtHubExt/test' 'nativeConverterKyoSchemaExt/test' \
+  'zioH3Ext/test' 'zioNuxtHubExt/test' 'nativeConverterZIOSchemaExt/test' 'nuxtsvr/test' \
+  'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
+node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
 ```
 
-The smoke check needs the running example and database. Wait for Nitro's build to complete first. It verifies streaming, a real insert/read with schema-normalized text, and safe responses for blank, null, missing, and incorrectly typed input. It creates one note in the selected development database. `H34S_BASE_URL` can select a different local port.
+Then start the example (development or production) and run the HTTP smoke checks against it:
 
-Earlier verification in the prepared cloud checkout covered 17 Kyo tests, all 31 ZIO handler/stream tests, 13 development-tool checks, application linking, Nuxt startup, the HTTP smoke check against PostgreSQL 16 with SCRAM, and the home page returning HTTP 200 in the earlier bundled profile. The direct-module profile also passed both smoke scripts, including PostgreSQL insert/read, streaming, and rejected input; a Scala service edit/relink updated its live Kyo response without restarting Nuxt. A query-failure probe in Nuxt development mode returned status 500 with the original cause and a stack frame mapped to `Notes.scala`. Production response suppression and Nitro's production mode replacement were checked separately. PostgreSQL showed no remaining application connections after successful requests, input failures, or query failure. The ZIO socket-close unit tests used real h3 with mocked Node responses; that evidence did not include an actual ZIO client-abort integration check. Kyo has a separate real client-abort test; its evidence is recorded in the [Kyo guide](kyo.md).
+```sh
+node scripts/kyo-smoke.mjs
+node scripts/smoke.mjs
+```
 
-The optional schema slice passed 15 native codec tests, 7 real h3 request/error tests, 2 tests of the actual `CreateNote` schema, the existing 31 handler/stream tests, and application development linking under the earlier Scala.js 1.20.1 profile. At that checkpoint its updated HTTP smoke script had not been rerun against Nuxt/PostgreSQL; those automated tests do not establish that end-to-end result. The [schema guide](schema.md#dependencies-and-compatibility) separates that historical profile from the current Scala.js 1.22.0 configuration. Check the matching release workflow for validation of the release revision.
+`kyo-smoke.mjs` needs no database. It checks the `{"data": ...}` envelope, `Cache-Control: no-store`, 422 entries with the `name` path for a blank or too long name, the generic 422 for a wrong shape, and 400 for text that is not JSON. `smoke.mjs` needs the database. It checks the stream, a real insert and read with schema-normalized text, 422 entries with the `text` path, the generic 422 for null, missing, and incorrectly typed input, and 400 for text that is not JSON. It creates one note in the selected development database. `H34S_BASE_URL` selects another base URL; the default is `http://127.0.0.1:3000`.
 
-Tests cover native conversion, error boundaries, application provisioning, request cleanup, stream backpressure and cleanup, and h3 response-close behavior. Use direct HTTP for stream responses; in-process Nitro local-fetch streaming is not supported by this scoped adapter yet.
+### What was verified for this revision
 
-Scala-to-TypeScript generation, complete application packaging, Nix support, and application-scoped database pooling remain pending. `scala:types` runs ScalablyTyped (TypeScript to Scala), not Scala-to-TypeScript generation.
+On 2026-10-17, on macOS 15.7 (x86_64) with Node 24.19.0, Java 25, sbt 1.11.7, Nuxt 4.3.1, and Nitro 2.13.1:
+
+- `pnpm build` linked both applications for production and built Nuxt. The production server (`node .output/server/index.mjs`) answered `GET /api/kyo/greeting` with `{"data":{"message":"Hello, Kyo!"}}` and `Cache-Control: no-store`. A blank name returned 422 with `{"errors":[{"message":"must not be blank","path":"name"}]}`, and an 81-character name returned 422 with `length must be <= 80` at the same path. `{"name":42}` returned the generic 422, invalid JSON returned 400, and a `text/plain` body returned 415. `/api/test` streamed `abc` with chunked transfer encoding. Unknown routes kept Nitro's own 404. `kyo-smoke.mjs` passed.
+- Without a database, `/api/notes` returned an opaque 500 with no diagnostics. With `NUXT_H34S_DEBUG=true`, the same response carried `debug.cause` with the connection error and the Scala trace. The database password did not appear in any response or log.
+- On `SIGTERM`, Nitro's `close` hook released the shared database pool that the first Notes request had registered, and the server exited with status 0.
+- In `pnpm dev`, `/api/notes` without a database returned a 500 with `debug.cause`. A JavaScript error raised inside the linked Kyo handler had stack frames mapped to `RequestLifecycle.scala` and `KHandler.scala`, so the Scala.js source maps load in development.
+- The Scala CI command passed: `h3Ext` 30 tests, `kyoH3Ext` 68, `kyoNuxtHubExt` 13, `nativeConverterKyoSchemaExt` 23, `zioH3Ext` 74, `zioNuxtHubExt` 13, `nativeConverterZIOSchemaExt` 19, and `nuxtsvr` 5, plus the compile-only modules, `releaseCheck`, and `check-release.mjs --allow-snapshot`. The 46 tooling tests passed. `check-consumers.mjs` built and served all four fresh consumers from a staged `0.2.0-SNAPSHOT`, and `check-npm-nuxt.mjs` passed with the packed module.
+
+Not verified: the Notes routes against PostgreSQL. Docker was not running on the verification machine, so `smoke.mjs` stopped at its first database request, and the 201 and 422 Notes responses in section 2 come from the handler and schema test suites, not from a database run. A client disconnect inside a running Nitro server was not exercised either; the Kyo test suite aborts a real HTTP client against h3 in Node.
+
+Use direct HTTP for stream responses. In-process Nitro local fetches (`$fetch` during server rendering) were not tested with streamed Scala bodies.
+
+Scala-to-TypeScript generation, complete application packaging, and Nix support remain pending. The root `scala:types` script only compiles `h3Ext` now; it no longer generates facades, and it never generated TypeScript.
