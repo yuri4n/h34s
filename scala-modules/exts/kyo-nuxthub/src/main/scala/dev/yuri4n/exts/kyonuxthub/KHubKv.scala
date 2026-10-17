@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.kyonuxthub
 
-import dev.yuri4n.exts.nuxthub.{HubKv, NativeKvSetOptions}
+import dev.yuri4n.exts.h3.internal.{NativeStorage, NativeStorageSetOptions}
 import kyo.{Abort, Async, Frame, Sync, `<`}
 import org.getshaka.nativeconverter.{NativeConverter, fromNative}
 
@@ -8,8 +8,12 @@ import scala.concurrent.ExecutionContext
 import scala.scalajs.js
 import scala.util.{Failure, Success}
 
-/** Native Kyo operations over application-owned NuxtHub KV, independent of ZIO. */
-final class KHubKv(private val native: HubKv):
+/** Kyo operations over a Nitro storage mount (NuxtHub KV and cache are mounts).
+  *
+  * The public constructor from a Nitro mount arrives with the Nitro context integration; the
+  * application no longer supplies a native object.
+  */
+final class KHubKv private[exts] (private val native: NativeStorage):
     private def operation[A](promise: => js.Promise[A])(using Frame): A < (Async & Abort[Throwable]) =
       Abort.catching[Throwable] {
         Sync.defer {
@@ -33,7 +37,7 @@ final class KHubKv(private val native: HubKv):
 
     def set[A: NativeConverter](key: String, value: A, ttlSeconds: Option[Double] = None)(using Frame): Unit < (Async & Abort[Throwable]) =
       operation {
-        val options = ttlSeconds.fold[js.UndefOr[NativeKvSetOptions]](js.undefined)(new NativeKvSetOptions(_))
+        val options = ttlSeconds.fold[js.UndefOr[NativeStorageSetOptions]](js.undefined)(new NativeStorageSetOptions(_))
         native.set(key, summon[NativeConverter[A]].toNative(value), options)
       }
 
@@ -46,4 +50,4 @@ final class KHubKv(private val native: HubKv):
       operation(native.keys(base.fold[js.UndefOr[String]](js.undefined)(identity))).map(_.toList)
 
 object KHubKv:
-    def apply(native: HubKv): KHubKv = new KHubKv(native)
+    private[exts] def fromNative(native: NativeStorage): KHubKv = new KHubKv(native)

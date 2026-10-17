@@ -147,7 +147,8 @@ lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
     commonJsTests,
     Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
   )
-  .dependsOn(h3Ext)
+  // Tests reuse the native h3 event and Node response fixtures of h3-ext.
+  .dependsOn(h3Ext % "compile->compile;test->test")
 
 // Optional Kyo Schema bridge. The NativeSchema API lands in a later change.
 lazy val nativeConverterKyoSchemaExt: Project =
@@ -255,6 +256,8 @@ lazy val nativeConverterZIOExt = (project in file("scala-modules/exts/native-con
       "org.getshaka" %%% "native-converter" % nativeConverterVersion,
     ),
   )
+  // NativeConverter[Unit] lives in h3-ext; this module re-exports it.
+  .dependsOn(h3Ext)
 
 lazy val nativeConverterZIOJsonExt: Project =
   (project in file("scala-modules/exts/native-converter-zio-json"))

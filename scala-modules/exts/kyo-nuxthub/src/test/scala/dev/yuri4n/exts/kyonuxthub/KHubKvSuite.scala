@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.kyonuxthub
 
-import dev.yuri4n.exts.nuxthub.{HubKv, KvTestFixtures}
+import dev.yuri4n.exts.h3.internal.NativeStorage
 import kyo.*
 import munit.FunSuite
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
@@ -40,7 +40,7 @@ class KHubKvSuite extends FunSuite:
       completed.future
 
     test("real NuxtHub memory storage round trips DTOs and exposes missing, has, keys and delete") {
-      val kv = KHubKv(KvTestFixtures.memory())
+      val kv = KHubKv.fromNative(KvTestFixtures.memory())
       val first = Entry("42", 0, false)
       val second = Entry("second", 2, true)
       run {
@@ -73,7 +73,7 @@ class KHubKvSuite extends FunSuite:
     }
 
     test("false and zero are stored values rather than missing values") {
-      val kv = KHubKv(KvTestFixtures.memory())
+      val kv = KHubKv.fromNative(KvTestFixtures.memory())
       run {
         for
           _ <- kv.set("disabled", false)
@@ -103,7 +103,7 @@ class KHubKvSuite extends FunSuite:
       Future.traverse(List[js.Any](null, js.undefined)) { missing =>
         val recording = new KvTestFixtures.Recording
         recording.result = missing
-        run(KHubKv(recording.native).get[Decoded]("missing")).map { result =>
+        run(KHubKv.fromNative(recording.native).get[Decoded]("missing")).map { result =>
           assertEquals(success(result), None)
           assertEquals(recording.calls, List("get" -> "missing"))
         }
@@ -124,7 +124,7 @@ class KHubKvSuite extends FunSuite:
 
       val recording = new KvTestFixtures.Recording
       recording.result = "first"
-      val kv = KHubKv(recording.native)
+      val kv = KHubKv.fromNative(recording.native)
       val write = kv.set("item", Counted("stored"))
       val read = kv.get[Counted]("item")
       val exists = kv.has("item")
@@ -164,7 +164,7 @@ class KHubKvSuite extends FunSuite:
           val error = new IllegalStateException(s"$method failed")
           recording.failure = Some(error)
           recording.reject = reject
-          val kv = KHubKv(recording.native)
+          val kv = KHubKv.fromNative(recording.native)
           val program: Unit < (Async & Abort[Throwable]) = method match
               case "get"    => kv.get[Entry]("key").map(_ => ())
               case "set"    => kv.set("key", Entry("value", 1, true))
@@ -186,8 +186,8 @@ class KHubKvSuite extends FunSuite:
         val get: js.Function1[String, js.Promise[js.Any]] = _ =>
           if reject then js.Promise.reject(error)
           else throw js.JavaScriptException(error)
-        val native = js.Dynamic.literal(get = get).asInstanceOf[HubKv]
-        run(KHubKv(native).get[Entry]("key")).map { result =>
+        val native = js.Dynamic.literal(get = get).asInstanceOf[NativeStorage]
+        run(KHubKv.fromNative(native).get[Entry]("key")).map { result =>
           assert(result.isFailure, "raw JavaScript errors must use the typed failure channel")
           result.fold(
             _ => fail("Expected the JavaScript error"),
@@ -207,7 +207,7 @@ class KHubKvSuite extends FunSuite:
 
       val recording = new KvTestFixtures.Recording
       recording.result = js.Dynamic.literal(value = "bad")
-      run(KHubKv(recording.native).get[Broken]("broken")).map { result =>
+      run(KHubKv.fromNative(recording.native).get[Broken]("broken")).map { result =>
         aborted(result, error)
         assertEquals(recording.calls, List("get" -> "broken"))
       }
@@ -224,7 +224,7 @@ class KHubKvSuite extends FunSuite:
         def fromNative(state: ParseState): Broken = Broken(state.json.asInstanceOf[String])
 
       val recording = new KvTestFixtures.Recording
-      val program = KHubKv(recording.native).set("broken", Broken("value"))
+      val program = KHubKv.fromNative(recording.native).set("broken", Broken("value"))
       assertEquals(encodes, 0)
       for
         first <- run(program)
@@ -239,7 +239,7 @@ class KHubKvSuite extends FunSuite:
 
     test("TTL seconds are forwarded exactly and omitted when absent") {
       val recording = new KvTestFixtures.Recording
-      val kv = KHubKv(recording.native)
+      val kv = KHubKv.fromNative(recording.native)
       for
         withTtl <- run(kv.set("expiring", Entry("value", 1, true), Some(12.5)))
         _ = success(withTtl)
@@ -266,8 +266,8 @@ class KHubKvSuite extends FunSuite:
       })
       val native = js.Dynamic.literal(
         get = ((_: String) => { started.success(()); pending }): js.Function1[String, js.Promise[js.Any]],
-      ).asInstanceOf[HubKv]
-      val program = KHubKv(native).get[Entry]("pending").map { value =>
+      ).asInstanceOf[NativeStorage]
+      val program = KHubKv.fromNative(native).get[Entry]("pending").map { value =>
         Sync.defer { continued = true; value }
       }
       val fiber = Fiber.Unsafe.init(Abort.run[Throwable](program))
