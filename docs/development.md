@@ -17,7 +17,7 @@ cd /workspace/h34s
 source /workspace/tooling/activate-kyo.sh
 ```
 
-The activation script puts the prepared `sbt` launcher on `PATH`, so the npm CLI can invoke it. `/workspace/tooling/h34s-sbt` is also available for direct Scala commands. It keeps caches writable and facade lockfile updates outside the checkout. On a normal development machine, use the installed `sbt` launcher.
+The activation script puts the prepared `sbt` launcher on `PATH`, so the npm CLI can invoke it. `/workspace/tooling/h34s-sbt` is also available for direct Scala commands. It keeps caches writable outside the checkout. On a normal development machine, use the installed `sbt` launcher.
 
 ## 1. Start from this repository
 
@@ -149,4 +149,4 @@ Not verified: the Notes routes against PostgreSQL. Docker was not running on the
 
 Use direct HTTP for stream responses. In-process Nitro local fetches (`$fetch` during server rendering) were not tested with streamed Scala bodies.
 
-Scala-to-TypeScript generation, complete application packaging, and Nix support remain pending. The root `scala:types` script only compiles `h3Ext` now; it no longer generates facades, and it never generated TypeScript.
+Scala-to-TypeScript generation, complete application packaging, and Nix support remain pending.
