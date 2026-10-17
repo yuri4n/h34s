@@ -202,7 +202,8 @@ lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxth
       "h3"      -> (h3Ext / baseDirectory).value,
     ),
   )
-  .dependsOn(kyoH3Ext)
+  // Tests install a fake h34s Nitro startup record with kyo-h3's NitroGlobal fixture.
+  .dependsOn(kyoH3Ext % "compile->compile;test->test")
 
 // The ZIO adapter over the Kyo core.
 lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))

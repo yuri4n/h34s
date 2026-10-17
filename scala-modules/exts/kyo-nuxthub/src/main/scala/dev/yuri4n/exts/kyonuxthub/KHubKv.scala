@@ -1,6 +1,7 @@
 package dev.yuri4n.exts.kyonuxthub
 
-import dev.yuri4n.exts.h3.internal.{NativeStorage, NativeStorageSetOptions}
+import dev.yuri4n.exts.h3.ConfigError
+import dev.yuri4n.exts.h3.internal.{ConfigDecoding, Nitro, NativeStorage, NativeStorageSetOptions}
 import kyo.{Abort, Async, Frame, Sync, `<`}
 import org.getshaka.nativeconverter.{NativeConverter, fromNative}
 
@@ -10,8 +11,9 @@ import scala.util.{Failure, Success}
 
 /** Kyo operations over a Nitro storage mount (NuxtHub KV and cache are mounts).
   *
-  * The public constructor from a Nitro mount arrives with the Nitro context integration; the
-  * application no longer supplies a native object.
+  * Open one with `KHubKv.mount(base)`. Every operation is a lazy Kyo program: nothing runs until
+  * you run it, and each run calls the storage again. Storage rejections and converter exceptions
+  * are typed failures (`Abort[Throwable]`).
   */
 final class KHubKv private[exts] (private val native: NativeStorage):
     private def operation[A](promise: => js.Promise[A])(using Frame): A < (Async & Abort[Throwable]) =
@@ -50,4 +52,19 @@ final class KHubKv private[exts] (private val native: NativeStorage):
       operation(native.keys(base.fold[js.UndefOr[String]](js.undefined)(identity))).map(_.toList)
 
 object KHubKv:
+    /** The Nitro storage mount `base` (Nitro `useStorage(base)`), for example `"kv"` or `"cache"`
+      * with NuxtHub. `""` is the root storage. Fails with `ConfigError` when the h34s Nitro plugin is
+      * not installed: the module registers it, so add `h34s` to your Nuxt modules.
+      */
+    def mount(base: String)(using Frame): KHubKv < (Sync & Abort[ConfigError]) =
+      Sync.defer(open(base)).map(result => Abort.get(result))
+
+    private def open(base: String): Either[ConfigError, KHubKv] =
+      Nitro.global.filter(record => Nitro.isFunction(record.asInstanceOf[js.Dynamic].storage)) match
+          case None         => Left(ConfigDecoding.pluginMissing)
+          case Some(record) =>
+            val storage = record.storage(base)
+            if Nitro.isObject(storage) then Right(new KHubKv(storage))
+            else Left(ConfigError(s"Nitro storage mount '$base' is not available"))
+
     private[exts] def fromNative(native: NativeStorage): KHubKv = new KHubKv(native)
