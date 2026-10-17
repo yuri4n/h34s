@@ -47,6 +47,8 @@ private[exts] object H3Fixtures:
         var ended = false
         val chunks = mutable.ListBuffer.empty[String]
         val firstWrite = scala.concurrent.Promise[Unit]()
+        /** Status and header names when the first chunk was written. */
+        var headAtFirstWrite: Option[(Int, List[String])] = None
 
         val native: js.Dynamic = js.Dynamic.literal(
           statusCode = 200, statusMessage = "OK", headersSent = false,
@@ -80,6 +82,7 @@ private[exts] object H3Fixtures:
           native
         }): js.Function2[String, js.Any, js.Dynamic])
         native.updateDynamic("write")(((chunk: js.Any) => {
+          if headAtFirstWrite.isEmpty then headAtFirstWrite = Some(status -> headerNames)
           chunks += String.valueOf(chunk)
           native.headersSent = true
           firstWrite.trySuccess(())
