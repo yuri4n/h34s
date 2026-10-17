@@ -150,7 +150,8 @@ lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
   // Tests reuse the native h3 event and Node response fixtures of h3-ext.
   .dependsOn(h3Ext % "compile->compile;test->test")
 
-// Optional Kyo Schema bridge. The NativeSchema API lands in a later change.
+// Optional Kyo Schema bridge: `derives Schema, NativeSchema`. It needs kyo-schema only; JSON and
+// YAML come from the application's own kyo-schema-json / kyo-schema-yaml dependency.
 lazy val nativeConverterKyoSchemaExt: Project =
   (project in file("scala-modules/exts/native-converter-kyo-schema"))
     .enablePlugins(ScalaJSPlugin)
@@ -158,14 +159,17 @@ lazy val nativeConverterKyoSchemaExt: Project =
       name := "native-converter-kyo-schema-ext",
       libraryDependencies ++= Seq(
         "io.getkyo"     %%% "kyo-schema"       % kyoVersion,
-        "io.getkyo"     %%% "kyo-schema-json"  % kyoVersion,
-        "io.getkyo"     %%% "kyo-schema-yaml"  % kyoVersion,
         "org.getshaka"  %%% "native-converter" % nativeConverterVersion,
+        // The tests compare the native shape with kyo-schema-json and round-trip YAML.
+        "io.getkyo"     %%% "kyo-schema-json"  % kyoVersion   % Test,
+        "io.getkyo"     %%% "kyo-schema-yaml"  % kyoVersion   % Test,
         "org.scalameta" %%% "munit"            % munitVersion % Test,
       ),
       commonJsTests,
+      Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
     )
-    .dependsOn(h3Ext)
+    // InvalidInput comes from h3-ext. The h3 integration test reuses kyo-h3's test fixtures only.
+    .dependsOn(h3Ext, kyoH3Ext % "test->test")
 
 lazy val kyoExample: Project = (project in file("examples/nuxt/scala/kyo"))
   .enablePlugins(ScalaJSPlugin)
