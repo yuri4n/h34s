@@ -39,6 +39,11 @@ class RuntimeConfigSuite extends FunSuite:
       }
     }
 
+    test("Request.fake with runtimeConfig supports RuntimeConfig.get without Nitro") {
+      val request = Request.fake(runtimeConfig = Some("{\"database\":{\"url\":\"postgres://db\"},\"apiBase\":\"/api\"}"))
+      run(RuntimeConfig.get[AppConfig](request)).map(result => assertEquals(result.getOrThrow.apiBase, "/api"))
+    }
+
     test("decode failures name the path and never the value") {
       val wrong = js.JSON.parse("{\"database\":{\"url\":12345678},\"apiBase\":\"/api\"}")
       configured(Call(record = Some(record(wrong)))).map { body =>

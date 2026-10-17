@@ -22,7 +22,7 @@ extension (body: RequestBody)
       * Any other exception from the converter is a defect (opaque 500).
       */
     def json[A: NativeConverter](limit: BodyLimit)(using Frame): A < (Async & Abort[HttpError | InvalidInput]) =
-      if !BodyDecoding.acceptsJson(body.contentType) then Abort.fail(BodyDecoding.unsupportedMediaType)
+      if !BodyDecoding.acceptsJson(body.contentType, body.requireJsonContentType) then Abort.fail(BodyDecoding.unsupportedMediaType)
       else
           readText(body, limit).map { text =>
             Abort.get(BodyDecoding.parseJson(text)).map { native =>

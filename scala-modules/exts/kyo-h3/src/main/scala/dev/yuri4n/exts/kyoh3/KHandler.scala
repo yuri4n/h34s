@@ -2,7 +2,7 @@ package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.{H3, H3Event, Nitro}
 import dev.yuri4n.exts.kyoh3.internal.{Interop, Rendering, RequestLifecycle, StreamResponse, Supervised}
-import kyo.{Abort, Async, Frame, Result, Scope, Sync, Var, `<`}
+import kyo.{Abort, Async, Fiber, Frame, Result, Scope, Sync, Var, `<`}
 
 import scala.scalajs.js
 import scala.util.control.NonFatal
@@ -15,7 +15,8 @@ import scala.util.control.NonFatal
   * finish.
   *
   * Wire format with the default options: a value body is `{"data": ...}`, a `Unit` body is a 204
-  * without a body, a stream is sent as is, and errors are `{"errors": [{"message": ...}]}`.
+  * without a body, a stream of strings is sent as UTF-8 text, and errors are
+  * `{"errors": [{"message": ...}]}`.
   */
 object KHandler:
     /** The program receives the request snapshot and returns the body. Uses `HandlerOptions.default`. */
@@ -33,8 +34,26 @@ object KHandler:
       EventHandler.fromNative(H3.defineEventHandler(native))
 
     /** Fails with an approved status and message. */
-    def failWith(status: Int, message: String)(using Frame): Nothing < Abort[Throwable] =
+    def failWith(status: Int, message: String)(using Frame): Nothing < Abort[HttpError] =
       Abort.fail(HttpError(status, message))
+
+    /** Runs `step` to its end even when the client disconnects, and makes the request wait for it.
+      *
+      * Use it for work that must not stop halfway, such as a commit. The step runs on its own fiber
+      * that an interrupt cannot reach. The current scope (the request scope in a handler) waits for
+      * the step before it runs earlier finalizers, so a connection that the step uses is released
+      * only after the step, and the request settles only after both.
+      *
+      * Kyo's `Async.uninterruptible` alone protects the step but does not make the request wait:
+      * after a disconnect the request settles and releases its resources while the step still runs.
+      *
+      * The step's result is returned as usual when the handler is not interrupted. After an
+      * interrupt, the handler stops and nothing is written to the client.
+      */
+    def uninterruptible[A](step: => A < (Async & Abort[Throwable]))(using Frame): A < (Async & Abort[Throwable] & Scope) =
+      // The release is registered in the step that starts the fiber, so an interrupt cannot land
+      // between the two.
+      Scope.acquireRelease(Fiber.initUnscoped(step))(_.getResult.unit).map(fiber => fiber.uninterruptible.map(_.get))
 end KHandler
 
 /** One request: snapshot, program, scope, cancellation and the single write of head and body. */
@@ -78,7 +97,7 @@ private[kyoh3] object RequestRuntime:
         body: ResponseBody[B],
         frame: Frame,
     ): Completion < (Async & Abort[Throwable] & Scope) =
-      Sync.defer(Request.fromEvent(event, options.bodyLimit)).map { request =>
+      Sync.defer(Request.fromEvent(event, options.bodyLimit, options.requireJsonContentType)).map { request =>
         Var.runTuple(ResponseHead.empty)(
           Abort.run[Any](Sync.defer(program(request)).map(value => body.encode(value))),
         ).map { (head, result) =>
@@ -87,7 +106,12 @@ private[kyoh3] object RequestRuntime:
               case ResponseBody.Outgoing.Value(native)    => Completion.Value(head, native)
               case ResponseBody.Outgoing.Empty            => Completion.Empty(head)
               case ResponseBody.Outgoing.Streamed(chunks) =>
-                val commit = () => Rendering.writeHead(event, ResponseHead.forSuccess(options.defaults, head))
+                val committed = ResponseHead.forSuccess(options.defaults, head)
+                val streamHead = Rendering.withDefaultContentType(event, committed, Rendering.textContentType)
+                var applied    = false
+                val commit     = () =>
+                  applied = true
+                  Rendering.writeHead(event, streamHead)
                 Abort.run[Any](StreamResponse.send(event, chunks, commit)).map(result => Interop.typed(result).foldError(
                   _ => Completion.Sent,
                   failure =>
@@ -99,7 +123,13 @@ private[kyoh3] object RequestRuntime:
                           Rendering.logDefect(Rendering.describe(failure.failureOrPanic))
                           Completion.Abandoned
                         }
-                    else Completion.Failed(head, failure),
+                    else
+                        Sync.defer {
+                          // The head may be applied already (before the first chunk) but not sent:
+                          // the failure response must not carry success-only headers or cookies.
+                          if applied then Rendering.clearHead(event, streamHead)
+                          Completion.Failed(head, failure)
+                        },
                 ))
             },
             failure => Completion.Failed(head, failure),
@@ -119,7 +149,9 @@ private[kyoh3] object RequestRuntime:
       result.foldError(
         {
           case Completion.Value(head, native) =>
-            success(event, options, ResponseHead.forSuccess(options.defaults, head), Rendering.successBody(options.success, native))
+            val complete = ResponseHead.forSuccess(options.defaults, head)
+            val (body, contentType) = Rendering.successBody(options.success, native)
+            success(event, options, contentType.fold(complete)(Rendering.withDefaultContentType(event, complete, _)), body)
           case Completion.Empty(head)         =>
             val complete = ResponseHead.forSuccess(options.defaults, head)
             success(event, options, complete.copy(status = complete.status.orElse(Some(Status.NoContent))), Rendering.noContent)

@@ -35,12 +35,40 @@ private[exts] object Rendering:
     private def validEntry(entry: ErrorEntry): Boolean =
       entry != null && entry.message != null && entry.path != null && !entry.path.contains(null)
 
-    /** A value body in its success envelope. A `Raw` value converting to `undefined` is sent as
-      * `null`, so h3 answers 204 in a plain app and in Nitro alike.
+    /** A value body in its success envelope, and the content type to use when the handler set none.
+      *
+      * `Raw` never hands a converted value to h3 as is: h3 would send a string as `text/html` and
+      * treat an object with a `buffer`, `pipe` or `arrayBuffer` field as a binary body. A string is
+      * sent as `text/plain; charset=utf-8`; any other value as JSON text with `application/json`.
+      * A value converting to `undefined` or `null` is sent as `null`, so h3 answers 204 in a plain app
+      * and in Nitro alike.
       */
-    def successBody(envelope: SuccessEnvelope, native: js.Any): js.Any = envelope match
-        case SuccessEnvelope.Data => js.Dynamic.literal(data = native)
-        case SuccessEnvelope.Raw  => if js.isUndefined(native) then noContent else native
+    def successBody(envelope: SuccessEnvelope, native: js.Any): (js.Any, Option[String]) = envelope match
+        case SuccessEnvelope.Data => (js.Dynamic.literal(data = native), None)
+        case SuccessEnvelope.Raw  =>
+          if js.isUndefined(native) || native == null then (noContent, None)
+          else if js.typeOf(native) == "string" then (native, Some(textContentType))
+          else (js.JSON.stringify(native), Some(jsonContentType))
+
+    val textContentType: String = "text/plain; charset=utf-8"
+    val jsonContentType: String = "application/json"
+
+    /** Adds `content-type` (and `x-content-type-options: nosniff`) when neither the head nor the
+      * native response (for example a Nitro middleware) has a content type.
+      */
+    def withDefaultContentType(event: H3Event, head: ResponseHead, contentType: String): ResponseHead =
+      def inHead(name: String) = head.headers.exists(_.name.equalsIgnoreCase(name))
+      val response             = event.node.res.asInstanceOf[js.Dynamic]
+      def onResponse(name: String) =
+        js.typeOf(response.getHeader) == "function" && {
+          val value = response.getHeader(name)
+          !js.isUndefined(value) && value != null
+        }
+      if inHead("content-type") || onResponse("content-type") then head
+      else
+          val typed = head.withHeader("content-type", contentType)
+          if inHead("x-content-type-options") || onResponse("x-content-type-options") then typed
+          else typed.withHeader("x-content-type-options", "nosniff")
 
     /** h3 1.15 sends `null` with `sendNoContent`: 204 (or the status already set), no body. It
       * sends `undefined` only through a preemptive router (Nitro); a plain app falls through to 404.
@@ -74,7 +102,9 @@ private[exts] object Rendering:
         entry.cookie match
             case cookie: SetCookie    => H3.setCookie(event, cookie.name, cookie.value, cookieOptions(cookie))
             case cookie: DeleteCookie =>
-              H3.deleteCookie(event, cookie.name, pathAndDomain(cookie.path, cookie.domain))
+              val options = pathAndDomain(cookie.path, cookie.domain).asInstanceOf[js.Dynamic]
+              if cookie.secure then options.secure = true
+              H3.deleteCookie(event, cookie.name, options.asInstanceOf[js.Object])
       }
 
     private def cookieOptions(cookie: SetCookie): js.Object =

@@ -37,6 +37,8 @@ class HttpStreamSuite extends FunSuite:
         assertEquals(call.response.status, 204)
         assert(call.response.ended)
         assertEquals(call.response.chunks.toList, Nil)
+        assertEquals(call.response.header("content-type"), Some("text/plain; charset=utf-8"))
+        assertEquals(call.response.header("x-content-type-options"), Some("nosniff"))
       }
     }
 
@@ -126,18 +128,40 @@ class HttpStreamSuite extends FunSuite:
       }
     }
 
-    test("a SafeError thrown by an element converter is a defect, not an approved error") {
-      final case class Leaky(value: String)
+    test("a SafeError thrown inside a stream is a defect, not an approved error; a null element too") {
       final case class Approved(message: String) extends SafeError:
         override def status: Int = 409
-      given org.getshaka.nativeconverter.NativeConverter[Leaky]:
-        extension (value: Leaky) def toNative: js.Any = throw Approved("private converter detail")
-        def fromNative(state: org.getshaka.nativeconverter.ParseState): Leaky = Leaky("")
-      val call = Call("/stream")
-      call.invoke(KHandler.define(_ => Stream.init(Seq(Leaky("x"))))).map { body =>
+      val thrown = Call("/stream")
+      val nullElement = Call("/stream")
+      for
+        thrownBody <- thrown.invoke(KHandler.define(_ => Stream.init(Seq("x")).map(_ => (throw Approved("private detail")): String)))
+        nullBody <- nullElement.invoke(KHandler.define(_ => Stream.init(Seq[String](null))))
+      yield
+        assertEquals(thrown.response.status, 500)
+        assertOpaque(thrownBody)
+        assertEquals(thrown.response.chunks.toList, Nil)
+        assertEquals(nullElement.response.status, 500)
+        assertOpaque(nullBody)
+    }
+
+    test("a failed write before anything was sent is a 500 without the success head, with the write error") {
+      val call = Call("/stream", development = true)
+      call.response.native.updateDynamic("write")(((_: js.Any) =>
+        throw js.JavaScriptException(js.Dynamic.newInstance(js.Dynamic.global.TypeError)("the response rejected the chunk"))
+      ): js.Function1[js.Any, Boolean])
+      val handler = KHandler.define { _ =>
+        Response.status(Status.Accepted)
+          .andThen(Response.cookie(SetCookie("session", "abc")))
+          .andThen(Response.header("x-success", "1"))
+          .andThen(Stream.init(Seq("a")))
+      }
+      call.invoke(handler).map { body =>
         assertEquals(call.response.status, 500)
-        assertOpaque(body)
-        assertEquals(call.response.chunks.toList, Nil)
+        assertEquals(call.response.header("set-cookie"), None)
+        assertEquals(call.response.header("x-success"), None)
+        val cause = body.asInstanceOf[js.Dynamic].errors.asInstanceOf[js.Array[js.Dynamic]](0).debug.cause.asInstanceOf[String]
+        assert(cause.contains("the response rejected the chunk"), cause)
+        assert(!cause.contains("Interrupted"), cause)
       }
     }
 

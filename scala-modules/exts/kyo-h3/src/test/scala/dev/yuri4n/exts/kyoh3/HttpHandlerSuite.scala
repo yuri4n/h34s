@@ -4,6 +4,7 @@ import kyo.*
 import munit.FunSuite
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 
+import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.*
 import scala.scalajs.js
@@ -298,6 +299,158 @@ class HttpHandlerSuite extends FunSuite:
         val entry = js.JSON.parse(withDebug._2).errors.asInstanceOf[js.Array[js.Dynamic]](0)
         assert(entry.debug.cause.asInstanceOf[String].contains("private detail"))
         assertEquals(without, (500, KyoTesting.opaque))
+    }
+
+    test("an absent or empty JSON body is a 422 for a model and None for an Option") {
+      val model = KHandler.define(request => request.body.json[Input].map(_.name))
+      val optional = KHandler.define(request => request.body.json[Option[Input]].map(_.fold("none")(_.name)))
+      for
+        emptyModel <- withServer(model)((_, port) => post(port, ""))
+        chunkedModel <- withServer(model)((_, port) => post(port, Nil))
+        emptyOptional <- withServer(optional)((_, port) => post(port, ""))
+      yield
+        assertEquals(emptyModel, (422, KyoTesting.errors("Request body does not match the expected shape")))
+        assertEquals(chunkedModel, (422, KyoTesting.errors("Request body does not match the expected shape")))
+        assertEquals(emptyOptional, (200, "{\"data\":\"none\"}"))
+    }
+
+    test("requireJsonContentType rejects a JSON body without a content type with 415") {
+      val strict = KHandler.define(HandlerOptions(requireJsonContentType = true))(request => request.body.json[Input].map(_.name))
+      val body = "{\"name\":\"Scala\"}"
+      withServer(strict) { (_, port) =>
+        for
+          untyped <- post(port, List(body), Map("content-length" -> body.length.toString))
+          typed <- post(port, body)
+        yield
+          assertEquals(untyped, (415, KyoTesting.errors("Request body must be JSON")))
+          assertEquals(typed, (200, "{\"data\":\"Scala\"}"))
+      }
+    }
+
+    test("Raw bodies never reach h3's type sniffing: text is text/plain, other values are JSON") {
+      val raw = HandlerOptions(success = SuccessEnvelope.Raw)
+      val text = KHandler.define(raw)(request => request.body.text().map(name => s"<b>$name</b>"))
+      val buffer = KHandler.define(raw)(_ => Map("buffer" -> "1"))
+      val typed = KHandler.define(raw)(_ => Response.header("content-type", "text/html; charset=utf-8").andThen("<p>ok</p>"))
+      for
+        html <- withServer(text)((_, port) => exchange(port, List("x"), Map("content-length" -> "1")))
+        bytes <- withServer(buffer)((_, port) => exchange(port, Nil, Map.empty))
+        chosen <- withServer(typed)((_, port) => exchange(port, Nil, Map.empty))
+      yield
+        assertEquals(html._1, 200)
+        assertEquals(html._2.get("content-type").map(_.toString), Some("text/plain; charset=utf-8"))
+        assertEquals(html._2.get("x-content-type-options").map(_.toString), Some("nosniff"))
+        assertEquals(html._3, "<b>x</b>")
+        assertEquals(bytes._1, 200)
+        assertEquals(bytes._2.get("content-type").map(_.toString), Some("application/json"))
+        assertEquals(bytes._3, "{\"buffer\":\"1\"}")
+        assertEquals(chosen._2.get("content-type").map(_.toString), Some("text/html; charset=utf-8"))
+    }
+
+    /** Starts one request, waits for `started`, then destroys the client side of it. */
+    private def abortAfter(port: Int, started: Future[Unit]): Future[Unit] =
+      val request = NodeHttp.request(js.Dynamic.literal(hostname = "127.0.0.1", port = port, path = "/pending"), _ => ())
+      // ECONNRESET is expected when this test destroys its own client request.
+      request.on("error", ((_: js.Any) => ()): js.Function1[js.Any, Unit])
+      request.end()
+      started.map(_ => request.destroy())
+
+    test("KHandler.uninterruptible: after a disconnect the step ends, then request finalizers run, then the request settles") {
+      val events = mutable.ListBuffer.empty[String]
+      val started = Promise[Unit]()
+      val handler = KHandler.define[String] { _ =>
+        Scope.acquireRelease(Sync.defer("connection"))(_ => Sync.defer { events += "connection released"; () }).map { _ =>
+          KHandler.uninterruptible(
+            Sync.defer { started.trySuccess(()); () }
+              .andThen(Async.sleep(100.millis))
+              .andThen(Sync.defer { events += "step done"; "committed" }),
+          )
+        }
+      }
+      withServer(handler) { (server, port) =>
+        for
+          _ <- abortAfter(port, started.future)
+          _ <- server.completed.future
+        yield
+          assertEquals(events.toList, List("step done", "connection released"))
+          assertEquals(server.transportErrors, 0)
+      }
+    }
+
+    // Documents Kyo 1.0.0-RC7: `Async.uninterruptible` runs the step on an unscoped fiber. If this
+    // test fails after a Kyo upgrade, revisit KHandler.uninterruptible and docs/lifetimes.md.
+    test("Kyo's Async.uninterruptible alone does not make the request wait for the step") {
+      val events = mutable.ListBuffer.empty[String]
+      val started = Promise[Unit]()
+      val stepDone = Promise[Unit]()
+      val handler = KHandler.define[String] { _ =>
+        Scope.acquireRelease(Sync.defer("connection"))(_ => Sync.defer { events += "connection released"; () }).map { _ =>
+          Async.uninterruptible(
+            Sync.defer { started.trySuccess(()); () }
+              .andThen(Async.sleep(100.millis))
+              .andThen(Sync.defer { events += "step done"; stepDone.trySuccess(()); "committed" }),
+          )
+        }
+      }
+      withServer(handler) { (server, port) =>
+        for
+          _ <- abortAfter(port, started.future)
+          _ <- server.completed.future
+          atSettle = events.toList
+          _ <- stepDone.future
+        yield
+          assertEquals(atSettle, List("connection released"))
+          assertEquals(events.toList, List("connection released", "step done"))
+      }
+    }
+
+    /** A child that acquires a resource in its own scope (asynchronous release), then waits forever. */
+    private def forkedOrder(fork: (String < (Async & Scope & Abort[Throwable])) => String < (Async & Abort[Throwable] & Scope)): Future[List[String]] =
+      val events = mutable.ListBuffer.empty[String]
+      val started = Promise[Unit]()
+      val released = Promise[Unit]()
+      val child: String < (Async & Scope & Abort[Throwable]) =
+        Scope.acquireRelease(Sync.defer { started.trySuccess(()); () }) { _ =>
+          Async.sleep(300.millis).andThen(Sync.defer { events += "child released"; released.trySuccess(()); () })
+        }.andThen(Async.never[String])
+      val handler = KHandler.define[String](_ => fork(child))
+      withServer(handler) { (server, port) =>
+        server.completed.future.foreach(_ => events += "settled")
+        for
+          _ <- abortAfter(port, started.future)
+          _ <- server.completed.future
+          _ <- released.future
+        yield events.toList
+      }
+
+    // Review finding R3 expected Kyo RC7 to settle before this cleanup; it does not. The structured
+    // combinators interrupt their children and wait for their (asynchronous) finalizers.
+    test("cleanup inside work forked by timeout, race, gather, zip and foreach finishes before the request settles") {
+      val variants: List[(String, (String < (Async & Scope & Abort[Throwable])) => String < (Async & Abort[Throwable] & Scope))] = List(
+        "timeout" -> (child => Async.timeout(5.seconds)(Scope.run(child))),
+        "race" -> (child => Async.race(Scope.run(child), Async.never[String])),
+        "gather" -> (child => Async.gather(Scope.run(child), Async.never[String]).map(_.mkString)),
+        "zip" -> (child => Async.zip(Scope.run(child), Async.never[String]).map(_._1)),
+        "foreach" -> (child => Async.foreach(Seq(1, 2), concurrency = 2)(_ => Scope.run(child)).map(_.mkString)),
+        "race-request-scope" -> (child => Async.race(child, Async.never[String])),
+        "timeout-request-scope" -> (child => Async.timeout(5.seconds)(child)),
+      )
+      variants.foldLeft(Future.successful(List.empty[String])) { case (acc, (name, fork)) =>
+        acc.flatMap(results => forkedOrder(fork).map(order => results :+ s"$name: ${order.mkString(" -> ")}"))
+      }.map { results =>
+        assertEquals(
+          results,
+          List(
+            "timeout: child released -> settled",
+            "race: child released -> settled",
+            "gather: child released -> settled",
+            "zip: child released -> settled",
+            "foreach: child released -> child released -> settled",
+            "race-request-scope: child released -> settled",
+            "timeout-request-scope: child released -> settled",
+          ),
+        )
+      }
     }
 
     // K18, C7

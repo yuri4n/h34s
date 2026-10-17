@@ -15,9 +15,17 @@ class StreamSuite extends FunSuite:
     given ExecutionContext = ExecutionContext.global
     override val munitTimeout: FiniteDuration = 60.seconds
 
+    /** Encodes with the core's internal stream encoding, so the bridge is tested with any element
+      * type (handlers may return only `Stream[String, S]`; see `stringReader`).
+      */
+    private def reader[A: Tag, S >: ResponseBody.StreamEffects](stream: Stream[A, S])(using
+        converter: NativeConverter[A],
+    ): js.Dynamic =
+      StreamResponse.readable(ResponseBody.chunks(stream)(converter.toNative(_))).asInstanceOf[js.Dynamic].getReader()
+
     /** Encodes through the same `ResponseBody` instance that handlers use. */
-    private def reader[A, S >: ResponseBody.StreamEffects](stream: Stream[A, S])(using
-        body: ResponseBody[Stream[A, S]],
+    private def stringReader[S >: ResponseBody.StreamEffects](stream: Stream[String, S])(using
+        body: ResponseBody[Stream[String, S]],
     ): js.Dynamic =
       import AllowUnsafe.embrace.danger
       Sync.Unsafe.evalOrThrow(body.encode(stream)) match
@@ -129,7 +137,7 @@ class StreamSuite extends FunSuite:
         extension (item: Item) def toNative: js.Any = js.Dynamic.literal(value = item.value)
         def fromNative(state: ParseState): Item = Item(state.json.asInstanceOf[js.Dynamic].value.asInstanceOf[Int])
       for
-        letters <- readAll(reader(Stream.init(Seq("a", "b", "c"))))
+        letters <- readAll(stringReader(Stream.init(Seq("a", "b", "c"))))
         empty <- read(reader(Stream.empty[String]))
         failed <- read(reader(Stream[Int, Abort[Exception]](Abort.fail(new Exception("test error"))))).transform(r => scala.util.Success(r))
         items <- readAll(reader(Stream.init(Seq(Item(1), Item(2), Item(3)))))

@@ -370,7 +370,40 @@ class HandlerBoundarySuite extends FunSuite:
     }
 
     // 4.2b wire format
-    test("Data wraps value bodies in data; Raw sends the converted value as is") {
+    test("building an invalid Response value does not throw; running it is a defect") {
+      val invalid = Response.header("bad name", "x")
+      val badCookie = Response.deleteCookie("bad;name")
+      val call = Call()
+      val cookieCall = Call()
+      for
+        _ <- call.invoke(KHandler.define(_ => invalid.andThen(Greeting("never"))))
+        _ <- cookieCall.invoke(KHandler.define(_ => badCookie.andThen(Greeting("never"))))
+      yield
+        assertEquals(call.response.status, 500)
+        assertEquals(cookieCall.response.status, 500)
+    }
+
+    test("deleteCookie sends Secure, can match a domain, and can be kept on failure") {
+      val ok = Call()
+      val failed = Call()
+      for
+        _ <- ok.invoke(KHandler.define { _ =>
+          Response.deleteCookie("__Host-session")
+            .andThen(Response.deleteCookie("wide", domain = Some("example.com")))
+            .andThen(Greeting("bye"))
+        })
+        _ <- failed.invoke(KHandler.define[String] { _ =>
+          Response.deleteCookie("session", onFailure = OnFailure.Keep).andThen(Abort.fail(HttpError.unauthorized("Sign in again")))
+        })
+      yield
+        val cookies = ok.response.headerValues("set-cookie")
+        assert(cookies.exists(c => c.startsWith("__Host-session=") && c.contains("Max-Age=0") && c.contains("Path=/") && c.contains("Secure")), cookies.toString)
+        assert(cookies.exists(c => c.startsWith("wide=") && c.contains("Domain=example.com") && c.contains("Max-Age=0")), cookies.toString)
+        assertEquals(failed.response.status, 401)
+        assert(failed.response.headerValues("set-cookie").exists(c => c.startsWith("session=") && c.contains("Max-Age=0")))
+    }
+
+    test("Data wraps value bodies in data; Raw sends text as text and other values as JSON") {
       val raw = HandlerOptions(success = SuccessEnvelope.Raw)
       final case class Absent()
       given NativeConverter[Absent]:
@@ -386,8 +419,11 @@ class HandlerBoundarySuite extends FunSuite:
       yield
         assertEquals(json(dataModel), "{\"data\":{\"message\":\"hi\"}}")
         assertEquals(json(dataText), "{\"data\":\"hi\"}")
-        assertEquals(json(rawModel), "{\"message\":\"hi\"}")
+        assertEquals(rawModel.asInstanceOf[String], "{\"message\":\"hi\"}")
+        assertEquals(calls(2).response.header("content-type"), Some("application/json"))
         assertEquals(rawText.asInstanceOf[String], "hi")
+        assertEquals(calls(3).response.header("content-type"), Some("text/plain; charset=utf-8"))
+        assertEquals(calls(3).response.header("x-content-type-options"), Some("nosniff"))
         assert(rawUndefined == null && !js.isUndefined(rawUndefined), "Raw undefined is sent as null (204)")
         calls.take(4).foreach(call => assertEquals(call.response.status, 200))
     }

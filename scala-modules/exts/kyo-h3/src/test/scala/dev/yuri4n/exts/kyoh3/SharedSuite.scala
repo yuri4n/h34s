@@ -75,6 +75,27 @@ class SharedSuite extends FunSuite:
         assertEquals(attempts, 2)
     }
 
+    test("close during the first acquisition releases the value and never hands it to a waiter") {
+      val counters = Counters()
+      val gate = Promise[Unit]()
+      val shared = resource(counters, gate.future)
+      val waiter = run(shared.get)
+      for
+        _ <- turns(2)
+        closing = run(shared.close)
+        _ = gate.success(())
+        result <- waiter
+        _ <- closing
+        again <- run(shared.get)
+        _ <- run(shared.close)
+      yield
+        assert(result.isFailure, s"the waiter must not receive a released value: $result")
+        assertEquals(result.failure.map(_.getMessage), Maybe("The shared resource was closed during its acquisition"))
+        assertEquals(again.getOrThrow, 2)
+        assertEquals(counters.acquired, 2)
+        assertEquals(counters.released, 2)
+    }
+
     test("close releases once and a later get acquires again") {
       val counters = Counters()
       val shared = resource(counters)

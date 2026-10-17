@@ -33,8 +33,11 @@ private[exts] object StreamResponse:
                 Abort.run[Throwable](Interop.await(H3.sendStream(event, bridge.readable))).map(_.foldError(
                   _ => (),
                   // The Web stream only carries a Throwable; the producer's own result says whether
-                  // it was an explicit failure or a defect.
-                  error => bridge.producerError.fold(Abort.panic(error.failureOrPanic))(Abort.error(_)),
+                  // it was an explicit failure or a defect. When the writer side failed (the pipe
+                  // cancelled the stream), the producer only saw an interrupt: report the write error.
+                  error =>
+                    bridge.producerError.filter(_ => !bridge.cancelledByConsumer)
+                      .fold(Abort.panic(error.failureOrPanic))(Abort.error(_)),
                 )),
               )
             }
@@ -56,6 +59,9 @@ private[exts] object StreamResponse:
         private var committed  = false
         private var cancelled  = false
         var producerError: Option[Result.Error[Throwable]] = None
+
+        /** The Web stream's reader cancelled it, for example because writing to the response failed. */
+        var cancelledByConsumer = false
 
         private val producer = new Supervised[Unit](
           requests.take.andThen(
@@ -113,6 +119,7 @@ private[exts] object StreamResponse:
             pull = (controller: js.Dynamic) => run(controller)(pull(controller)),
             cancel = (_: js.Any) => {
               cancelled = true
+              cancelledByConsumer = true
               producer.interrupt()
               producer.promise()
             },

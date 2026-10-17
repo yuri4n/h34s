@@ -14,7 +14,8 @@ import scala.scalajs.js.JSConverters.*
   * The first `get` acquires it; concurrent first calls share one acquisition. All requests then
   * share the value. A failed acquisition is not cached: the next `get` tries again. The resource
   * is released by `close`, or when Nitro closes (the h34s Nitro plugin calls every registered
-  * `Shared`).
+  * `Shared`). A `close` during the first acquisition releases the value as soon as it is acquired,
+  * and the `get` calls that waited for it fail with `IllegalStateException`.
   *
   * The acquisition runs in its own scope, on a fiber that no request owns, so cancelling one
   * request does not cancel an acquisition that other requests wait for.
@@ -59,8 +60,10 @@ final class Shared[A] private[kyoh3] (acquire: => A < (Async & Scope & Abort[Thr
           Scope.run(
             acquire.map { value =>
               Sync.Unsafe.defer {
-                ready(acquiring, value)
-                holder.ready.completeDiscard(Result.succeed(Kyo.lift(value)))
+                // `close` during the acquisition already returned to idle and released this
+                // holder: the value is released right away, so no waiter may receive it.
+                if ready(acquiring, value) then holder.ready.completeDiscard(Result.succeed(Kyo.lift(value)))
+                else holder.ready.completeDiscard(Result.fail(closedDuringAcquisition))
               }.andThen(holder.release.safe.get)
             },
           ),
@@ -74,10 +77,14 @@ final class Shared[A] private[kyoh3] (acquire: => A < (Async & Scope & Abort[Thr
         ))
       Fiber.Unsafe.init(program).onComplete(_ => holder.done.completeDiscard(Result.succeed(())))
 
-    private def ready(acquiring: State.Acquiring[A], value: A): Unit =
-      if state.get eq acquiring then
-          val unregister = registerClose()
-          if !state.compareAndSet(acquiring, State.Ready(value, acquiring.holder, unregister)) then unregister()
+    /** Publishes the value; false when `close` ran during the acquisition. */
+    private def ready(acquiring: State.Acquiring[A], value: A): Boolean =
+      (state.get eq acquiring) && {
+        val unregister = registerClose()
+        val published  = state.compareAndSet(acquiring, State.Ready(value, acquiring.holder, unregister))
+        if !published then unregister()
+        published
+      }
 
     /** Registers this resource with the Nitro close hook, when the h34s plugin is installed. */
     private def registerClose(): () => Unit =
@@ -93,6 +100,9 @@ final class Shared[A] private[kyoh3] (acquire: => A < (Async & Scope & Abort[Thr
 end Shared
 
 object Shared:
+    private def closedDuringAcquisition: IllegalStateException =
+      IllegalStateException("The shared resource was closed during its acquisition")
+
     /** Declares a shared resource. Nothing is acquired until the first `get`. */
     def apply[A](acquire: => A < (Async & Scope & Abort[Throwable]))(using Frame): Shared[A] =
       new Shared(acquire)
