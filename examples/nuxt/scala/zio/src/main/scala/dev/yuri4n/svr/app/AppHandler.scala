@@ -1,19 +1,21 @@
 package dev.yuri4n.svr.app
 
-import dev.yuri4n.exts.h3.CommonEvHandler
-import dev.yuri4n.exts.ntcvzio.given
-import dev.yuri4n.exts.zioh3.{SH3Event, ZHandler}
-import dev.yuri4n.svr.notes.Notes
-import org.getshaka.nativeconverter.NativeConverter
-import zio.{Scope, ZIO}
+import dev.yuri4n.exts.zioh3.{EventHandler, HandlerEnv, HandlerOptions, Request, ResponseHead, ZHandler, ZResponseBody, ZShared}
+import dev.yuri4n.svr.notes.{Notes, NotesLive}
+import dev.yuri4n.svr.resources.SessionPool
+import zio.ZIO
 
-/** Application policy and services belong here, outside endpoint business logic. */
+/** The application's one wiring point. It supplies `Notes` to every handler function; ZHandler
+  * supplies the request snapshot, runs ZIO, and writes the response. This object belongs to the
+  * example, not to h34s.
+  */
 object AppHandler:
-    def define[A: NativeConverter](
-        program: ZIO[SH3Event & Scope & Notes, Throwable, A],
-    ): CommonEvHandler =
-      ZHandler.define(program.provideSomeLayer[SH3Event & Scope](Services.layer))
+    /** Every response is `Cache-Control: no-store`; bodies use the default `{ "data": ... }` envelope. */
+    private val options = HandlerOptions(defaults = ResponseHead.noStore)
 
-    def define(
-        program: ZIO[SH3Event & Scope & Notes, Throwable, Unit],
-    ): CommonEvHandler = define[Unit](program)
+    /** One Skunk pool for all requests: built on first use, released when Nitro closes. */
+    private val database = ZShared.layer(SessionPool.layer)
+
+    def define[B: ZResponseBody](program: Request => ZIO[HandlerEnv & Notes, Throwable, B]): EventHandler =
+      ZHandler.define(options): request =>
+          database.provide(program(request).provideSomeLayer[HandlerEnv & SessionPool](NotesLive.layer))

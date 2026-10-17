@@ -1,17 +1,21 @@
 package dev.yuri4n.svr.notes
 
-import org.getshaka.nativeconverter.NativeConverter
+import dev.yuri4n.exts.ntcvzioschema.NativeSchema
+import dev.yuri4n.svr.resources.SessionPool
 import skunk.Session
 import skunk.codec.all.*
 import skunk.implicits.*
-import zio.{Task, ZLayer}
-import zio.schema.{DeriveSchema, Schema, StandardType}
+import zio.{Scope, Task, ZIO, ZLayer}
+import zio.schema.{DeriveSchema, Schema, StandardType, derived}
 import zio.schema.validation.Validation
 
-final case class Note(id: Int, text: String) derives NativeConverter
-final case class CreateNote(text: String)
+/** One derivation per model: the ZIO Schema, and the native converter derived from it. */
+final case class Note(id: Int, text: String) derives Schema, NativeSchema
+
+final case class CreateNote(text: String) derives NativeSchema
 
 object CreateNote:
+    /** Trims the text, then requires 1-2000 characters. The native converter uses this schema. */
     given Schema[CreateNote] =
       given Schema[String] = Schema.Primitive(StandardType.StringType)
         .transform(_.trim, identity)
@@ -32,4 +36,6 @@ final class NotesLive(session: Session[Task]) extends Notes:
       session.execute(sql"SELECT id, text FROM h34s_notes ORDER BY id".query(codec))
 
 object NotesLive:
-    val layer: ZLayer[Session[Task], Nothing, Notes] = ZLayer.fromFunction(new NotesLive(_))
+    /** Notes over one pooled session that lives as long as the request scope. */
+    val layer: ZLayer[SessionPool & Scope, Throwable, Notes] =
+      ZLayer.fromZIO(ZIO.serviceWithZIO[SessionPool](_.session).map(NotesLive(_)))

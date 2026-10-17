@@ -322,4 +322,4 @@ lazy val nuxtsvr: Project = (project in file("examples/nuxt/scala/zio"))
     commonJsTests,
     Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
   )
-  .dependsOn(exts)
+  .dependsOn(zioH3Ext, nativeConverterZIOSchemaExt)
