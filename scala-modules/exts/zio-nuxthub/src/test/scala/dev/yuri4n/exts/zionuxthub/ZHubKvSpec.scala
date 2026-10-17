@@ -193,7 +193,7 @@ object ZHubKvSpec extends ZIOSpecDefault:
         )
       },
       // H7
-      test("reports conversion errors and does not write when encoding fails") {
+      test("reports value-free decode errors and does not write when encoding fails") {
         val recording = new KvTestFixtures.Recording
         val error = new RuntimeException("invalid stored representation")
         given NativeConverter[Broken]:
@@ -204,7 +204,12 @@ object ZHubKvSpec extends ZIOSpecDefault:
           kv <- mounted(recording.native)
           read <- kv.get[Broken]("key").either
           write <- kv.set("key", Broken("value")).either
-        yield assertTrue(read.left.exists(_ eq error), write.left.exists(_ eq error), recording.calls == List("get" -> "key"))
+        yield assertTrue(
+          read == Left(StoredValueError(None)),
+          !read.left.exists(_.getMessage.contains("invalid stored representation")),
+          write.left.exists(_ eq error),
+          recording.calls == List("get" -> "key"),
+        )
       },
       // H9
       test("does not hide upstream primitive-string deserialization") {
