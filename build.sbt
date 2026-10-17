@@ -14,7 +14,7 @@ lazy val munitVersion           = "1.2.1"
 lazy val releaseModules = Seq(
   "h3Ext", "kyoH3Ext", "zioH3Ext", "nativeConverterZIOExt",
   "nativeConverterZIOJsonExt", "nativeConverterZIOSchemaExt", "nativeConverterKyoSchemaExt",
-  "zioH3SchemaExt", "zioNuxtHubExt", "kyoNuxtHubExt",
+  "zioNuxtHubExt", "kyoNuxtHubExt",
 )
 addCommandAlias("releaseCheck", releaseModules.map(_ + "/makePom").mkString(";"))
 addCommandAlias("releasePublishLocal", releaseModules.map(_ + "/publishLocal").mkString(";"))
@@ -103,7 +103,6 @@ lazy val exts = (project in file("scala-modules/exts"))
     nativeConverterZIOExt,
     nativeConverterZIOJsonExt,
     nativeConverterZIOSchemaExt,
-    zioH3SchemaExt,
   )
   .aggregate(
     h3Ext,
@@ -116,7 +115,6 @@ lazy val exts = (project in file("scala-modules/exts"))
     nativeConverterZIOExt,
     nativeConverterZIOJsonExt,
     nativeConverterZIOSchemaExt,
-    zioH3SchemaExt,
   )
 
 // Effect-free native layer: hand-written internal h3/Node/Nitro facades and the
@@ -205,26 +203,33 @@ lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxth
   // Tests install a fake h34s Nitro startup record with kyo-h3's NitroGlobal fixture.
   .dependsOn(kyoH3Ext % "compile->compile;test->test")
 
-// The ZIO adapter over the Kyo core.
+// The ZIO adapter over the Kyo core: ZHandler, ZStream bodies, ZShared and the awaiting
+// ZIO <-> Kyo bridge. ZIO consumers get Kyo transitively.
 lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "zio-h3-ext",
     libraryDependencies ++= Seq(
-      "io.getkyo"    %%% "kyo-zio"          % kyoVersion,
-      "dev.zio"      %%% "zio"              % zioVersion,
-      "dev.zio"      %%% "zio-prelude"      % zioPreludeVersion,
-      "dev.zio"      %%% "zio-streams"      % zioVersion,
-      "dev.zio"      %%% "zio-json"         % zioJsonVersion,
-      "org.getshaka" %%% "native-converter" % nativeConverterVersion,
-      "dev.zio"      %%% "zio-test"         % zioVersion % Test,
-      "dev.zio"      %%% "zio-test-sbt"     % zioVersion % Test,
+      "io.getkyo"    %%% "kyo-zio"               % kyoVersion,
+      "dev.zio"      %%% "zio"                   % zioVersion,
+      "dev.zio"      %%% "zio-prelude"           % zioPreludeVersion,
+      "dev.zio"      %%% "zio-streams"           % zioVersion,
+      "dev.zio"      %%% "zio-json"              % zioJsonVersion,
+      "org.getshaka" %%% "native-converter"      % nativeConverterVersion,
+      "dev.zio"      %%% "zio-schema-derivation" % zioSchemaVersion % Test,
+      "dev.zio"      %%% "zio-test"              % zioVersion       % Test,
+      "dev.zio"      %%% "zio-test-sbt"          % zioVersion       % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     commonJsTests,
     Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
   )
-  .dependsOn(kyoH3Ext, nativeConverterZIOExt)
+  // Tests reuse the h3 event fixtures and NitroGlobal; schema request tests use NativeSchema.
+  .dependsOn(
+    kyoH3Ext % "compile->compile;test->test",
+    nativeConverterZIOExt,
+    nativeConverterZIOSchemaExt % "test->compile",
+  )
 
 lazy val zioNuxtHubExt: Project = (project in file("scala-modules/exts/zio-nuxthub"))
   .enablePlugins(ScalaJSPlugin)
@@ -290,21 +295,6 @@ lazy val nativeConverterZIOSchemaExt: Project =
       commonJsTests,
     )
     .dependsOn(h3Ext)
-
-lazy val zioH3SchemaExt: Project = (project in file("scala-modules/exts/zio-h3-schema"))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(
-    name := "zio-h3-schema-ext",
-    libraryDependencies ++= Seq(
-      "dev.zio" %%% "zio-schema-derivation" % zioSchemaVersion % Test,
-      "dev.zio" %%% "zio-test"              % zioVersion       % Test,
-      "dev.zio" %%% "zio-test-sbt"          % zioVersion       % Test,
-    ),
-    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    commonJsTests,
-    Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
-  )
-  .dependsOn(zioH3Ext, nativeConverterZIOSchemaExt)
 
 lazy val zioMigrationsExt: Project = (project in file("scala-modules/exts/zio-migrations"))
   .configure(configureCommonJsProject)

@@ -1,118 +1,282 @@
 package dev.yuri4n.exts.zioh3
 
-import dev.yuri4n.exts.h3.CommonEvHandler
-import org.getshaka.nativeconverter.NativeConverter
-import dev.yuri4n.h34s.facades.h3.mod.{EventHandlerRequest, H3Event}
+import dev.yuri4n.exts.zioh3.ZioTesting.*
+import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.*
 import zio.test.*
 
 import scala.scalajs.js
 
+/** The ZIO handler boundary over the Kyo core (Z1-Z12, K3-K14 and C12 for ZIO). */
 object HandlerBoundarySpec extends ZIOSpecDefault:
     final case class Greeting(message: String) derives NativeConverter
     final case class Rejected(message: String) extends SafeError:
-        override def status = 422
+        override def status: Int = 422
 
-    private def invoke(handler: CommonEvHandler, development: js.Any = js.undefined): Task[(Int, js.Any)] =
-      val response = js.Dynamic.literal(statusCode = 200, statusMessage = "OK", headersSent = false, writableEnded = false)
-      val request = js.Dynamic.literal(method = "GET", url = "/test", headers = js.Dynamic.literal())
-      val event = new H3Event[EventHandlerRequest](request, response)
-      if !js.isUndefined(development) then
-        event.context.asInstanceOf[js.Dynamic].updateDynamic("h34s")(js.Dynamic.literal(development = development))
-      ZIO.fromPromiseJS(handler(event).asInstanceOf[js.Promise[js.Any]])
-        .map(body => (response.statusCode.asInstanceOf[Int], body))
+    private def status(call: Call): Int = call.response.status
 
     def spec = suite("ZHandler.define")(
-      test("converts a model and supplies request context without runtime plumbing") {
-        for result <- invoke(ZHandler.define(for event <- ZHandler.getEvent yield Greeting(event.path)))
-        yield assertTrue(result._1 == 200, result._2.asInstanceOf[js.Dynamic].message.asInstanceOf[String] == "/test")
+      // Z1, C2
+      test("converts a model and passes the request snapshot to the handler function") {
+        val call = Call()
+        for body <- call.invoke(ZHandler.define(request => ZIO.succeed(Greeting(request.path))))
+        yield assertTrue(status(call) == 200, wire(body) == "{\"data\":{\"message\":\"/test\"}}", !call.response.hasListener)
       },
-      test("preserves an explicitly safe response and its status") {
-        for result <- invoke(ZHandler.define[String](ZHandler.failWith(409, "Already exists")))
-        yield assertTrue(result._1 == 409, js.JSON.stringify(result._2) == "{\"errors\":[\"Already exists\"]}")
-      },
-      test("renders only the approved safe error message") {
-        for result <- invoke(ZHandler.define[String](ZIO.fail(Rejected("Invalid name"))))
-        yield assertTrue(result._1 == 422, js.JSON.stringify(result._2) == "{\"errors\":[\"Invalid name\"]}")
-      },
-      test("hides exception and defect details with status 500") {
+      // K3
+      test("a reusable handler runs once per request with its own snapshot") {
+        var evaluations = 0
         for
-          failure <- invoke(ZHandler.define[String](ZIO.fail(new Exception("private database details"))))
-          defect <- invoke(ZHandler.define[String](ZIO.die(new Exception("private defect details"))))
+          gate <- Promise.make[Nothing, Unit]
+          handler = ZHandler.define { (request: Request) =>
+            evaluations += 1
+            gate.await.as(Greeting(request.path))
+          }
+          atDefinition = evaluations
+          first <- Call("/first").invoke(handler).fork
+          second <- Call("/second").invoke(handler).fork
+          _ <- gate.succeed(())
+          a <- first.join
+          b <- second.join
         yield assertTrue(
-          failure._1 == 500, defect._1 == 500,
-          js.JSON.stringify(failure._2) == "{\"errors\":[\"Internal server error\"]}",
-          js.JSON.stringify(defect._2) == js.JSON.stringify(failure._2),
+          atDefinition == 0, evaluations == 2,
+          data(a).message.asInstanceOf[String] == "/first", data(b).message.asInstanceOf[String] == "/second",
         )
       },
-      test("includes the original failure, nested cause, and Scala trace in development") {
+      // Z2
+      test("failWith keeps the approved status and one entry per message") {
+        val one = Call()
+        val several = Call()
+        for
+          oneBody <- one.invoke(ZHandler.define[String](_ => ZHandler.failWith(409, "Already exists")))
+          severalBody <- several.invoke(ZHandler.define[String](_ => ZHandler.failWith(400, "Title is required", "Text is required")))
+        yield assertTrue(
+          status(one) == 409, wire(oneBody) == errors("Already exists"),
+          status(several) == 400, wire(severalBody) == errors("Title is required", "Text is required"),
+        )
+      },
+      test("an ErrorResponse failure defaults to 400; a status outside 400-599 is a defect") {
+        val plain = Call()
+        val odd = Call()
+        for
+          plainBody <- plain.invoke(ZHandler.define[String](_ => ZIO.fail(ErrorResponse(prelude.NonEmptyList("Bad input")))))
+          oddBody <- odd.invoke(ZHandler.define[String](_ => ZHandler.failWith(200, "looks fine")))
+        yield assertTrue(status(plain) == 400, wire(plainBody) == errors("Bad input"), status(odd) == 500, wire(oddBody) == opaque)
+      },
+      // Z3
+      test("a SafeError failure renders only its approved message and status") {
+        val call = Call()
+        for body <- call.invoke(ZHandler.define[String](_ => ZIO.fail(Rejected("Invalid name"))))
+        yield assertTrue(status(call) == 422, wire(body) == errors("Invalid name"))
+      },
+      // Z4, K6
+      test("typed exceptions, defects, thrown SafeErrors and construction exceptions are opaque 500s") {
+        val handlers = List(
+          ZHandler.define[String](_ => ZIO.fail(new Exception("private database details"))),
+          ZHandler.define[String](_ => ZIO.die(new Exception("private defect details"))),
+          ZHandler.define[String](_ => ZIO.succeed(throw Rejected("unapproved thrown message"))),
+          ZHandler.define[String](_ => ZIO.die(Rejected("unapproved defect message"))),
+          ZHandler.define[String](_ => throw new Exception("private construction failure")),
+          ZHandler.define[String](_ => ZIO.interrupt),
+        )
+        ZIO.foreach(handlers) { handler =>
+          val call = Call()
+          call.invoke(handler).map(body => status(call) == 500 && wire(body) == opaque && !call.response.hasListener)
+        }.map(results => assertTrue(results.forall(identity)))
+      },
+      test("several typed failures are a defect, a single failure with interrupted siblings stays approved") {
+        val several = Call()
+        val single = Call()
+        for
+          severalBody <- several.invoke(ZHandler.define[String](_ =>
+            ZIO.failCause(Cause.fail(Rejected("first")) && Cause.fail(Rejected("second"))),
+          ))
+          singleBody <- single.invoke(ZHandler.define[String](_ =>
+            ZIO.failCause(Cause.fail(Rejected("first")) && Cause.interrupt(FiberId.None)),
+          ))
+        yield assertTrue(status(several) == 500, wire(severalBody) == opaque, status(single) == 422, wire(singleBody) == errors("first"))
+      },
+      // Z5, D6
+      test("development diagnostics contain the original failure, its nested cause and the Scala source file") {
+        val call = Call(development = true)
         val failure = ZIO.fail(new Exception("database operation failed", new Exception("debugging detail")))
-        for result <- invoke(ZHandler.define[String](failure), true)
+        for body <- call.invoke(ZHandler.define[String](_ => failure))
         yield
-          val body = result._2.asInstanceOf[js.Dynamic]
-          val cause = body.debug.cause.asInstanceOf[String]
-          assertTrue(result._1 == 500, cause.contains("database operation failed"), cause.contains("debugging detail"), cause.contains("HandlerBoundarySpec.scala"))
+          val text = cause(body)
+          assertTrue(
+            status(call) == 500,
+            body.asInstanceOf[js.Dynamic].errors.asInstanceOf[js.Array[js.Dynamic]](0).message.asInstanceOf[String] == "Internal server error",
+            text.contains("database operation failed"), text.contains("debugging detail"), text.contains("HandlerBoundarySpec.scala"),
+          )
       },
-      test("includes defects in development while preserving resource cleanup") {
-        for
-          released <- Ref.make(false)
-          handler = ZHandler.define[String](ZIO.acquireRelease(ZIO.unit)(_ => released.set(true)) *> ZIO.die(new Exception("debug defect")))
-          result <- invoke(handler, true)
-          closed <- released.get
-        yield assertTrue(result._1 == 500, result._2.asInstanceOf[js.Dynamic].debug.cause.asInstanceOf[String].contains("debug defect"), closed)
+      // Z6
+      test("development defects include diagnostics and still release request resources") {
+        var released = false
+        val call = Call(development = true)
+        val handler = ZHandler.define[String](_ =>
+          ZIO.acquireRelease(ZIO.unit)(_ => ZIO.succeed { released = true }) *> ZIO.die(new Exception("debug defect")),
+        )
+        for body <- call.invoke(handler)
+        yield assertTrue(status(call) == 500, cause(body).contains("debug defect"), released)
       },
-      test("requires boolean true from the server context and does not retain development state") {
-        val handler = ZHandler.define[String](ZIO.fail(new Exception("private detail")))
+      // Z7, K8
+      test("only boolean true in the server context enables diagnostics, without leaking across requests") {
+        val handler = ZHandler.define[String](_ => ZIO.fail(new Exception("private detail")))
         for
-          _ <- invoke(handler, true)
-          production <- invoke(handler, false)
-          malformed <- invoke(handler, "true")
-          missing <- invoke(handler)
-        yield assertTrue(List(production, malformed, missing).forall { result =>
-          result._1 == 500 && js.JSON.stringify(result._2) == "{\"errors\":[\"Internal server error\"]}"
-        })
+          _ <- Call(development = true).invoke(handler)
+          results <- ZIO.foreach(List[js.Any](false, "true", 1, js.undefined)) { mode =>
+            val call = Call(development = mode, headers = Seq("x-h34s-development" -> "true"))
+            call.invoke(handler).map(body => status(call) == 500 && wire(body) == opaque)
+          }
+          debug <- Call(development = false, debug = true).invoke(handler)
+        yield assertTrue(results.forall(identity), cause(debug).contains("private detail"))
       },
-      test("preserves safe response contracts in development") {
+      // Z8
+      test("safe and explicit failures keep their status and body in development, without diagnostics") {
+        val safe = Call(development = true, debug = true)
+        val explicit = Call(development = true)
         for
-          safe <- invoke(ZHandler.define[String](ZIO.fail(Rejected("Invalid name"))), true)
-          explicit <- invoke(ZHandler.define[String](ZHandler.failWith(409, "Already exists")), true)
+          safeBody <- safe.invoke(ZHandler.define[String](_ => ZIO.fail(Rejected("Invalid name"))))
+          explicitBody <- explicit.invoke(ZHandler.define[String](_ => ZHandler.failWith(409, "Already exists")))
         yield assertTrue(
-          safe._1 == 422, js.JSON.stringify(safe._2) == "{\"errors\":[\"Invalid name\"]}",
-          explicit._1 == 409, js.JSON.stringify(explicit._2) == "{\"errors\":[\"Already exists\"]}",
+          status(safe) == 422, wire(safeBody) == errors("Invalid name"),
+          status(explicit) == 409, wire(explicitBody) == errors("Already exists"),
         )
       },
-      test("reports a finalizer defect even when the request fails with a safe error") {
-        val handler = ZHandler.define[String](
-          ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("cleanup defect"))) *> ZIO.fail(Rejected("Invalid name")),
+      // Z9
+      test("a finalizer defect wins over a safe failure and over a success") {
+        def handler(outcome: IO[Rejected, String]) = ZHandler.define[String](_ =>
+          ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("cleanup defect"))) *> outcome,
         )
+        val development = Call(development = true)
+        val production = Call()
+        val succeeded = Call()
         for
-          development <- invoke(handler, true)
-          production <- invoke(handler, false)
+          developmentBody <- development.invoke(handler(ZIO.fail(Rejected("Invalid name"))))
+          productionBody <- production.invoke(handler(ZIO.fail(Rejected("Invalid name"))))
+          succeededBody <- succeeded.invoke(handler(ZIO.succeed("ok")))
         yield assertTrue(
-          development._1 == 500,
-          development._2.asInstanceOf[js.Dynamic].debug.cause.asInstanceOf[String].contains("cleanup defect"),
-          production._1 == 500,
-          js.JSON.stringify(production._2) == "{\"errors\":[\"Internal server error\"]}",
+          status(development) == 500, cause(developmentBody).contains("cleanup defect"),
+          status(production) == 500, wire(productionBody) == opaque,
+          status(succeeded) == 500, wire(succeededBody) == opaque,
         )
       },
-      test("closes request resources on success and failure") {
+      // Z10, K9
+      test("request resources close once on success, typed failure and defect") {
+        var released = 0
+        val resource = ZIO.acquireRelease(ZIO.unit)(_ => ZIO.succeed { released += 1 })
         for
-          released <- Ref.make(0)
-          resource = ZIO.acquireRelease(ZIO.unit)(_ => released.update(_ + 1))
-          _ <- invoke(ZHandler.define(resource *> ZIO.unit))
-          _ <- invoke(ZHandler.define[String](resource *> ZIO.fail(new Exception("failure"))))
-          count <- released.get
-        yield assertTrue(count == 2)
+          _ <- Call().invoke(ZHandler.define(_ => resource.as(Greeting("ok"))))
+          afterSuccess = released
+          _ <- Call().invoke(ZHandler.define[String](_ => resource *> ZIO.fail(new Exception("failure"))))
+          _ <- Call().invoke(ZHandler.define[String](_ => resource *> ZIO.die(new Exception("defect"))))
+        yield assertTrue(afterSuccess == 1, released == 3)
       },
-      test("accepts application layers resolved before the handler boundary") {
+      // Z11
+      test("application layers are provided around the handler program with ordinary ZIO") {
         final case class Config(prefix: String)
-        val program = for config <- ZIO.service[Config] yield Greeting(config.prefix + " world")
-        for result <- invoke(ZHandler.define(program.provide(ZLayer.succeed(Config("hello")))))
-        yield assertTrue(result._2.asInstanceOf[js.Dynamic].message.asInstanceOf[String] == "hello world")
+        val program: Request => ZIO[Config, Nothing, Greeting] =
+          request => ZIO.serviceWith[Config](config => Greeting(config.prefix + request.path))
+        for body <- Call().invoke(ZHandler.define(request => program(request).provide(ZLayer.succeed(Config("hello")))))
+        yield assertTrue(data(body).message.asInstanceOf[String] == "hello/test")
       },
-      test("returns JavaScript undefined for Unit without a caller converter") {
-        for result <- invoke(ZHandler.define(ZIO.unit))
-        yield assertTrue(js.isUndefined(result._2))
+      // Z12, K4
+      test("Unit is a 204 without a body, without importing a converter") {
+        val call = Call()
+        for body <- call.invoke(ZHandler.define(_ => ZIO.unit))
+        yield assertTrue(body == null, !js.isUndefined(body), status(call) == 204)
       },
-    )
+      // K10, D4
+      test("a throwing response converter is an opaque 500 after request cleanup") {
+        final case class Broken(value: String)
+        given NativeConverter[Broken]:
+          extension (value: Broken) def toNative: js.Any = throw Rejected("private converter detail")
+          def fromNative(state: ParseState): Broken = Broken("")
+        var releases = 0
+        val call = Call()
+        val handler = ZHandler.define(_ => ZIO.acquireRelease(ZIO.unit)(_ => ZIO.succeed { releases += 1 }).as(Broken("value")))
+        for body <- call.invoke(handler)
+        yield assertTrue(releases == 1, status(call) == 500, wire(body) == opaque)
+      },
+      // K11, C6
+      test("asynchronous ZIO finalizers finish before success, safe failure and defect settle") {
+        val outcomes: List[(Int, IO[Throwable, String])] = List(
+          200 -> ZIO.succeed("ok"),
+          422 -> ZIO.fail(Rejected("Invalid name")),
+          500 -> ZIO.die(new Exception("private defect")),
+        )
+        ZIO.foreach(outcomes) { (expected, outcome) =>
+          for
+            finalizing <- Promise.make[Nothing, Unit]
+            release <- Promise.make[Nothing, Unit]
+            released <- Ref.make(0)
+            call = Call()
+            handler = ZHandler.define[String](_ =>
+              ZIO.acquireRelease(ZIO.unit)(_ => finalizing.succeed(()) *> release.await *> released.update(_ + 1)) *> outcome,
+            )
+            running <- call.invoke(handler).fork
+            _ <- finalizing.await
+            _ <- turns(3)
+            pending <- running.poll
+            _ <- release.succeed(())
+            _ <- running.join
+            count <- released.get
+          yield pending.isEmpty && count == 1 && status(call) == expected && !call.response.hasListener
+        }.map(results => assertTrue(results == List(true, true, true)))
+      },
+      // K12, C7, D1
+      test("disconnect interrupts a non-stream handler and waits for its asynchronous ZIO finalizer") {
+        for
+          acquired <- Promise.make[Nothing, Unit]
+          finalizing <- Promise.make[Nothing, Unit]
+          release <- Promise.make[Nothing, Unit]
+          released <- Ref.make(0)
+          call = Call()
+          handler = ZHandler.define[String](_ =>
+            ZIO.acquireRelease(acquired.succeed(()))(_ => finalizing.succeed(()) *> release.await *> released.update(_ + 1)) *>
+              ZIO.never,
+          )
+          running <- call.invoke(handler).fork
+          _ <- acquired.await
+          _ <- ZIO.succeed(call.response.disconnect())
+          _ <- finalizing.await
+          _ <- turns(3)
+          pending <- running.poll
+          _ <- release.succeed(())
+          body <- running.join
+          count <- released.get
+          _ <- ZIO.succeed(call.response.disconnect())
+          again <- released.get
+        yield assertTrue(
+          pending.isEmpty, js.isUndefined(body), count == 1, again == 1, !call.response.hasListener, call.handled,
+          call.response.writes == 0, call.response.headerNames.isEmpty,
+        )
+      },
+      // K13
+      test("an already closed response never starts the request program") {
+        var started = false
+        val call = Call()
+        call.response.disconnect()
+        for body <- call.invoke(ZHandler.define(_ => ZIO.succeed { started = true; Greeting("unexpected") }))
+        yield assertTrue(js.isUndefined(body), !started, call.handled, !call.response.hasListener)
+      },
+      // K14
+      test("normal completion removes the disconnect listener and a late close cannot repeat cleanup") {
+        var releases = 0
+        val call = Call()
+        val handler = ZHandler.define(_ => ZIO.acquireRelease(ZIO.unit)(_ => ZIO.succeed { releases += 1 }).as(Greeting("ok")))
+        for
+          _ <- call.invoke(handler)
+          afterCompletion = releases
+          _ <- ZIO.succeed(call.response.disconnect())
+        yield assertTrue(afterCompletion == 1, releases == 1, !call.response.hasListener)
+      },
+      test("handlers run on the given ZIO Runtime") {
+        for
+          runtime <- ZIO.logAnnotate("tenant", "acme")(ZIO.runtime[Any])
+          call = Call()
+          body <- call.invoke(ZHandler.define(_ => ZIO.logAnnotations.map(_.getOrElse("tenant", "none")))(using summon, runtime))
+          default <- Call().invoke(ZHandler.define(_ => ZIO.logAnnotations.map(_.getOrElse("tenant", "none"))))
+        yield assertTrue(data(body).asInstanceOf[String] == "acme", data(default).asInstanceOf[String] == "none")
+      },
+    ) @@ TestAspect.timeout(45.seconds)
 end HandlerBoundarySpec
