@@ -1,8 +1,8 @@
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const description = 'Use h34s to run Scala.js in your Nuxt app. '
-  + 'Choose ZIO or Kyo handlers, optional adapters, and build tooling.'
+const description = 'Use h34s to write Nuxt server routes in Scala.js: '
+  + 'a Kyo core, a first-class ZIO adapter, optional bridges, and build tooling.'
 const docsLayerApp = fileURLToPath(
   new URL('./vendor/yuri4n.dev/layers/docs/app/', import.meta.url),
 )
@@ -68,15 +68,21 @@ export default defineNuxtConfig({
     description,
     sections: [],
     notes: [
-      'h34s is a Scala.js toolbox for Nuxt/Nitro. Private Maven libraries '
-      + 'and npm tooling are published at 0.1.0-alpha.1. Choose independent '
-      + 'ZIO or Kyo APIs; their handlers execute on their own runtime.',
-      'Define models and services, provide their dependencies, and mount '
-      + 'handler exports in your application. AppHandler is an optional '
-      + 'user-defined helper. Database setup and resource ownership are yours.',
-      'examples/nuxt contains an optional demo with Skunk database access. '
-      + 'website contains this separate documentation app. Automatic route '
-      + 'generation, Nix, and deployable application packaging remain planned.',
+      'h34s is a Scala.js toolbox for Nuxt/Nitro. Its core is written in Kyo; '
+      + 'ZIO is a first-class adapter over that core. Kyo applications never '
+      + 'depend on ZIO; ZIO applications get Kyo transitively.',
+      'This documentation describes the unreleased 0.2.0-SNAPSHOT '
+      + '(feat/kyo-core branch). The published 0.1.0-alpha.1 libraries and npm '
+      + 'tooling have an older API with independent runtimes.',
+      'A handler is a function from an immutable Request to the response body. '
+      + 'Values are sent as {"data": ...}, errors as {"errors": [{"message"}]}, '
+      + 'Unit as 204. Only SafeError data reaches clients.',
+      'Define models and services, wire them in an optional user-defined '
+      + 'AppHandler, and mount handler exports with one-line route files. '
+      + 'Schemas, databases (kyo-sql, Skunk) and storage are optional choices.',
+      'examples/nuxt contains an optional demo; website contains this separate '
+      + 'documentation app. Route generation, Nix, and deployable application '
+      + 'packaging remain planned.',
     ],
   },
   mcp: { name: 'h34s documentation' },

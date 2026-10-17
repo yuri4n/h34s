@@ -27,15 +27,18 @@ The website declares its own Vue and Vue Router versions. Its Nuxt
 TypeScript project explicitly includes the nested shared layer, so a
 clean build does not depend on the example app's generated configuration.
 
-Edit pages under `content/1.guide` and `content/2.reference`. Docus provides
+Edit pages under `content/1.guide` and `content/2.reference`. Guide pages
+use two-digit prefixes (`01.` to `13.`) because Nuxt Content sorts pages
+by their file name as text. Docus provides
 navigation, local search, code highlighting, edit links, and the mobile
 menu. The landing page and theme live under `app/`. Keep source snippets
-consistent with the Scala examples in `examples/nuxt/scala/`. Write setup
+consistent with the Scala examples in `examples/nuxt/scala/` and with the
+guides in `docs/`. Write setup
 as instructions to application authors: define models and services,
 provide their dependencies, and mount handler exports. Identify
 `AppHandler` as an optional application helper, not a library export.
-Describe the native, ZIO, Kyo, and optional adapters as a toolbox, and
-mark planned functionality explicitly.
+Describe the native layer, the Kyo core, the ZIO adapter and the optional
+bridges as a toolbox, and mark planned or unverified functionality explicitly.
 
 The shared layer disables its AI assistant, including when a deployment
 injects `VERCEL_OIDC_TOKEN`. It provides `/llms.txt`, `/llms-full.txt`, raw

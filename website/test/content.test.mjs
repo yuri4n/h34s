@@ -49,7 +49,8 @@ test('landing snippet matches the application source', async () => {
   )
   const match = /const example = `([^`]+)`/.exec(homepage)
   assert.ok(match, 'Copyable handler example must be present')
-  const sourceRoot = resolve(root, '../examples/nuxt/scala/zio/src')
+  // The Kyo and ZIO demo applications.
+  const sourceRoot = resolve(root, '../examples/nuxt/scala')
   const appFiles = (await filesUnder(sourceRoot))
     .filter(file => file.endsWith('.scala'))
   const sources = await Promise.all(
