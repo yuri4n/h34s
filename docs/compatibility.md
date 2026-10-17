@@ -33,23 +33,24 @@ On macOS 15.7.5, x86_64, during the refactor (2026-10-17):
 
 | Check | Result |
 | --- | --- |
-| `h3Ext/test` | 30 passed |
-| `kyoH3Ext/test` | 68 passed |
-| `kyoNuxtHubExt/test` | 13 passed |
-| `nativeConverterKyoSchemaExt/test` | 23 passed |
-| `zioH3Ext/test` | 74 passed |
-| `zioNuxtHubExt/test` | 13 passed |
-| `nativeConverterZIOSchemaExt/test` | 19 passed |
-| `nuxtsvr/test` (ZIO demo) | 5 passed |
+| `h3Ext/test` | 36 passed |
+| `kyoH3Ext/test` | 79 passed |
+| `kyoNuxtHubExt/test` | 15 passed |
+| `nativeConverterKyoSchemaExt/test` | 25 passed |
+| `zioH3Ext/test` | 81 passed |
+| `zioNuxtHubExt/test` | 14 passed |
+| `nativeConverterZIOSchemaExt/test` | 20 passed |
+| `nuxtsvr/test` (ZIO demo) | 6 passed |
 | `nativeConverterZIOJsonExt`, `zioMigrationsExt` | compile |
 | `kyoExample/fastLinkJS`, `nuxtsvr/fastLinkJS` | link |
 | `releaseCheck` (POMs for the 9 release modules) | passed |
-| Node tests: `scripts/*.test.mjs`, `packages/nuxt/test/*.test.mjs` | All passed (37 at the Phase A+/B tip; 46 after the Phase C1 script tests) |
+| Node tests: `scripts/*.test.mjs`, `packages/nuxt/test/*.test.mjs` | All 47 passed (after the Phase D review fixes) |
 | Documentation snippets that do not come from compiled sources (Kyo and ZIO guides, configuration, lifetimes, storage, streaming, testing, adoption, and the kyo-sql code with kyo-sql-postgres 1.0.0-RC7) | Compiled in a temporary test file against this branch (`kyoNuxtHubExt/Test/compile`, `zioNuxtHubExt/Test/compile`); not run |
 | Fresh Maven consumers (`scripts/check-consumers.mjs`) for Kyo, ZIO, Kyo Schema and ZIO Schema, from a temporary Maven repository | Compiled, linked and served real h3 requests with the new wire format; the Kyo consumers resolved no `dev.zio` artifact |
 | Kyo demo over a plain h3 server with a preemptive router (Nitro's router mode) | GET and POST 200 with `{"data":...}`; 422 entries with `path` for a blank or 81-character name; generic 422 for a wrong shape; 400 for invalid JSON; `Cache-Control: no-store` on every response |
 | ZIO demo over the same h3 server | `/api/test` answers `abc`; `/api/notes` without the plugin is an opaque 500; with a fake plugin record and no database, a 500 with `debug.cause` and no password in it, and one close hook registered and released |
 | Production build of the demo (Scala full link, `nuxt build`, then the Node server from `.output/`) | Built with `NODE_OPTIONS=--max-old-space-size=8192` (the default heap ran out of memory). Kyo routes: the same 200, 422, 400 responses, and 415 for `text/plain`. `/api/test` streamed `abc`. `/api/notes` without a database: opaque 500. With `NUXT_H34S_DEBUG=true`: `debug.cause` present, password absent. `SIGTERM`: the `ZShared` pool registered on the first Notes request was released, exit status 0 |
+| Production build after the review fixes (same machine, same day) | `kyo-smoke.mjs` passed with the default salutation and with `NUXT_GREETING_SALUTATION=Hi` (Kyo `RuntimeConfig.load` in a `Shared`); `smoke.mjs` with `H34S_SMOKE_SKIP_DATABASE=true` passed without PostgreSQL (invalid Notes input is a 422 before any database work); streams carry `text/plain; charset=utf-8` and `nosniff` by default |
 
 | `nuxt dev` on the demo (Nuxt 4.3.1, `pnpm dev` after `pnpm run scala:fast`) | Kyo GET 200 with `{"data":...}` and `no-store`; a blank name 422 with path `name`; `/api/test` answered `abc`; `/api/notes` without a database answered a 500 with `debug.cause` (Scala stack frames, no password). A Kyo handler that threw a JavaScript `TypeError` (a temporary probe route) had its stack mapped to `RequestLifecycle.scala` and `KHandler.scala` |
 | `scripts/check-npm-nuxt.mjs` (the packed module in a synthetic Nuxt 4.3.1 project) | Development diagnostics, direct loading, Scala source maps, a relink reload, production bundling, and `NUXT_H34S_DEBUG=true` at runtime |
