@@ -23,7 +23,7 @@ class HandlerBoundarySuite extends FunSuite:
       val call = Call()
       call.invoke(KHandler.define(request => Greeting(request.path))).map { body =>
         assertEquals(call.response.status, 200)
-        assertEquals(body.asInstanceOf[js.Dynamic].message.asInstanceOf[String], "/test")
+        assertEquals(json(body), "{\"data\":{\"message\":\"/test\"}}")
         assert(!call.response.hasListener)
       }
     }
@@ -34,7 +34,7 @@ class HandlerBoundarySuite extends FunSuite:
       val program: Request => Greeting < (HandlerEffects & Env[Config]) =
         request => Env.get[Config].map(config => Greeting(config.prefix + request.path))
       Call().invoke(KHandler.define(request => Env.run(Config("hello"))(program(request)))).map { body =>
-        assertEquals(body.asInstanceOf[js.Dynamic].message.asInstanceOf[String], "hello/test")
+        assertEquals(data(body).message.asInstanceOf[String], "hello/test")
       }
     }
 
@@ -52,14 +52,19 @@ class HandlerBoundarySuite extends FunSuite:
       gate.success(())
       first.zip(second).map { case (a, b) =>
         assertEquals(evaluations, 2)
-        assertEquals(a.asInstanceOf[js.Dynamic].message.asInstanceOf[String], "/first")
-        assertEquals(b.asInstanceOf[js.Dynamic].message.asInstanceOf[String], "/second")
+        assertEquals(data(a).message.asInstanceOf[String], "/first")
+        assertEquals(data(b).message.asInstanceOf[String], "/second")
       }
     }
 
     // K4
-    test("Unit becomes native undefined without importing a converter") {
-      Call().invoke(KHandler.define(_ => Sync.defer(()))).map(body => assert(js.isUndefined(body)))
+    test("Unit is a 204 without a body, without importing a converter") {
+      val call = Call()
+      call.invoke(KHandler.define(_ => Sync.defer(()))).map { body =>
+        // h3 sends a `null` result with sendNoContent (see HttpHandlerSuite for the wire).
+        assert(body == null && !js.isUndefined(body), s"expected null, got $body")
+        assertEquals(call.response.status, 204)
+      }
     }
 
     // K5
@@ -71,23 +76,28 @@ class HandlerBoundarySuite extends FunSuite:
         explicitBody <- explicit.invoke(KHandler.define[String](_ => KHandler.failWith(409, "Already exists")))
       yield
         assertEquals(safe.response.status, 422)
-        assertEquals(json(safeBody), "{\"errors\":[\"Invalid name\"]}")
+        assertEquals(json(safeBody), errors("Invalid name"))
         assertEquals(explicit.response.status, 409)
-        assertEquals(json(explicitBody), "{\"errors\":[\"Already exists\"]}")
+        assertEquals(json(explicitBody), errors("Already exists"))
     }
 
     // C3
-    test("InvalidInput renders its details, or a generic message without details") {
+    test("InvalidInput renders one entry per detail with its path, or one generic entry") {
       val detailed = Call()
       val generic = Call(development = true)
+      val entries = List(ErrorEntry("must not be shorter than 3", Some("name")), ErrorEntry("is required", Some("age")), ErrorEntry("at least one field"))
       for
-        detailedBody <- detailed.invoke(KHandler.define[String](_ => Abort.fail(InvalidInput(List("name: too short", "age: required")))))
+        detailedBody <- detailed.invoke(KHandler.define[String](_ => Abort.fail(InvalidInput(entries))))
         genericBody <- generic.invoke(KHandler.define[String](_ => Abort.fail(InvalidInput())))
       yield
         assertEquals(detailed.response.status, 422)
-        assertEquals(json(detailedBody), "{\"errors\":[\"name: too short\",\"age: required\"]}")
+        assertEquals(
+          json(detailedBody),
+          "{\"errors\":[{\"message\":\"must not be shorter than 3\",\"path\":\"name\"}," +
+            "{\"message\":\"is required\",\"path\":\"age\"},{\"message\":\"at least one field\"}]}",
+        )
         assertEquals(generic.response.status, 422)
-        assertEquals(json(genericBody), "{\"errors\":[\"Request body does not match the expected shape\"]}")
+        assertEquals(json(genericBody), errors("Request body does not match the expected shape"))
     }
 
     test("a SafeError with a non-error status is a defect") {
@@ -123,7 +133,9 @@ class HandlerBoundarySuite extends FunSuite:
       val call = Call(development = true)
       call.invoke(KHandler.define[String](_ => Abort.fail(new Exception("operation failed", new Exception("nested detail"))))).map { body =>
         assertEquals(call.response.status, 500)
-        val cause = body.asInstanceOf[js.Dynamic].debug.cause.asInstanceOf[String]
+        val entry = body.asInstanceOf[js.Dynamic].errors.asInstanceOf[js.Array[js.Dynamic]](0)
+        assertEquals(entry.message.asInstanceOf[String], "Internal server error")
+        val cause = entry.debug.cause.asInstanceOf[String]
         assert(cause.contains("operation failed"))
         assert(cause.contains("nested detail"))
         assert(cause.contains("Exception"))
@@ -283,7 +295,7 @@ class HandlerBoundarySuite extends FunSuite:
       call.invoke(handler).map { body =>
         assertEquals(headersDuringProgram, Nil, "the native response must not change while the program runs")
         assertEquals(call.response.status, 201)
-        assertEquals(body.asInstanceOf[js.Dynamic].message.asInstanceOf[String], "5 headers")
+        assertEquals(data(body).message.asInstanceOf[String], "5 headers")
         assertEquals(call.response.header("x-id"), Some("7"))
         assertEquals(call.response.headerValues("vary"), List("Accept", "Origin"))
         assertEquals(call.response.header("x-replaced"), Some("new"))
@@ -309,7 +321,7 @@ class HandlerBoundarySuite extends FunSuite:
         defectBody <- defect.invoke(handler(Sync.defer(throw IllegalStateException("private"))))
       yield
         assertEquals(safe.response.status, 401)
-        assertEquals(json(safeBody), "{\"errors\":[\"Sign in\"]}")
+        assertEquals(json(safeBody), errors("Sign in"))
         assertEquals(safe.response.header("www-authenticate"), Some("Bearer"))
         assertEquals(safe.response.header("x-request-id"), Some("abc"))
         assertEquals(safe.response.header("x-discarded"), None)
@@ -326,8 +338,8 @@ class HandlerBoundarySuite extends FunSuite:
       val ok = Call()
       val failed = Call()
       for
-        _ <- ok.invoke(KHandler.define(defaults)(_ => Greeting("ok")))
-        _ <- failed.invoke(KHandler.define[String](defaults)(_ => Abort.fail(HttpError.notFound("No such note"))))
+        _ <- ok.invoke(KHandler.define(HandlerOptions(defaults = defaults))(_ => Greeting("ok")))
+        _ <- failed.invoke(KHandler.define[String](HandlerOptions(defaults = defaults))(_ => Abort.fail(HttpError.notFound("No such note"))))
       yield
         assertEquals(ok.response.header("cache-control"), Some("no-store"))
         assertEquals(ok.response.header("x-app"), Some("notes"))
@@ -339,7 +351,7 @@ class HandlerBoundarySuite extends FunSuite:
     test("redirect sets Location and a 3xx status") {
       val call = Call()
       call.invoke(KHandler.define(_ => Response.redirect("/login"))).map { body =>
-        assert(js.isUndefined(body))
+        assert(body == null && !js.isUndefined(body), "a Unit redirect has no body")
         assertEquals(call.response.status, 302)
         assertEquals(call.response.header("location"), Some("/login"))
       }
@@ -355,6 +367,152 @@ class HandlerBoundarySuite extends FunSuite:
         assertEquals(name.response.status, 500)
         assertEquals(value.response.status, 500)
         assertEquals(value.response.header("x-ok"), None)
+    }
+
+    // 4.2b wire format
+    test("Data wraps value bodies in data; Raw sends the converted value as is") {
+      val raw = HandlerOptions(success = SuccessEnvelope.Raw)
+      final case class Absent()
+      given NativeConverter[Absent]:
+        extension (value: Absent) def toNative: js.Any = js.undefined
+        def fromNative(state: ParseState): Absent = Absent()
+      val calls = List.fill(5)(Call())
+      for
+        dataModel <- calls(0).invoke(KHandler.define(_ => Greeting("hi")))
+        dataText <- calls(1).invoke(KHandler.define(_ => "hi"))
+        rawModel <- calls(2).invoke(KHandler.define(raw)(_ => Greeting("hi")))
+        rawText <- calls(3).invoke(KHandler.define(raw)(_ => "hi"))
+        rawUndefined <- calls(4).invoke(KHandler.define(raw)(_ => Absent()))
+      yield
+        assertEquals(json(dataModel), "{\"data\":{\"message\":\"hi\"}}")
+        assertEquals(json(dataText), "{\"data\":\"hi\"}")
+        assertEquals(json(rawModel), "{\"message\":\"hi\"}")
+        assertEquals(rawText.asInstanceOf[String], "hi")
+        assert(rawUndefined == null && !js.isUndefined(rawUndefined), "Raw undefined is sent as null (204)")
+        calls.take(4).foreach(call => assertEquals(call.response.status, 200))
+    }
+
+    test("Unit keeps a status the handler set and its headers, with either success envelope") {
+      val created = Call()
+      val raw = Call()
+      for
+        createdBody <- created.invoke(KHandler.define(_ => Response.status(Status.Created).andThen(Response.header("x-id", "7"))))
+        rawBody <- raw.invoke(KHandler.define(HandlerOptions(success = SuccessEnvelope.Raw))(_ => ()))
+      yield
+        assert(createdBody == null && !js.isUndefined(createdBody))
+        assertEquals(created.response.status, 201)
+        assertEquals(created.response.header("x-id"), Some("7"))
+        assert(rawBody == null && !js.isUndefined(rawBody))
+        assertEquals(raw.response.status, 204)
+    }
+
+    test("List always sends errors; SingleOrList sends error for exactly one entry and errors for several") {
+      val single = HandlerOptions(errors = ErrorEnvelope.SingleOrList)
+      val several = InvalidInput(List(ErrorEntry("is required", Some("name")), ErrorEntry("is required", Some("age"))))
+      val calls = List.fill(6)(Call())
+      for
+        listOne <- calls(0).invoke(KHandler.define[String](_ => Abort.fail(HttpError.notFound("No such note"))))
+        listSeveral <- calls(1).invoke(KHandler.define[String](_ => Abort.fail(several)))
+        singleOne <- calls(2).invoke(KHandler.define[String](single)(_ => Abort.fail(HttpError.notFound("No such note"))))
+        singleSeveral <- calls(3).invoke(KHandler.define[String](single)(_ => Abort.fail(several)))
+        singleGeneric <- calls(4).invoke(KHandler.define[String](single)(_ => Abort.fail(InvalidInput())))
+        singleInternal <- calls(5).invoke(KHandler.define[String](single)(_ => Abort.fail(new Exception("private"))))
+      yield
+        val severalJson = "[{\"message\":\"is required\",\"path\":\"name\"},{\"message\":\"is required\",\"path\":\"age\"}]"
+        assertEquals(json(listOne), errors("No such note"))
+        assertEquals(json(listSeveral), s"{\"errors\":$severalJson}")
+        assertEquals(json(singleOne), "{\"error\":{\"message\":\"No such note\"}}")
+        assertEquals(json(singleSeveral), s"{\"errors\":$severalJson}")
+        assertEquals(json(singleGeneric), "{\"error\":{\"message\":\"Request body does not match the expected shape\"}}")
+        assertEquals(json(singleInternal), "{\"error\":{\"message\":\"Internal server error\"}}")
+        assertEquals(calls.map(_.response.status), List(404, 422, 404, 422, 422, 500))
+    }
+
+    test("a SafeError may send several entries; an error without valid entries is a defect") {
+      final case class Conflicts(message: String) extends SafeError:
+        override def status: Int = 409
+        override def errors: List[ErrorEntry] = List(ErrorEntry("slug is taken", Some("slug")), ErrorEntry(message))
+      final case class Empty(message: String) extends SafeError:
+        override def errors: List[ErrorEntry] = Nil
+      final case class NullPath(message: String) extends SafeError:
+        override def errors: List[ErrorEntry] = List(ErrorEntry(message, Some(null)))
+      val conflict = Call()
+      val empty = Call()
+      val nullPath = Call()
+      for
+        conflictBody <- conflict.invoke(KHandler.define[String](_ => Abort.fail(Conflicts("title is taken"))))
+        emptyBody <- empty.invoke(KHandler.define[String](_ => Abort.fail(Empty("private"))))
+        nullPathBody <- nullPath.invoke(KHandler.define[String](_ => Abort.fail(NullPath("private"))))
+      yield
+        assertEquals(conflict.response.status, 409)
+        assertEquals(json(conflictBody), "{\"errors\":[{\"message\":\"slug is taken\",\"path\":\"slug\"},{\"message\":\"title is taken\"}]}")
+        assertEquals(empty.response.status, 500)
+        assertOpaque(emptyBody)
+        assertEquals(nullPath.response.status, 500)
+        assertOpaque(nullPathBody)
+    }
+
+    test("debug mode adds diagnostics like development; without both flags the 500 stays opaque") {
+      val handler = KHandler.define[String](_ => Abort.fail(new Exception("private detail")))
+      val single = KHandler.define[String](HandlerOptions(errors = ErrorEnvelope.SingleOrList))(_ => Abort.fail(new Exception("private detail")))
+      def cause(entry: js.Dynamic): String = entry.debug.cause.asInstanceOf[String]
+      for
+        debug <- Call(development = false, debug = true).invoke(handler)
+        debugSingle <- Call(development = false, debug = true).invoke(single)
+        neither <- Call(development = false, debug = false).invoke(handler)
+        stringFlag <- Call(development = false, debug = "true").invoke(handler)
+        forged <- Call(headers = Seq("x-h34s-debug" -> "true"), path = "/test?debug=true").invoke(handler)
+      yield
+        assert(cause(debug.asInstanceOf[js.Dynamic].errors.asInstanceOf[js.Array[js.Dynamic]](0)).contains("private detail"))
+        assertEquals(debug.asInstanceOf[js.Dynamic].errors.asInstanceOf[js.Array[js.Dynamic]](0).message.asInstanceOf[String], "Internal server error")
+        assert(cause(debugSingle.asInstanceOf[js.Dynamic].error.asInstanceOf[js.Dynamic]).contains("private detail"))
+        assertOpaque(neither)
+        assertOpaque(stringFlag)
+        assertOpaque(forged)
+    }
+
+    test("approved errors never carry diagnostics, even in development and debug mode") {
+      val call = Call(development = true, debug = true)
+      call.invoke(KHandler.define[String](_ => Abort.fail(HttpError.conflict("Already exists")))).map { body =>
+        assertEquals(json(body), errors("Already exists"))
+      }
+    }
+
+    test("the request snapshot exposes the plugin's debug flag") {
+      val handler = KHandler.define(request => s"${request.development} ${request.debug}")
+      for
+        debug <- Call(development = false, debug = true).invoke(handler)
+        both <- Call(development = true, debug = true).invoke(handler)
+        none <- Call().invoke(handler)
+      yield
+        assertEquals(data(debug).asInstanceOf[String], "false true")
+        assertEquals(data(both).asInstanceOf[String], "true true")
+        assertEquals(data(none).asInstanceOf[String], "false false")
+    }
+
+    test("HandlerOptions.bodyLimit is the default limit of json and text reads; an explicit limit wins") {
+      final case class Input(name: String) derives NativeConverter
+      val options = HandlerOptions(bodyLimit = BodyLimit(16))
+      val large = Some("{\"name\":\"" + ("x" * 32) + "\"}")
+      def handlerOf(read: Request => String < HandlerEffects) = KHandler.define(options)(read)
+      def result(read: Request => String < HandlerEffects): Future[(Int, String)] =
+        // Request.fake carries the same default limit that the snapshot of `options` carries.
+        run(Scope.run(Var.run(ResponseHead.empty)(Abort.run[HttpError | InvalidInput](read(Request.fake(method = "POST", body = large, bodyLimit = options.bodyLimit))))))
+          .map(_.getOrThrow.fold(value => 200 -> value, error => error.status -> error.message, error => throw error))
+      val small = Call()
+      small.invoke(handlerOf(_.body.text())).flatMap { smallBody =>
+        assertEquals(data(smallBody).asInstanceOf[String], "")
+        for
+          json <- result(_.body.json[Input].map(_.name))
+          text <- result(_.body.text())
+          explicit <- result(_.body.json[Input](BodyLimit(1024)).map(_.name.length.toString))
+          default <- run(Request.fake(body = large).body.text()).map(_.getOrThrow.length)
+        yield
+          assertEquals(json, 413 -> "Request body is too large")
+          assertEquals(text, 413 -> "Request body is too large")
+          assertEquals(explicit, 200 -> "32")
+          assertEquals(default, 43, "Request.fake defaults to BodyLimit.default")
+      }
     }
 
     // C13

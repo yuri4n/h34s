@@ -120,7 +120,7 @@ class HttpStreamSuite extends FunSuite:
       }
       call.invoke(handler).map { body =>
         assertEquals(call.response.status, 409)
-        assertEquals(json(body), "{\"errors\":[\"Busy\"]}")
+        assertEquals(json(body), errors("Busy"))
         assertEquals(call.response.header("x-discarded"), None)
         assertEquals(call.response.chunks.toList, Nil)
       }

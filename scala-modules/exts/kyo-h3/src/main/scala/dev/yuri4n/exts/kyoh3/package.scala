@@ -15,7 +15,10 @@ export dev.yuri4n.exts.h3.{
   ConfigError,
   CookieEntry,
   DeleteCookie,
+  ErrorEntry,
+  ErrorEnvelope,
   EventHandler,
+  HandlerOptions,
   HeaderEntry,
   HeaderMode,
   HttpError,
@@ -29,4 +32,5 @@ export dev.yuri4n.exts.h3.{
   Secret,
   SetCookie,
   Status,
+  SuccessEnvelope,
 }

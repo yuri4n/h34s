@@ -8,7 +8,7 @@ import scala.scalajs.js
 /** What a handler may return as its response body.
   *
   *   - any `A` with a `NativeConverter` (converted after the handler, inside the request scope);
-  *   - `Unit` (native `undefined`; no converter needed);
+  *   - `Unit` (no body: 204 unless the handler set another status; no converter needed);
   *   - a `kyo.Stream[A, S]` with a `NativeConverter[A]`, where `S` needs at most
   *     `Async & Abort[Throwable] & Scope`. The core writes the head before the first chunk and keeps
   *     the request scope open until the stream ends.
@@ -22,11 +22,11 @@ object ResponseBody extends LowPriorityResponseBody:
     /** The encoded body, ready for the transport. Internal. */
     private[exts] enum Outgoing:
         case Value(native: js.Any)
+        case Empty
         case Streamed(chunks: Stream[js.Any, StreamEffects])
 
     given unit: ResponseBody[Unit]:
-        private[exts] def encode(body: Unit)(using Frame): Outgoing < Sync =
-          Outgoing.Value(js.undefined)
+        private[exts] def encode(body: Unit)(using Frame): Outgoing < Sync = Outgoing.Empty
 
     given stream: [A: {NativeConverter, Tag}, S >: StreamEffects] => ResponseBody[Stream[A, S]]:
         private[exts] def encode(body: Stream[A, S])(using Frame): Outgoing < Sync =

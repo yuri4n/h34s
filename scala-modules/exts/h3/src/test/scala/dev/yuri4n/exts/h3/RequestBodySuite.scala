@@ -120,7 +120,7 @@ class RequestBodySuite extends FunSuite:
       given NativeConverter[Schema]:
         extension (value: Schema) def toNative: js.Any = value.name
         def fromNative(state: ParseState): Schema =
-          if state.json == null then throw InvalidInput(List("name: must be present")) else Schema("ok")
+          if state.json == null then throw InvalidInput(List(ErrorEntry("must be present", Some("name")))) else Schema("ok")
       final case class Broken(value: String)
       given NativeConverter[Broken]:
         extension (value: Broken) def toNative: js.Any = value.value
@@ -128,7 +128,7 @@ class RequestBodySuite extends FunSuite:
 
       assertEquals(BodyDecoding.decode[Input](js.JSON.parse("{\"name\":\"a\",\"count\":\"x\"}")), Left(InvalidInput()))
       assertEquals(BodyDecoding.decode[Input](js.JSON.parse("\"text\"")), Left(InvalidInput()))
-      assertEquals(BodyDecoding.decode[Schema](null), Left(InvalidInput(List("name: must be present"))))
+      assertEquals(BodyDecoding.decode[Schema](null), Left(InvalidInput(List(ErrorEntry("must be present", Some("name"))))))
       assertEquals(BodyDecoding.decode[Input](js.JSON.parse("{\"name\":\"a\",\"count\":2}")), Right(Input("a", 2)))
       intercept[IllegalStateException](BodyDecoding.decode[Broken](js.JSON.parse("{}")))
     }

@@ -64,10 +64,48 @@ class ValuesSuite extends FunSuite:
       assertEquals(error.status, 401)
       assertEquals(error.getMessage, "Sign in")
       assertEquals(error.headers, List("WWW-Authenticate" -> "Bearer"))
-      assertEquals(InvalidInput().status, 422)
-      assertEquals(InvalidInput().message, InvalidInput.genericMessage)
-      assertEquals(InvalidInput(List("name: too short")).message, "name: too short")
       assertEquals(ConfigError("missing").getMessage, "missing")
+    }
+
+    test("a SafeError has one entry with its message unless it overrides errors") {
+      assertEquals(HttpError.notFound("No such note").errors, List(ErrorEntry("No such note")))
+      final case class Several(message: String) extends SafeError:
+        override def errors: List[ErrorEntry] = List(ErrorEntry("a", Some("x")), ErrorEntry("b"))
+      assertEquals(Several("ignored").errors.map(_.message), List("a", "b"))
+    }
+
+    test("InvalidInput is a 422 with its entries, or one generic entry without entries") {
+      assertEquals(InvalidInput().status, 422)
+      assertEquals(InvalidInput().errors, List(ErrorEntry(InvalidInput.genericMessage)))
+      assertEquals(InvalidInput().message, InvalidInput.genericMessage)
+      val entries = List(ErrorEntry("too short", Some("name")), ErrorEntry("one field is required"))
+      assertEquals(InvalidInput(entries).errors, entries)
+      assertEquals(InvalidInput(entries).message, "name: too short; one field is required")
+      assertEquals(InvalidInput(entries).getMessage, "name: too short; one field is required")
+    }
+
+    test("ErrorEntry is { message, path? } natively; path is omitted when absent") {
+      val converter = summon[NativeConverter[ErrorEntry]]
+      assertEquals(js.JSON.stringify(converter.toNative(ErrorEntry("too short", Some("name")))), "{\"message\":\"too short\",\"path\":\"name\"}")
+      val withoutPath = converter.toNative(ErrorEntry("required")).asInstanceOf[js.Object]
+      assertEquals(js.JSON.stringify(withoutPath), "{\"message\":\"required\"}")
+      assert(!withoutPath.hasOwnProperty("path"))
+      assertEquals(converter.fromNative(js.JSON.parse("{\"message\":\"m\",\"path\":\"p\"}")), ErrorEntry("m", Some("p")))
+      assertEquals(converter.fromNative(js.JSON.parse("{\"message\":\"m\",\"path\":null}")), ErrorEntry("m"))
+      assertEquals(converter.fromNative(js.JSON.parse("{\"message\":\"m\"}")), ErrorEntry("m"))
+      intercept[RuntimeException](converter.fromNative(js.JSON.parse("{\"path\":\"p\"}")))
+      intercept[RuntimeException](converter.fromNative(js.JSON.parse("{\"message\":\"m\",\"path\":1}")))
+      intercept[RuntimeException](converter.fromNative(js.JSON.parse("\"m\"")))
+      intercept[RuntimeException](converter.fromNative(js.undefined))
+    }
+
+    test("HandlerOptions.default: data envelope, errors list, no defaults, 1 MiB") {
+      val options = HandlerOptions.default
+      assertEquals(options.success, SuccessEnvelope.Data)
+      assertEquals(options.errors, ErrorEnvelope.List)
+      assertEquals(options.defaults, ResponseHead.empty)
+      assertEquals(options.bodyLimit, BodyLimit(1L << 20))
+      assertEquals(HandlerOptions(), options)
     }
 
     test("Secret hides its value and compares without early exit") {

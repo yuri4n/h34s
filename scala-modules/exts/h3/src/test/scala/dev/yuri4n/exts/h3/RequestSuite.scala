@@ -75,6 +75,23 @@ class RequestSuite extends FunSuite:
       assert(!snapshot(headers = Seq("x-h34s-development" -> "true")).development)
     }
 
+    test("debug is enabled only by boolean true in the Nitro request record, never by the request") {
+      def debug(value: js.Any): Request = snapshot(context = Some(H3Fixtures.development(false, value)))
+      assert(debug(true).debug)
+      assert(!debug(true).development, "debug does not imply development")
+      List[js.Any](false, "true", 1, js.undefined, null).foreach(value => assert(!debug(value).debug, s"$value"))
+      assert(!snapshot(url = "/test?debug=true", headers = Seq("x-h34s-debug" -> "true")).debug)
+      assert(!snapshot(context = Some(H3Fixtures.development(true))).debug, "development does not imply debug")
+    }
+
+    test("the body's default limit comes from the snapshot (HandlerOptions.bodyLimit)") {
+      val event = H3Fixtures.event(FakeRequest("POST", "/body"), FakeResponse())
+      assertEquals(Request.fromEvent(event).body.defaultLimit, BodyLimit.default)
+      assertEquals(Request.fromEvent(event, BodyLimit(16)).body.defaultLimit, BodyLimit(16))
+      assertEquals(Request.fake().body.defaultLimit, BodyLimit.default)
+      assertEquals(Request.fake(bodyLimit = BodyLimit(8)).body.defaultLimit, BodyLimit(8))
+    }
+
     test("Request.fake builds the same view without h3") {
       val request = Request.fake(
         method = "post",
@@ -85,6 +102,7 @@ class RequestSuite extends FunSuite:
         cookies = Map("session" -> "abc"),
         body = Some("{}"),
         development = true,
+        debug = true,
       )
       assertEquals(request.method, "POST")
       assertEquals(request.header("content-type"), Some("application/json"))
@@ -94,6 +112,7 @@ class RequestSuite extends FunSuite:
       assertEquals(request.routerParam("id"), Some("7"))
       assertEquals(request.cookie("session"), Some("abc"))
       assert(request.development)
+      assert(request.debug)
     }
 
     test("toString never shows headers or credentials") {

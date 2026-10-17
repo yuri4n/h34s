@@ -73,6 +73,7 @@ private[exts] trait NodeResponse extends js.Object:
 private[exts] trait NitroRequestContext extends js.Object:
     def version: js.Any = js.native
     def development: js.Any = js.native
+    def debug: js.Any = js.native
     def runtimeConfig(): js.Any = js.native
     def storage(base: String): NativeStorage = js.native
 
@@ -81,6 +82,7 @@ private[exts] trait NitroRequestContext extends js.Object:
 private[exts] trait NitroGlobalContext extends js.Object:
     def version: js.Any = js.native
     def development: js.Any = js.native
+    def debug: js.Any = js.native
     def runtimeConfig(): js.Any = js.native
     def storage(base: String): NativeStorage = js.native
     def onClose(close: js.Function0[js.Any]): js.Function0[js.Any] = js.native
@@ -132,6 +134,13 @@ private[exts] object Nitro:
     /** Development mode is enabled only by the boolean `true`, never by strings or numbers. */
     def development(event: H3Event): Boolean =
       request(event).exists(record => isTrue(record.asInstanceOf[js.Dynamic].development))
+
+    /** The `h34s.debug` runtime config flag, as the plugin read it at startup. Only boolean `true`. */
+    def debug(event: H3Event): Boolean =
+      request(event).exists(record => isTrue(record.asInstanceOf[js.Dynamic].debug))
+
+    /** Diagnostics (causes and stack text) may be sent only in development or debug mode. */
+    def diagnostics(event: H3Event): Boolean = development(event) || debug(event)
 
     def isTrue(value: js.Any): Boolean =
       js.typeOf(value) == "boolean" && value.asInstanceOf[Boolean]

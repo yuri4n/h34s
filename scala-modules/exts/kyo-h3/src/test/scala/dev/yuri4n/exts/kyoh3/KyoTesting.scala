@@ -21,12 +21,15 @@ private[exts] object KyoTesting:
         development: js.Any = js.undefined,
         withSocket: Boolean = true,
         record: Option[js.Object] = None,
+        debug: js.Any = js.undefined,
     ):
         val request: FakeRequest   = FakeRequest(method, path, headers)
         val response: FakeResponse = FakeResponse(withSocket)
         val event: H3Event =
-          val context = record.orElse(if js.isUndefined(development) then None else Some(H3Fixtures.development(development)))
-          H3Fixtures.event(request, response, context)
+          val flags =
+            if js.isUndefined(development) && js.isUndefined(debug) then None
+            else Some(H3Fixtures.development(development, debug))
+          H3Fixtures.event(request, response, record.orElse(flags))
 
         def handled: Boolean = event.handled
 
@@ -36,8 +39,16 @@ private[exts] object KyoTesting:
 
     def json(body: js.Any): String = js.JSON.stringify(body)
 
-    def assertOpaque(body: js.Any): Unit =
-      assertEquals(json(body), "{\"errors\":[\"Internal server error\"]}")
+    val opaque: String = "{\"errors\":[{\"message\":\"Internal server error\"}]}"
+
+    def assertOpaque(body: js.Any): Unit = assertEquals(json(body), opaque)
+
+    /** The value inside the default `{ "data": ... }` envelope. */
+    def data(body: js.Any): js.Dynamic = body.asInstanceOf[js.Dynamic].data
+
+    /** The error body for approved messages in the default `{ "errors": [...] }` envelope. */
+    def errors(messages: String*): String =
+      json(js.Dynamic.literal(errors = js.Array(messages.map(message => js.Dynamic.literal(message = message))*)))
 
     /** Runs a Kyo program to a Future of its typed result. */
     def run[A](program: => A < (Async & Abort[Throwable]))(using Frame): Future[Result[Throwable, A]] =

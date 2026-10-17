@@ -6,9 +6,11 @@ import kyo.{Abort, Async, Frame, Result, Sync, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 
 extension (body: RequestBody)
-    /** Decodes a JSON body with the default limit (1 MiB). See the overload with a limit. */
+    /** Decodes a JSON body with the handler's limit (`HandlerOptions.bodyLimit`, 1 MiB unless you
+      * change it). See the overload with an explicit limit.
+      */
     def json[A: NativeConverter](using Frame): A < (Async & Abort[HttpError | InvalidInput]) =
-      body.json[A](BodyLimit.default)
+      body.json[A](body.defaultLimit)
 
     /** Decodes a JSON body with a `NativeConverter`.
       *
@@ -28,8 +30,10 @@ extension (body: RequestBody)
             }
           }
 
-    /** The body as UTF-8 text; an absent body is the empty string. 413 above `limit`. */
-    def text(limit: BodyLimit = BodyLimit.default)(using Frame): String < (Async & Abort[HttpError]) =
+    /** The body as UTF-8 text; an absent body is the empty string. 413 above `limit`, which is the
+      * handler's `HandlerOptions.bodyLimit` unless you pass one.
+      */
+    def text(limit: BodyLimit = body.defaultLimit)(using Frame): String < (Async & Abort[HttpError]) =
       readText(body, limit).map(_.getOrElse(""))
 end extension
 

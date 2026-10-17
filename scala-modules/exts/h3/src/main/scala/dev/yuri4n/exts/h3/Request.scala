@@ -10,6 +10,9 @@ import scala.scalajs.js
   * The body is not part of the snapshot. It is a one-shot input: read it with the runtime's
   * extensions (`request.body.json[A]`, `request.body.text()`). Reading it again returns the same
   * bytes.
+  *
+  * `development` and `debug` come only from the h34s Nitro plugin (Nuxt development mode and the
+  * `h34s.debug` runtime config). A request can never set them.
   */
 final class Request private[exts] (
     val method: String,
@@ -19,6 +22,7 @@ final class Request private[exts] (
     val routerParams: Map[String, String],
     val cookies: Map[String, String],
     val development: Boolean,
+    val debug: Boolean,
     val body: RequestBody,
     private[exts] val nitro: Option[NitroRequestContext],
 ):
@@ -66,6 +70,8 @@ object Request:
         cookies: Map[String, String] = Map.empty,
         body: Option[String] = None,
         development: Boolean = false,
+        debug: Boolean = false,
+        bodyLimit: BodyLimit = BodyLimit.default,
     ): Request =
       val entries = headers.toVector.map((name, value) => name.toLowerCase -> value)
       val contentType = entries.collectFirst { case ("content-type", value) => value }
@@ -77,12 +83,13 @@ object Request:
         routerParams,
         cookies,
         development,
-        RequestBody.fake(body, contentType),
+        debug,
+        RequestBody.fake(body, contentType, bodyLimit),
         None,
       )
 
-    /** Builds the snapshot from a native h3 event. */
-    private[exts] def fromEvent(event: H3Event): Request =
+    /** Builds the snapshot from a native h3 event. `bodyLimit` is the default limit of body reads. */
+    private[exts] def fromEvent(event: H3Event, bodyLimit: BodyLimit = BodyLimit.default): Request =
       val request = event.node.req
       val entries = request.rawHeaders.toOption match
           case Some(raw) =>
@@ -110,7 +117,8 @@ object Request:
         params,
         cookies,
         Nitro.development(event),
-        RequestBody.native(event, contentType),
+        Nitro.debug(event),
+        RequestBody.native(event, contentType, bodyLimit),
         Nitro.request(event),
       )
     end fromEvent
@@ -126,9 +134,14 @@ object BodyLimit:
 /** The request body: a one-shot input that h34s reads at most once.
   *
   * Read it through the runtime extensions. The first read fixes the outcome: later reads return
-  * the same text, and a body that exceeded a limit stays rejected.
+  * the same text, and a body that exceeded a limit stays rejected. Reads without an explicit
+  * limit use `defaultLimit`: the handler's `HandlerOptions.bodyLimit`.
   */
-final class RequestBody private (source: RequestBody.Source, private[exts] val contentType: Option[String]):
+final class RequestBody private (
+    source: RequestBody.Source,
+    private[exts] val contentType: Option[String],
+    private[exts] val defaultLimit: BodyLimit,
+):
     import RequestBody.*
 
     private var state: State = source match
@@ -158,11 +171,11 @@ final class RequestBody private (source: RequestBody.Source, private[exts] val c
 end RequestBody
 
 object RequestBody:
-    private[exts] def native(event: H3Event, contentType: Option[String]): RequestBody =
-      new RequestBody(Source.Native(event), contentType)
+    private[exts] def native(event: H3Event, contentType: Option[String], defaultLimit: BodyLimit): RequestBody =
+      new RequestBody(Source.Native(event), contentType, defaultLimit)
 
-    private[exts] def fake(text: Option[String], contentType: Option[String]): RequestBody =
-      new RequestBody(Source.Fake(text), contentType)
+    private[exts] def fake(text: Option[String], contentType: Option[String], defaultLimit: BodyLimit): RequestBody =
+      new RequestBody(Source.Fake(text), contentType, defaultLimit)
 
     private enum Source:
         case Native(event: H3Event)

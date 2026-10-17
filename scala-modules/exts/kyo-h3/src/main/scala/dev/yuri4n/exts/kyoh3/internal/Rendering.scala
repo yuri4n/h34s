@@ -2,35 +2,65 @@ package dev.yuri4n.exts.kyoh3.internal
 
 import dev.yuri4n.exts.h3.{
   DeleteCookie,
+  ErrorEntry,
+  ErrorEnvelope,
   HeaderMode,
-  InvalidInput,
   ResponseHead,
   SafeError,
   SameSite,
   SetCookie,
   Status,
+  SuccessEnvelope,
 }
 import dev.yuri4n.exts.h3.internal.{H3, H3Event}
+import org.getshaka.nativeconverter.NativeConverter
 
 import java.io.{PrintWriter, StringWriter}
 import scala.scalajs.js
+import scala.util.control.NonFatal
 
-/** Writes a response head and error bodies to the native h3 event. Called once per request. */
+/** The wire format (HandlerOptions envelopes) and the single write of the response head. */
 private[exts] object Rendering:
-    /** The public messages of an approved error. */
-    def messages(error: SafeError): List[String] = error match
-        case InvalidInput(details) if details.nonEmpty => details
-        case _: InvalidInput                           => List(InvalidInput.genericMessage)
-        case other                                     => List(other.message)
+    /** A safe error approved for the client: a 4xx or 5xx status and at least one entry, each with
+      * a non-null message and path. `errors` is application code, so a throw makes it unapproved.
+      */
+    def approved(error: SafeError): Option[(Status, List[ErrorEntry])] =
+      try
+          for
+            status  <- Status(error.status).toOption.filter(_.code >= 400)
+            entries <- Option(error.errors).filter(entries => entries.nonEmpty && entries.forall(validEntry))
+          yield status -> entries
+      catch case NonFatal(_) => None
 
-    /** A safe error approved for the client: a 4xx or 5xx status with a non-null message. */
-    def approved(error: SafeError): Option[Status] =
-      Status(error.status).toOption.filter(status => status.code >= 400 && error.message != null)
+    private def validEntry(entry: ErrorEntry): Boolean =
+      entry != null && entry.message != null && entry.path != null && !entry.path.contains(null)
 
-    def errorBody(messages: List[String]): js.Dynamic =
-      js.Dynamic.literal(errors = js.Array(messages*))
+    /** A value body in its success envelope. A `Raw` value converting to `undefined` is sent as
+      * `null`, so h3 answers 204 in a plain app and in Nitro alike.
+      */
+    def successBody(envelope: SuccessEnvelope, native: js.Any): js.Any = envelope match
+        case SuccessEnvelope.Data => js.Dynamic.literal(data = native)
+        case SuccessEnvelope.Raw  => if js.isUndefined(native) then noContent else native
 
-    val internalErrorBody: List[String] = List("Internal server error")
+    /** h3 1.15 sends `null` with `sendNoContent`: 204 (or the status already set), no body. It
+      * sends `undefined` only through a preemptive router (Nitro); a plain app falls through to 404.
+      */
+    val noContent: js.Any = null
+
+    def errorBody(envelope: ErrorEnvelope, entries: List[ErrorEntry]): js.Any =
+      envelopeOf(envelope, entries.map(entry => summon[NativeConverter[ErrorEntry]].toNative(entry)))
+
+    /** The opaque internal error. With diagnostics, its entry carries `debug.cause`. */
+    def internalErrorBody(envelope: ErrorEnvelope, diagnostics: Option[String]): js.Any =
+      val entry = js.Dynamic.literal(message = internalErrorMessage)
+      diagnostics.foreach(cause => entry.debug = js.Dynamic.literal(cause = cause))
+      envelopeOf(envelope, List(entry))
+
+    val internalErrorMessage: String = "Internal server error"
+
+    private def envelopeOf(envelope: ErrorEnvelope, entries: List[js.Any]): js.Any = (envelope, entries) match
+        case (ErrorEnvelope.SingleOrList, List(single)) => js.Dynamic.literal(error = single)
+        case _                                          => js.Dynamic.literal(errors = js.Array(entries*))
 
     /** Applies status, headers in order (Set replaces, Append adds) and cookies. */
     def writeHead(event: H3Event, head: ResponseHead): Unit =

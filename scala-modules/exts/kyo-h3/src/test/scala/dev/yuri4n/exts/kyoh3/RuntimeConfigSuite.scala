@@ -35,14 +35,14 @@ class RuntimeConfigSuite extends FunSuite:
     // C11
     test("RuntimeConfig.get decodes the request's Nuxt runtime config") {
       configured(Call(record = Some(record(valid)))).map { body =>
-        assertEquals(body.asInstanceOf[String], "/api Secret(<redacted>)")
+        assertEquals(data(body).asInstanceOf[String], "/api Secret(<redacted>)")
       }
     }
 
     test("decode failures name the path and never the value") {
       val wrong = js.JSON.parse("{\"database\":{\"url\":12345678},\"apiBase\":\"/api\"}")
       configured(Call(record = Some(record(wrong)))).map { body =>
-        val message = body.asInstanceOf[String]
+        val message = data(body).asInstanceOf[String]
         assertEquals(message, "ConfigError: Nuxt runtime config does not match the expected shape at root.database.url")
         assert(!message.contains("12345678"))
       }
@@ -50,7 +50,7 @@ class RuntimeConfigSuite extends FunSuite:
 
     test("a config read that throws is a ConfigError without its message") {
       configured(Call(record = Some(record(throw IllegalStateException("hunter2"))))).map { body =>
-        assertEquals(body.asInstanceOf[String], "ConfigError: h34s could not read the Nuxt runtime config")
+        assertEquals(data(body).asInstanceOf[String], "ConfigError: h34s could not read the Nuxt runtime config")
       }
     }
 
@@ -60,8 +60,8 @@ class RuntimeConfigSuite extends FunSuite:
         missing <- configured(Call())
         outdated <- configured(Call(record = Some(oldPlugin)))
       yield
-        assertEquals(missing.asInstanceOf[String], "ConfigError: h34s Nitro plugin is not installed")
-        assertEquals(outdated.asInstanceOf[String], "ConfigError: h34s Nitro plugin is not installed")
+        assertEquals(data(missing).asInstanceOf[String], "ConfigError: h34s Nitro plugin is not installed")
+        assertEquals(data(outdated).asInstanceOf[String], "ConfigError: h34s Nitro plugin is not installed")
     }
 
     test("an unhandled ConfigError is an opaque 500") {

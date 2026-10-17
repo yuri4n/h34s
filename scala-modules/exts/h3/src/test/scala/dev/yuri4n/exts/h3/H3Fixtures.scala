@@ -124,5 +124,7 @@ private[exts] object H3Fixtures:
       context.foreach(record => event.context("h34s") = record)
       event
 
-    def development(enabled: js.Any): js.Object = js.Dynamic.literal(version = 1, development = enabled)
+    /** The Nitro plugin's per-request record with its `development` and `debug` flags. */
+    def development(enabled: js.Any, debug: js.Any = js.undefined): js.Object =
+      js.Dynamic.literal(version = 1, development = enabled, debug = debug)
 end H3Fixtures
