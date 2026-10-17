@@ -1,63 +1,88 @@
 # Debug Scala handlers in Nuxt
 
-Run Scala linking, then `pnpm dev` as described in [development.md](development.md). Nuxt's development mode controls diagnostics automatically; endpoint code does not need a debug flag. The [npm Nuxt module](npm-tooling.md) owns this integration and reads the application's `h34s.config.mjs`; copying loader files or a diagnostics plugin is unnecessary.
+h34s keeps production errors opaque and shows full diagnostics while you develop. You do not add a debug flag to your handlers: the h34s Nitro plugin decides, and requests can never change its decision.
 
-## Error details
+Install the [npm Nuxt module](npm-tooling.md) first. It registers the plugin, the development loader and the source-map integration.
 
-An unexpected failure still returns HTTP 500. In development its response includes:
+## What clients see
+
+An unexpected failure is any `Throwable` that is not an approved `SafeError`: a thrown exception, a panic, a converter defect, a non-safe ZIO failure, or a ZIO defect. With the default options, the client gets:
+
+```json
+{ "errors": [{ "message": "Internal server error" }] }
+```
+
+with status 500. When diagnostics are on, the same entry carries the cause:
 
 ```json
 {
-  "errors": ["Internal server error"],
-  "debug": {
-    "cause": "...original exception, nested causes, and ZIO trace..."
-  }
+  "errors": [{
+    "message": "Internal server error",
+    "debug": { "cause": "java.lang.IllegalStateException: ...\n\tat ..." }
+  }]
 }
 ```
 
-Inspect `debug.cause` in the browser Network panel or the failed fetch response. The server also logs the cause. Safe errors and explicit `ZHandler.failWith` responses retain their existing status and payload.
+- Kyo handlers: `cause` is the exception's class, message, cause chain and stack text.
+- ZIO handlers: `cause` is ZIO's full `Cause.prettyPrint`, with ZIO traces and Scala source lines.
 
-The runtime plugin installed by `@yuri4n/h34s-nuxt` supplies the mode from Nitro's `import.meta.dev`. Production compilation replaces it with `false`; requests cannot enable it. Without the plugin, the library defaults to opaque errors. Development diagnostics can contain database or configuration details, so use the development server with trusted access.
+`SafeError` entries never carry `debug`. Their status and messages are the same in every mode. With `ErrorEnvelope.SingleOrList`, the one entry is under `"error"` instead of `"errors"`.
 
-## JavaScript-to-Scala source maps
+The server logs every unexpected failure as `Unhandled h34s handler failure` with the same details, in every mode.
 
-The development profile loads linked Scala.js ES modules directly in Node:
+## When diagnostics are on
 
-1. `fastLinkJS` writes JavaScript and adjacent `.js.map` files to the configured application output directories. In the repository demo, these are `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`.
-2. The npm module's development loader resolves configured output modules as native file imports. Nitro watches both directories and replaces its development worker after linking.
-3. `pnpm dev` enables Node source maps before loading the application. Node uses the adjacent maps to resolve stack frames to original Scala files and lines.
+Diagnostics are on when the request's development flag **or** debug flag is the boolean `true`:
 
-This avoids rebundling the large linked modules on each edit. A fresh Nitro worker also gets a fresh Node module cache. Keep the JavaScript and map files together, and finish linking before making a request. The development resolver and directory watching are enabled only under Nuxt’s development flag; production uses the application's explicit Scala link followed by the Nuxt build.
+| Flag | Set by | When |
+| --- | --- | --- |
+| `development` | The plugin, from Nitro's `import.meta.dev` | `nuxt dev`. A production build compiles it to `false` |
+| `debug` | The plugin, from `runtimeConfig.h34s.debug`, read once at startup | `debug: true` in `nuxt.config.ts` at build time, or `NUXT_H34S_DEBUG=true` at runtime |
 
-The package also retains the source-map helper for composing Scala.js maps through Nitro/Rollup. It normalizes local file URLs and embeds project Scala sources. It does not download dependency sources. The default direct-module profile uses Node’s adjacent maps and local Scala source files instead.
+The Nuxt module declares `runtimeConfig.h34s.debug` with the value of Nuxt's `debug` option, which is why `NUXT_H34S_DEBUG` can override it. If your `nuxt.config.ts` already sets `runtimeConfig.h34s.debug`, your value wins. Restart the server after you change the variable.
 
-When launching a custom Node entry point directly, use `node --enable-source-maps <entry.mjs>`. Source maps locate code; ZIO and Kyo traces additionally identify effect boundaries that a JavaScript call stack may not retain.
+Without the plugin, both flags are `false` and every failure is opaque.
 
-## Interactive debugging
+**Keep debug mode off in production.** Diagnostics send exception messages and stack text to anyone who can trigger a failure. Libraries can put connection details, SQL text or file paths in exception messages. Use debug mode only on a server that only you can reach, and turn it off again. If you turned it on by mistake, unset `NUXT_H34S_DEBUG` (or set it to `false`) and restart.
 
-Start Nuxt with its inspector option:
+These flags are tested with a stubbed Nitro runtime (`packages/nuxt/test`) and with fake plugin records in the Scala suites. In a production build of the demo (macOS x86_64), an unexpected failure was opaque without the variable and carried `debug.cause` with `NUXT_H34S_DEBUG=true`; the database password did not appear in either response.
+
+## Map JavaScript back to Scala
+
+During `nuxt dev`, Node loads the linked Scala.js modules directly and reads their source maps:
+
+1. `fastLinkJS` writes JavaScript and `.js.map` files to the output directories in your `h34s.config.mjs`. The demo uses `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`.
+2. The module's development loader keeps those outputs out of Nitro's development bundle and imports them as native files. Nitro watches the directories and replaces its worker after you relink.
+3. Start Nuxt with `node --enable-source-maps`, as in the `dev` script of [npm tooling](npm-tooling.md). Node then maps stack frames to Scala files and lines.
+
+Enable source maps in your Scala.js build:
+
+```scala
+Compile / fastLinkJS / scalaJSLinkerConfig ~= (_.withSourceMap(true)),
+```
+
+Keep each `.js` file next to its `.js.map`. The package also has a source-map helper that composes Scala.js maps through Nitro/Rollup. It embeds your project's Scala sources and never downloads dependency sources.
+
+## Attach a debugger
+
+Start Nuxt with the inspector from your application root:
 
 ```sh
 pnpm dev --inspect
 ```
 
-Attach a Node debugger using the inspector address printed by Nuxt, then look for the original Scala file in Sources. Server handlers execute in Node, so use its inspector session. Node can use the Scala.js maps for source locations and breakpoints; Scala expressions, Scala collection inspection, and a full JVM-style debugger are not provided by source maps.
+Attach a Node debugger to the address Nuxt prints, then open the original Scala file in Sources. Handlers run in Node, so use the server's inspector session, not the browser page. Source maps give locations and source views. They do not give Scala expression evaluation or a JVM-style debugger. Breakpoint stepping has not been verified.
 
-After editing Scala, run `pnpm run scala:fast` or keep `pnpm run scala:watch` running. Nuxt watches the generated JavaScript and maps. Wait for linking and worker reload before inspecting a new failure; stale linked code cannot match edited Scala source reliably.
+## Rebuild after editing
+
+Run `pnpm run scala:fast` after a Scala change, or keep `pnpm run scala:watch` running. Wait until linking finishes and Nitro restarts its worker before you send the next request. If a stack frame looks stale, check that linking succeeded and the generated files changed.
 
 ## Checks
 
 ```sh
-node --test scripts/scala-source-maps.test.mjs scripts/scala-dev-modules.test.mjs
-sbt 'zioH3Ext/test' 'nuxtsvr/fastLinkJS'
+node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
 ```
 
-All 13 development-tool checks pass. They cover resolver boundaries, actual Rollup-to-Node execution, original Scala source locations, map composition, and development-only configuration. A real Kyo exception in Nuxt mapped to `Greetings.scala:18` during a temporary probe, and a service configuration edit followed by relinking changed the live response without restarting Nuxt. The probe was removed afterward. Interactive breakpoint stepping is not yet verified.
+These Node tests pass on macOS x86_64 with Node 24.19.0 (see [compatibility](compatibility.md)). They cover the development resolver, Rollup-to-Node source maps, map composition, the Nitro plugin's records and flags, the debug flag merge in the Nuxt module, and the close hook. The Scala suites cover opaque 500s, development and debug diagnostics, Kyo stack text and ZIO `Cause.prettyPrint` with Scala file names, and that `SafeError` entries never carry `debug`.
 
-Handler tests cover development causes, opaque production responses, safe errors, and cleanup defects. The earlier bundled workflow also passed a composed Scala.js → esbuild → Rollup map check and a Nuxt database-failure stack-frame check. Those results do not establish production packaging support.
-
-## Kyo requests
-
-The Kyo integration uses the same Nuxt development flag and `debug.cause` field. Its diagnostics contain the original exception, nested causes, and Kyo traces rather than a ZIO Cause. Only typed `Abort.fail` values extending Kyo's `SafeError` are approved public messages; thrown defects remain opaque outside development.
-
-The Kyo example links into `examples/nuxt/server/.scala-kyo`. The development resolver and worker watcher accept that directory alongside the demo's `server/.scala`; Node uses each integration’s adjacent Scala.js maps. Run `kyoExample/fastLinkJS` after editing Kyo code. See [Kyo handlers](kyo.md) for the compiler profile and runnable routes.
+Earlier evidence from the `0.1.0-alpha.1` era, in a prepared Linux x86_64 checkout: a real Kyo exception in `nuxt dev` mapped to `Greetings.scala`, and a Scala edit with relinking changed the live response without restarting Nuxt. That evidence predates the Kyo core and has not been repeated on this branch.

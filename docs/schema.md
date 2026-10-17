@@ -1,20 +1,115 @@
-# Optional schema validation
+# Schemas: one derivation, many formats
 
-Schema support is optional. `ZHandler.readBody[A: NativeConverter]` remains the complete NativeConverter-only entry point. It has no schema requirement, and its conversion/error behavior is unchanged.
+Schemas are optional. `NativeConverter` is the type class every h34s API asks for, and a plain `derives NativeConverter` is a complete path. Add a schema when you want validation in the model, or JSON and YAML from the same definition.
 
-For schema-driven input validation, add the published `"dev.yuri4n" %%% "zio-h3-schema-ext" % "0.1.0-alpha.1"` dependency, or the `zioH3SchemaExt` source project. See [releases.md](releases.md) for registry access and the optional schema derivation dependency. Then use `ZHandler.readBodyWithSchema[A: Schema]` for models you define. Keep the NativeConverter-only reader when you do not need this optional integration.
-
-## Put validation in the model
-
-The Notes request model defines normalization and domain rules once:
+With a schema, define each model once:
 
 ```scala
-import zio.schema.{DeriveSchema, Schema, StandardType}
+final case class Greeting(message: String) derives Schema, NativeSchema
+```
+
+That one derivation gives the native value h34s sends and reads, JSON text, YAML text (Kyo only), and validation that runs on every request body read.
+
+**Status.** Both bridges are part of `0.2.0-SNAPSHOT` (not published yet). The published `0.1.0-alpha.1` had a different ZIO schema reader; see the [migration guide](migration.md).
+
+## Choose a bridge
+
+| | Kyo | ZIO |
+| --- | --- | --- |
+| Module | `native-converter-kyo-schema-ext` | `native-converter-zio-schema-ext` |
+| Package | `dev.yuri4n.exts.ntcvkyoschema` | `dev.yuri4n.exts.ntcvzioschema` |
+| Derive | `derives Schema, NativeSchema` | `derives Schema, NativeSchema` (needs `import zio.schema.derived`) |
+| JSON | kyo-schema-json: `Json.encode`, `Json.decode` | zio-schema-json: `JsonCodec` |
+| YAML | kyo-schema-yaml: `encodeString[Yaml]`, `decodeString[Yaml]` | Not on Scala.js: zio-json-yaml is published for the JVM only |
+| Validation | `Schema[A].check(...)` and friends | `Validation` in the schema (`.validation`, `@validate`) |
+| Messages | Your check messages | Built from the rule and its bounds |
+
+The bridges depend on the native layer (`h3-ext`) and their schema library only. Neither installs a blanket instance: a type gets a `NativeSchema` only when it derives one or calls `NativeSchema[A]` (Kyo) or `NativeSchema.derived` (ZIO). A type can keep a separately derived `NativeConverter`; the two do not conflict.
+
+Add kyo-schema-json and kyo-schema-yaml (Kyo 1.0.0-RC7) to your application yourself when you need JSON or YAML text. The bridge does not depend on them.
+
+## Kyo: derive, validate, use
+
+Derive both at once for a model without checks. For a model with checks, declare the schema in the companion and derive only `NativeSchema`; kyo-schema has no check annotations, so this keeps one schema. This is the demo's `Greetings.scala`:
+
+```scala
+import dev.yuri4n.exts.ntcvkyoschema.NativeSchema
+import kyo.*
+
+/** The request model. Its one schema carries the validation; `NativeSchema` derives from it, so
+  * `request.body.json[GreetingRequest]` answers 422 with these messages and the `name` path.
+  */
+final case class GreetingRequest(name: String) derives NativeSchema
+
+object GreetingRequest:
+    given Schema[GreetingRequest] = Schema[GreetingRequest]
+      .check(_.name)(_.trim.nonEmpty, "must not be blank")
+      .checkMaxLength(_.name)(80)
+
+final case class Greeting(message: String) derives Schema, NativeSchema
+```
+
+The handler asks for the validated model and repeats no checks:
+
+```scala
+for
+  input    <- request.body.json[GreetingRequest]
+  greeting <- Env.use[Greetings](_.greet(input.name))
+yield greeting
+```
+
+A blank name gets a 422 with `{"errors":[{"message":"must not be blank","path":"name"}]}`. An 81-character name gets `{"errors":[{"message":"length must be <= 80","path":"name"}]}`.
+
+The same schema gives JSON and YAML text:
+
+```scala
+val json: String = Json.encode(greeting)
+val back = Json.decode[Greeting](json)                         // a Result
+val yaml: String = summon[Schema[Greeting]].encodeString[Yaml](greeting)
+```
+
+### Kyo wire shapes
+
+The native value is what `JSON.parse(Json.encode(x))` would give, built without JSON text:
+
+| Scala | Native value |
+| --- | --- |
+| `None` | The key is absent. On input, absent, `null` and `undefined` all decode to `None` |
+| Enum case, sealed trait case | A single-key object: `{"Red":{}}`, `{"Circle":{"radius":1.5}}`. `@discriminator("type")` gives `{"type":"Joined",...}` |
+| `Map[String, A]` | An object |
+| `Map[Int, A]` and other keys | An array of `{"key":...,"value":...}` |
+| `BigDecimal`, `BigInt` | Strings |
+| `Instant`, `Duration` | ISO strings |
+| Bytes (`Span[Byte]`) | A base64 string |
+| `Double` NaN and infinities | The strings `"NaN"`, `"Infinity"`, `"-Infinity"` |
+| `Long` | A number; decoding accepts only safe integers (up to 2^53 - 1) |
+
+Write your TypeScript client types against these shapes.
+
+### Kyo validation rules
+
+- Only the root schema's checks run, like `Schema.validate`. Put checks on the root with focus paths, such as `_.customer.name`. A nested type's own checks do not run.
+- Each failed check is one entry: your message, and the field path when the check is on a field (`customer.name`). A check on the whole value has no path.
+- A value with the wrong shape (missing field, wrong type, out-of-range integer, a non-plain object, invalid ISO or base64 text) is one generic entry: `Request body does not match the expected shape`.
+- An exception from a schema transform is a defect (opaque 500), never blamed on the input.
+- A fluent `Schema.rename`, `renameAllFields` or `.discriminator`, and adjacent, tuple or untagged unions, are converted generically; strict number checks then do not apply to those values.
+
+## ZIO: derive, validate, use
+
+Import `zio.schema.derived` for `derives Schema`. Put normalization and validation in the schema. This is the demo's `Notes.scala`:
+
+```scala
+import dev.yuri4n.exts.ntcvzioschema.NativeSchema
+import zio.schema.{DeriveSchema, Schema, StandardType, derived}
 import zio.schema.validation.Validation
 
-final case class CreateNote(text: String)
+/** One derivation per model: the ZIO Schema, and the native converter derived from it. */
+final case class Note(id: Int, text: String) derives Schema, NativeSchema
+
+final case class CreateNote(text: String) derives NativeSchema
 
 object CreateNote:
+    /** Trims the text, then requires 1-2000 characters. The native converter uses this schema. */
     given Schema[CreateNote] =
       given Schema[String] = Schema.Primitive(StandardType.StringType)
         .transform(_.trim, identity)
@@ -22,115 +117,53 @@ object CreateNote:
       DeriveSchema.gen[CreateNote]
 ```
 
-The local string schema applies only to this derivation. Structural decoding rejects a missing, null, or incorrectly typed required field before Scala string operations run. The field schema then trims the string and validates the normalized value.
+`request.body.json[CreateNote]` trims the text and checks its length. A blank text gets a 422 with `{"errors":[{"message":"must have at least 1 character","path":"text"}]}`.
 
-The endpoint asks for the validated model:
+ZIO Schema's own validation messages quote the input, so the bridge builds messages from the rule and its bounds instead, such as `must have at least 3 characters` or `must be greater than 17`. Paths look like `lead.name` and `members[1].name`. A negated rule (`!`) is reported with the wording of the rule it negates; this is a zio-schema limitation.
 
-```scala
-import dev.yuri4n.exts.zioh3.ZHandler
-import dev.yuri4n.exts.zioh3schema.readBodyWithSchema
+The ZIO bridge supports these shapes and fails with `UnsupportedSchema` when the converter is created for any other:
 
-val createNote = AppHandler.define:
-    for
-      input <- ZHandler.readBodyWithSchema[CreateNote]
-      note <- ZIO.serviceWithZIO[Notes](_.create(input.text))
-      _ <- ZHandler.setResponseStatus(201)
-    yield note
-```
+| Schema form | Native value |
+| --- | --- |
+| `String`, `Boolean` | Strict primitives |
+| `Int` | An integer in the 32-bit range |
+| `Double` | A finite number |
+| Records (case classes) | Plain objects; field names, aliases, defaults, transient fields and `rejectExtraFields` are respected |
+| `Option` | Absent or `null` is `None` |
+| Sequences | Arrays |
+| Lazy and transformed schemas | Through their underlying schema |
 
-Define `Notes` and your own `AppHandler` wrapper in your application before using this example. Provide the service through your ordinary ZIO layers; neither name is an h34s export. Put validation in the input schema instead of repeating null, trimming, or length checks in the endpoint. You can continue deriving `NativeConverter` for response models; input and output need not choose the same optional integration.
+Enums, sealed traits, maps, sets, tuples, `Either` and other primitives are not supported by the ZIO bridge yet.
 
-## Own the conversion explicitly
-
-The separate `nativeConverterZIOSchemaExt` project provides a direct native-value codec without depending on h3:
-
-```scala
-import dev.yuri4n.exts.ntcvzioschema.NativeSchema
-import zio.schema.Schema
-
-val codec = NativeSchema(Schema[CreateNote])
-val decoded = codec.decode(nativeValue)
-val encoded = codec.encode(CreateNote("A note"))
-val converter = codec.converter
-```
-
-Here `nativeValue` is a `scala.scalajs.js.Any`. `decode` returns `Either[NativeSchema.InvalidValue.type, CreateNote]` for expected input rejection. Configuration errors and exceptions from schema functions remain exceptions.
-
-`codec.converter` is an explicit `NativeConverter[CreateNote]`. Install it as a local given only where you want that wire format. The module never installs a blanket `Schema[A] => NativeConverter[A]` given, so it cannot silently replace or compete with an application's derived or custom converter.
-
-The plain NativeConverter reader retains its existing behavior even when this extension is imported. Use `readBodyWithSchema` when you want the schema request error policy below; passing a schema-derived converter to the plain reader does not change that reader's error policy.
+`NativeSchema(schema)` also returns an explicit `Codec` with `decode`, `validate` and `encode` for code that holds a native value. Ordinary handlers do not need it.
 
 ## Request errors
 
-The schema reader explicitly requests strict JSON parsing, including `application/json; charset=utf-8` requests. Malformed JSON and expected structural/domain rejection produce a safe HTTP 422 response:
+| Problem | Status | Entries |
+| --- | --- | --- |
+| Body is not valid JSON | 400 | `Request body is not valid JSON` |
+| Wrong shape | 422 | One generic entry, no input values |
+| Failed checks | 422 | One entry per check, with `path` when known |
+| Exception in a transform, validator or converter | 500 | Opaque; diagnostics only in development or debug mode |
 
-```json
-{ "errors": ["Request body does not match schema"] }
-```
+Do not catch every `Throwable` and turn it into a `SafeError`. That would show programming errors to clients as if they were input problems.
 
-The bridge does not expose raw validation messages, submitted values, or transform rejection strings. An exception in a validator, transform, or decoder remains an unexpected error: opaque HTTP 500 outside development, with the existing development diagnostics when enabled. Unsupported schema shapes and invalid configured defaults are configuration errors, not client validation failures.
+## Keep a NativeConverter-only path
 
-An application can customize only expected failures while preserving unexpected ones:
-
-```scala
-ZHandler.readBodyWithSchema[CreateNote].catchSome {
-  case _: InvalidBody => ZHandler.failWith(400, "Please provide a valid note")
-}
-```
-
-Import `InvalidBody` from `dev.yuri4n.exts.zioh3schema`. Avoid a catch-all mapping from `Throwable` to a safe error; it would misclassify programming and runtime failures.
-
-## Supported native schema forms
-
-This first bridge supports a bounded JSON-like representation:
-
-| Schema form | Native representation and behavior |
-| --- | --- |
-| `String`, `Boolean` | Strict native primitive types; required null values are rejected |
-| `Int` | Integral JavaScript number within the signed 32-bit range |
-| `Double` | Finite JavaScript number |
-| Records/case classes | Plain native objects; fields constructed in schema order |
-| `Option` | Null or missing maps to `None`; present values use the element schema |
-| Sequences | Native arrays with each element decoded by its schema |
-| Lazy schemas | Resolve through their underlying schema, including recursive models |
-| Transforms | Decode through the input schema and execute the forward transform once |
-| Validation | Field validators and schema `.validation` annotations |
-
-The bridge respects field names, aliases, explicit defaults, transient fields, and `rejectExtraFields`. Unknown fields are otherwise ignored. Providing multiple aliases for the same field is rejected. Overlapping names or aliases across different fields are rejected as schema configuration errors. Defaults are already typed values; their validation does not rerun forward decoding transforms.
-
-Lazy schemas forward annotations to their underlying schema. Transforms also copy input annotations. The bridge accounts for both behaviors so inherited validators run once at the correct type.
-
-Native/schema traversal is limited to 128 levels. Enums, maps, sets, tuples, either/fallback schemas, dynamic schemas, and other primitive representations are not supported by this slice. Unsupported shapes fail explicitly when the codec is created, before a request body is decoded. Do not assume parity with every ZIO Schema JSON codec.
+You never need a schema. `derives NativeConverter` works with every h34s API: body reads, responses, configuration, storage and streams. Shape errors are still a generic 422. A derived `NativeConverter` does not validate domain rules, and version 0.9 accepts a missing or `null` value for a `String` field; check such rules in your code.
 
 ## Dependencies and compatibility
 
-| Integration | Required schema dependencies | Evidence boundary |
-| --- | --- | --- |
-| NativeConverter-only core | None | Existing handler/stream suite, plus a NativeConverter-only request with the schema extension imported |
-| `nativeConverterZIOSchemaExt` | ZIO Schema 1.7.5, NativeConverter 0.9.0 | Direct native decoding, encoding, validation, and converter tests |
-| `zioH3SchemaExt` | The native schema bridge and existing ZIO handler API | Real h3 request parsing and safe/unsafe error-boundary tests |
-| Derived application schemas | ZIO Schema Derivation 1.7.5 | Actual `CreateNote` model tests and application development linking |
+| Module | Schema dependencies |
+| --- | --- |
+| `native-converter-kyo-schema-ext` | kyo-schema 1.0.0-RC7. Add kyo-schema-json and kyo-schema-yaml yourself for text formats |
+| `native-converter-zio-schema-ext` | zio-schema 1.7.5. Add zio-schema-derivation 1.7.5 for `derives Schema`, and zio-schema-json for JSON text |
+| `kyo-h3-ext`, `zio-h3-ext` | None. The handler modules never bring a schema library |
 
-The earlier schema verification used Scala 3.5.2, Scala.js 1.20.1, h3 1.15.4, and Node 24.19.0. The resolved application Compile and Test classpaths both used ZIO and ZIO Streams 2.1.23, with ZIO Test aligned to 2.1.23. This is historical local development evidence; it does not establish CI/release validation or support for untested combinations. The application retains its existing schema dependencies; the reusable ZIO handler Compile classpath contains no ZIO Schema jars. The core projects' existing ZIO Prelude dependency is explicit at 1.0.0-RC41 rather than inherited through Schema.
+Both bridges use Scala 3.9.0 and NativeConverter 0.9.0. See [compatibility](compatibility.md) for the tested profile.
 
-That local profile ran on Debian 13.6, Linux x86_64, with Java 21 and sbt 1.11.7. The current alpha configuration uses Scala.js 1.22.0, Scala 3.5.2 for ZIO modules, Node 24, pnpm 10.34.4, and sbt 1.11.7. The combined Kyo/ZIO build uses Java 25; Java 21 remains sufficient for ZIO-only tasks. The [release workflow](releases.md#validate-and-publish-a-release) is configured to rerun schema checks with this current profile. Its result must be checked separately from the earlier evidence below. Nix locks and Nix/NixOS validation remain pending.
+What is tested:
 
-## Future format and effect bridges
-
-The model schema is the source of structural and domain rules for applications that opt in. Format adapters should reuse it while making wire-format differences explicit. NativeConverter-only applications remain supported independently.
-
-This slice implements ZIO Schema ↔ native values and an explicit NativeConverter adapter, plus the ZIO request integration. It does not stringify or reparse JSON to transfer native values. h3 still parses actual HTTP JSON text, which is a transport operation.
-
-Schema-backed JSON and YAML text/AST adapters, Kyo Schema integration, and generated TypeScript wire types are separate extension points. They are not implemented or validated here. Kyo should use its own schema/effect integration rather than acquiring a mandatory ZIO runtime. No universal schema translation or converter compatibility is implied.
-
-## Checks
-
-From the repository root:
-
-```sh
-sbt 'nativeConverterZIOSchemaExt/test' 'zioH3SchemaExt/test' 'zioH3Ext/test' 'nuxtsvr/test' 'nuxtsvr/fastLinkJS'
-```
-
-The earlier Scala.js 1.20.1 reports confirmed 15 native-schema tests, 7 h3 schema-request tests, 31 existing handler/stream tests, and 2 tests of the actual `CreateNote` model, all passing. Application `fastLinkJS` also passed. The tests exercise required/missing/null/wrong-type values, malformed JSON, domain constraints, normalization, field and schema validation, transform execution, nested collections, defaults, wire-name collisions, native property order, explicit converter ownership, and the safe/unsafe error boundary. The existing NativeConverter-only tests remain in place.
-
-The HTTP smoke script now submits padded text and expects the schema-normalized value. It also expects the generic safe schema response. Run it against a configured development application as described in [development.md](development.md); it writes one note.
+- Kyo bridge (`NativeSchemaSuite`, 23 tests with `H3BodySuite`): wire equality with kyo-schema-json for records, options, enums, sealed traits, collections, numeric edges, big numbers, times and bytes; strict decoding; validation messages and paths; no input values in messages; no JSON text round trip; no blanket instance; JSON and YAML round trips from the same schema; HTTP 422 entries.
+- ZIO bridge (`NativeSchemaSpec`, 19 tests) and ZIO request bodies (`RequestBodySpec`): supported shapes, transforms, accumulated entries with paths, and the 400/422 statuses.
+- The demo's Kyo routes answered 422 with `must not be blank` and `length must be <= 80` over an h3 server; see [compatibility](compatibility.md).

@@ -1,8 +1,8 @@
 export default defineAppConfig({
   seo: {
     title: 'h34s',
-    description: 'A toolbox for Scala.js in your Nuxt app. '
-      + 'Choose ZIO or Kyo handlers and provide your own services.',
+    description: 'Write Nuxt server routes in Scala.js. '
+      + 'A Kyo core, a first-class ZIO adapter, and your own services.',
   },
   header: { title: 'h34s' },
   ui: { colors: { primary: 'teal', neutral: 'stone' } },

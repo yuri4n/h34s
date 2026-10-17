@@ -1,8 +1,10 @@
 # Share Nuxt build tooling through npm
 
-`@yuri4n/h34s-nuxt` owns the reusable JavaScript build and development integration. Applications configure their Scala.js modules once, then use its `h34s-scala` CLI and Nuxt module. They do not copy build scripts, source-map loaders, or the development-error plugin.
+`@yuri4n/h34s-nuxt` owns the reusable JavaScript build and development integration. Applications configure their Scala.js modules once, then use its `h34s-scala` CLI and Nuxt module. They do not copy build scripts, source-map loaders, or Nitro plugins.
 
 **[`@yuri4n/h34s-nuxt@0.1.0-alpha.1` is published](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1)** in the private GitHub npm registry. Its `npm-v0.1.0-alpha.1` tag is separate from the immutable Maven `v0.1.0-alpha.1` release.
+
+**Use the package from the same branch as your Scala libraries.** The Kyo core (`0.2.0-SNAPSHOT`) reads runtime config, storage and the close hook from the package's new Nitro plugin. The published `0.1.0-alpha.1` package only supplies the development flag, so with it `RuntimeConfig`, `KHubKv.mount` and their ZIO versions fail with `ConfigError("h34s Nitro plugin is not installed")`. Until the package is released again, install it from a packed tarball of this branch, as described below.
 
 ## Install the tooling
 
@@ -92,7 +94,19 @@ export default defineNuxtConfig({
 })
 ```
 
-The module reads the same config, watches the generated output, installs the development loader/source-map integration, and supplies the server-owned development-error flag. Remove copied versions of those hooks and the `h34s-development` plugin when adopting the module.
+The module reads the same config, watches the generated output, installs the development loader/source-map integration, and registers the h34s Nitro plugin (`runtime/h34s.mjs`). The plugin gives your Scala handlers, through internal records that requests cannot change:
+
+| Record entry | Used by |
+| --- | --- |
+| `development` (Nitro's `import.meta.dev`) | Development diagnostics |
+| `debug` (`runtimeConfig.h34s.debug`, read once at startup) | Debug diagnostics; see [debugging](debugging.md) |
+| `runtimeConfig` (per request and at startup) | `RuntimeConfig` / `ZRuntimeConfig`; see [configuration](configuration.md) |
+| `storage(base)` (Nitro `useStorage`) | `KHubKv.mount` / `ZHubKv.mount`; see [Nitro storage](nuxthub.md) |
+| `onClose` (Nitro's `close` hook) | `Shared` / `ZShared` release; see [lifetimes](lifetimes.md) |
+
+The module also declares `runtimeConfig.h34s.debug` with the value of Nuxt's `debug` option, so `NUXT_H34S_DEBUG=true` can turn on diagnostics at runtime. A value your `nuxt.config.ts` already sets wins. Keep it off in production.
+
+Remove copied versions of those hooks and the old `h34s-development` plugin when adopting the module. If you listed `runtime/development.mjs` in `nitro.plugins` yourself, remove that entry: the module registers the new plugin, and the old file only re-exports it for one release.
 
 Add these scripts to `package.json`:
 
@@ -113,13 +127,15 @@ Run `pnpm dev:scala` for the first link and Nuxt startup. Keep `pnpm scala:watch
 
 For production, `pnpm build` clears each generated output directory, runs `fullLinkJS`, verifies the configured entry files, and only then starts the Nuxt build. A linker failure or missing entry stops the command. The Nuxt module alone does not run a production link; keep that ordering in the application build script.
 
+Large linked outputs make Nitro's production bundling memory-hungry. The repository demo, which links a Kyo and a ZIO application, needed `NODE_OPTIONS=--max-old-space-size=8192` for `nuxt build` on this branch. If your build stops with a JavaScript heap error, raise the limit the same way.
+
 The CLI accepts `--root <directory>` and `--config <file>` for projects with a different layout. Configure an alternate file in Nuxt with `modules: [['@yuri4n/h34s-nuxt', { configFile: 'custom.mjs' }]]`. Keep the Nuxt integration and CLI pointed at the same application configuration. sbt must be available on `PATH`.
 
 The `./build` entry point also exports `loadConfig`, `buildScala`, and `linkScala` for custom orchestration. The `./rollup` entry point exports `scalaDevModules` and `scalaSourceMaps` for custom integrations. Ordinary Nuxt applications use the module above; they do not need to wire these helpers individually.
 
 ## Keep application policy in the application
 
-The npm package owns build orchestration, development loading, source maps, and the Nuxt development flag. It has no dependency on a particular effect API.
+The npm package owns build orchestration, development loading, source maps, and the Nitro plugin. It has no dependency on a particular effect API.
 
 Configure your own `build.sbt` and Maven credentials. Define models and services in your application, compose their environment in an optional `AppHandler` wrapper, and configure any database resources, migrations, secrets, and deployment policy there. Create one mount per exported route until route generation is implemented:
 
