@@ -115,6 +115,13 @@ class RequestSuite extends FunSuite:
       assert(request.debug)
     }
 
+    test("Request.fake carries runtime config only when you pass it") {
+      final case class Settings(salutation: String) derives org.getshaka.nativeconverter.NativeConverter
+      val configured = Request.fake(runtimeConfig = Some("{\"salutation\":\"Hi\"}"))
+      assertEquals(internal.ConfigDecoding.fromRequest[Settings](configured.nitro), Right(Settings("Hi")))
+      assertEquals(internal.ConfigDecoding.fromRequest[Settings](Request.fake().nitro), Left(internal.ConfigDecoding.pluginMissing))
+    }
+
     test("toString never shows headers or credentials") {
       val request = Request.fake(path = "/admin", headers = Map("Authorization" -> "Bearer secret-token"))
       assertEquals(request.toString, "Request(GET /admin)")

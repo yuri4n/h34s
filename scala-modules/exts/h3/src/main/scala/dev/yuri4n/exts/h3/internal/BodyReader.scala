@@ -103,6 +103,14 @@ private[exts] object BodyReader:
       if bytes.byteLength > limit then done(Left(BodyReadFailure.TooLarge)) else done(Right(Some(bytes)))
 
     private def readNodeStream(stream: js.Dynamic, limit: Long, done: Once): Unit =
+      // A stream that already ended (or was destroyed) never emits again: other code on this event
+      // consumed it without a cache h34s knows. Fail now instead of waiting for the client.
+      // `complete` is not checked: Node sets it when the body has arrived, before anyone reads it.
+      if Nitro.isTrue(stream.readableEnded) || Nitro.isTrue(stream.destroyed) then
+          done(Left(BodyReadFailure.Failed(IllegalStateException("The request body was already read"))))
+      else readNodeStreamListeners(stream, limit, done)
+
+    private def readNodeStreamListeners(stream: js.Dynamic, limit: Long, done: Once): Unit =
       val chunks   = js.Array[Uint8Array]()
       var total    = 0L
       var finished = false
@@ -130,7 +138,7 @@ private[exts] object BodyReader:
       stream.on("end", onEnd)
       stream.on("error", onError)
       stream.on("close", onClose)
-    end readNodeStream
+    end readNodeStreamListeners
 
     private def readWebStream(stream: js.Dynamic, limit: Long, done: Once): Unit =
       val reader = stream.getReader()

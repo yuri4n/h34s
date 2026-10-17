@@ -149,4 +149,12 @@ private[exts] object Nitro:
 
     def isObject(value: js.Any): Boolean =
       value != null && js.typeOf(value) == "object"
+
+    /** A per-request record for `Request.fake`: only the flags and a runtime config parsed from
+      * JSON text (parsed on each read, like Nitro's per-request copy).
+      */
+    def fakeRequest(development: Boolean, debug: Boolean, runtimeConfigJson: String): NitroRequestContext =
+      val readConfig: js.Function0[js.Any] = () => js.JSON.parse(runtimeConfigJson)
+      js.Dynamic.literal(version = 1, development = development, debug = debug, runtimeConfig = readConfig)
+        .asInstanceOf[NitroRequestContext]
 end Nitro

@@ -1,5 +1,6 @@
 package dev.yuri4n.exts.h3
 
+import dev.yuri4n.exts.h3.internal.BodyDecoding
 import munit.FunSuite
 import org.getshaka.nativeconverter.NativeConverter
 
@@ -31,6 +32,7 @@ class ValuesSuite extends FunSuite:
         ),
       )
       assertEquals(head.cookies.map(_.cookie), Vector(SetCookie("session", "abc"), DeleteCookie("old")))
+      assertEquals(head.cookies.last.onFailure, OnFailure.Keep)
       assertEquals(head.redirect("/next").headers.last, HeaderEntry("location", "/next", HeaderMode.Set, OnFailure.Discard))
       assertEquals(head.redirect("/next").status, Some(Status.Found))
     }
@@ -129,6 +131,27 @@ class ValuesSuite extends FunSuite:
       assert(converter.fromNative("token": js.Any).matches("token"))
       intercept[RuntimeException](converter.fromNative(42: js.Any))
       assertEquals(converter.toNative(Secret("x")).asInstanceOf[String], "x")
+    }
+
+    test("Secret shape errors keep the path but never the value or the document") {
+      final case class Credentials(user: String, token: Secret) derives NativeConverter
+      val error = intercept[RuntimeException] {
+        summon[NativeConverter[Credentials]].fromNative(js.JSON.parse("{\"user\":\"alice-private\",\"token\":12345}"))
+      }
+      assert(!error.getMessage.contains("12345"), error.getMessage)
+      assert(!error.getMessage.contains("alice-private"), error.getMessage)
+      assert(BodyDecoding.isShapeError(error))
+      assertEquals(BodyDecoding.shapeErrorPath(error), Some("root.token"))
+      val root = intercept[RuntimeException](summon[NativeConverter[Secret]].fromNative(js.undefined))
+      assertEquals(BodyDecoding.shapeErrorPath(root), Some("root"))
+    }
+
+    test("cookie deletion matches path and domain and sends Secure by default") {
+      val head = ResponseHead.empty.withoutCookie("__Host-session").withoutCookie("wide", domain = Some("example.com"), secure = false)
+      assertEquals(
+        head.cookies.map(_.cookie),
+        Vector(DeleteCookie("__Host-session", Some("/"), None, secure = true), DeleteCookie("wide", Some("/"), Some("example.com"), secure = false)),
+      )
     }
 
     test("Unit converts to and from undefined only") {

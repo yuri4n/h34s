@@ -63,11 +63,16 @@ final case class SetCookie(
     domain: Option[String] = scala.None,
 )
 
-/** Expires a cookie in the client. `path` and `domain` must match the cookie that was set. */
+/** Expires a cookie in the client. `path` and `domain` must match the cookie that was set.
+  *
+  * `secure` sends the `Secure` attribute, like `SetCookie`'s default. Browsers ignore a deletion of
+  * a `__Secure-` or `__Host-` cookie without it.
+  */
 final case class DeleteCookie(
     name: String,
     path: Option[String] = Some("/"),
     domain: Option[String] = scala.None,
+    secure: Boolean = true,
 )
 
 final case class CookieEntry(cookie: SetCookie | DeleteCookie, onFailure: OnFailure)
@@ -97,9 +102,11 @@ final case class ResponseHead(
     def withoutCookie(
         name: String,
         path: Option[String] = Some("/"),
+        domain: Option[String] = scala.None,
+        secure: Boolean = true,
         onFailure: OnFailure = OnFailure.Discard,
     ): ResponseHead =
-      copy(cookies = cookies :+ CookieEntry(DeleteCookie(name, path), onFailure))
+      copy(cookies = cookies :+ CookieEntry(DeleteCookie(name, path, domain, secure), onFailure))
 
     /** Sets the status and the `Location` header. */
     def redirect(location: String, status: Status = Status.Found): ResponseHead =

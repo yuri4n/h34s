@@ -11,12 +11,14 @@ private[exts] object BodyDecoding:
     val unsupportedMediaType: HttpError = HttpError(415, "Request body must be JSON")
     val invalidJson: HttpError          = HttpError(400, "Request body is not valid JSON")
 
-    /** JSON is accepted when the content type is absent, `application/json` or a `+json` application subtype. */
-    def acceptsJson(contentType: Option[String]): Boolean =
-      contentType.map(_.split(';').head.trim.toLowerCase).forall { mediaType =>
-        mediaType.isEmpty || mediaType == "application/json" ||
-        (mediaType.startsWith("application/") && mediaType.endsWith("+json"))
-      }
+    /** JSON is accepted for `application/json` or a `+json` application subtype, and when the
+      * content type is absent unless `requireContentType` is set (`HandlerOptions.requireJsonContentType`).
+      */
+    def acceptsJson(contentType: Option[String], requireContentType: Boolean = false): Boolean =
+      contentType.map(_.split(';').head.trim.toLowerCase).filter(_.nonEmpty) match
+          case None            => !requireContentType
+          case Some(mediaType) =>
+            mediaType == "application/json" || (mediaType.startsWith("application/") && mediaType.endsWith("+json"))
 
     /** Strict `JSON.parse`. A missing body becomes native `undefined`. `__proto__` keys are dropped. */
     def parseJson(text: Option[String]): Either[HttpError, js.Any] =
@@ -33,12 +35,20 @@ private[exts] object BodyDecoding:
     /** Runs the converter. Shape failures reported by native-converter (`ParseState.fail`) and
       * `InvalidInput` thrown by a schema-backed converter become `InvalidInput`. Any other
       * exception is a defect and is rethrown.
+      *
+      * An absent body (`undefined`) is decoded like JSON `null`, the value native-converter uses for
+      * a missing field. Passing `undefined` would make its shape error call
+      * `JSON.stringify(undefined)`, a fatal `UndefinedBehaviorError` under Scala.js checked semantics
+      * (development builds). A fatal error from a converter is rethrown as an ordinary defect, so
+      * the request still settles (opaque 500).
       */
     def decode[A](value: js.Any)(using converter: NativeConverter[A]): Either[InvalidInput, A] =
-      try Right(converter.fromNative(value))
+      val input: js.Any = if js.isUndefined(value) then null else value
+      try Right(converter.fromNative(input))
       catch
-          case invalid: InvalidInput                    => Left(invalid)
+          case invalid: InvalidInput                          => Left(invalid)
           case error: RuntimeException if isShapeError(error) => Left(InvalidInput())
+          case error: VirtualMachineError                     => throw IllegalStateException("The body converter failed", error)
 
     /** native-converter 0.9 reports shape errors as a plain `RuntimeException` from `ParseState.fail`. */
     def isShapeError(error: Throwable): Boolean =

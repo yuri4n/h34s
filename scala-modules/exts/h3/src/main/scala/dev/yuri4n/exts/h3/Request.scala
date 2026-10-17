@@ -60,7 +60,12 @@ end Request
 object Request:
     private val Bearer = "(?i)^Bearer (\\S+)$".r
 
-    /** A request for tests: call a handler function directly, without h3 or Nitro. */
+    /** A request for tests: call a handler function directly, without h3 or Nitro.
+      *
+      * `runtimeConfig` is the Nuxt runtime config as JSON text, for handlers that read it per
+      * request with `RuntimeConfig.get` (Kyo) or `ZRuntimeConfig.get` (ZIO). Without it, those reads
+      * fail with `ConfigError`, as they do when the h34s Nitro plugin is missing.
+      */
     def fake(
         method: String = "GET",
         path: String = "/",
@@ -72,6 +77,7 @@ object Request:
         development: Boolean = false,
         debug: Boolean = false,
         bodyLimit: BodyLimit = BodyLimit.default,
+        runtimeConfig: Option[String] = None,
     ): Request =
       val entries = headers.toVector.map((name, value) => name.toLowerCase -> value)
       val contentType = entries.collectFirst { case ("content-type", value) => value }
@@ -85,11 +91,17 @@ object Request:
         development,
         debug,
         RequestBody.fake(body, contentType, bodyLimit),
-        None,
+        runtimeConfig.map(Nitro.fakeRequest(development, debug, _)),
       )
 
-    /** Builds the snapshot from a native h3 event. `bodyLimit` is the default limit of body reads. */
-    private[exts] def fromEvent(event: H3Event, bodyLimit: BodyLimit = BodyLimit.default): Request =
+    /** Builds the snapshot from a native h3 event. `bodyLimit` is the default limit of body reads;
+      * `requireJsonContentType` makes JSON reads reject a body without a content type.
+      */
+    private[exts] def fromEvent(
+        event: H3Event,
+        bodyLimit: BodyLimit = BodyLimit.default,
+        requireJsonContentType: Boolean = false,
+    ): Request =
       val request = event.node.req
       val entries = request.rawHeaders.toOption match
           case Some(raw) =>
@@ -118,7 +130,7 @@ object Request:
         cookies,
         Nitro.development(event),
         Nitro.debug(event),
-        RequestBody.native(event, contentType, bodyLimit),
+        RequestBody.native(event, contentType, bodyLimit, requireJsonContentType),
         Nitro.request(event),
       )
     end fromEvent
@@ -141,6 +153,7 @@ final class RequestBody private (
     source: RequestBody.Source,
     private[exts] val contentType: Option[String],
     private[exts] val defaultLimit: BodyLimit,
+    private[exts] val requireJsonContentType: Boolean,
 ):
     import RequestBody.*
 
@@ -171,11 +184,16 @@ final class RequestBody private (
 end RequestBody
 
 object RequestBody:
-    private[exts] def native(event: H3Event, contentType: Option[String], defaultLimit: BodyLimit): RequestBody =
-      new RequestBody(Source.Native(event), contentType, defaultLimit)
+    private[exts] def native(
+        event: H3Event,
+        contentType: Option[String],
+        defaultLimit: BodyLimit,
+        requireJsonContentType: Boolean = false,
+    ): RequestBody =
+      new RequestBody(Source.Native(event), contentType, defaultLimit, requireJsonContentType)
 
     private[exts] def fake(text: Option[String], contentType: Option[String], defaultLimit: BodyLimit): RequestBody =
-      new RequestBody(Source.Fake(text), contentType, defaultLimit)
+      new RequestBody(Source.Fake(text), contentType, defaultLimit, requireJsonContentType = false)
 
     private enum Source:
         case Native(event: H3Event)

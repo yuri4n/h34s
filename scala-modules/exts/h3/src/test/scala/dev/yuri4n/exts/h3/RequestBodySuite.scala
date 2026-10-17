@@ -95,6 +95,38 @@ class RequestBodySuite extends FunSuite:
         assertEquals(tooLarge, Left(BodyReadFailure.TooLarge))
     }
 
+    test("a request stream that already ended fails at once; a complete but unread one is delivered") {
+      val consumed = FakeRequest("POST", "/body", Seq("content-length" -> "2"))
+      val ended = Promise[Unit]()
+      consumed.native.on("end", (() => { ended.trySuccess(()); () }): js.Function0[Unit])
+      consumed.native.resume()
+      consumed.send("{}")
+      consumed.finish()
+      val unread = FakeRequest("POST", "/body", Seq("content-length" -> "2"))
+      // Node sets `complete` once the body has arrived, before anyone reads it.
+      unread.native.complete = true
+      def body(request: FakeRequest) = Request.fromEvent(H3Fixtures.event(request, FakeResponse())).body
+      for
+        _ <- ended.future
+        failed <- read(body(consumed), 100)
+        delivered = read(body(unread), 100)
+        _ = unread.send("{}")
+        _ = unread.finish()
+        text <- delivered
+      yield
+        failed match
+            case Left(BodyReadFailure.Failed(cause)) => assertEquals(cause.getMessage, "The request body was already read")
+            case other                               => fail(s"expected a read failure, got $other")
+        assertEquals(text, Right(Some("{}")))
+    }
+
+    test("JSON with requireContentType rejects a body without a content type") {
+      assert(!BodyDecoding.acceptsJson(None, requireContentType = true))
+      assert(!BodyDecoding.acceptsJson(Some(" "), requireContentType = true))
+      assert(BodyDecoding.acceptsJson(Some("application/json; charset=utf-8"), requireContentType = true))
+      assert(!BodyDecoding.acceptsJson(Some("text/plain"), requireContentType = true))
+    }
+
     test("JSON is accepted only for absent or JSON media types") {
       assert(BodyDecoding.acceptsJson(None))
       assert(BodyDecoding.acceptsJson(Some("application/json")))
@@ -131,6 +163,21 @@ class RequestBodySuite extends FunSuite:
       assertEquals(BodyDecoding.decode[Schema](null), Left(InvalidInput(List(ErrorEntry("must be present", Some("name"))))))
       assertEquals(BodyDecoding.decode[Input](js.JSON.parse("{\"name\":\"a\",\"count\":2}")), Right(Input("a", 2)))
       intercept[IllegalStateException](BodyDecoding.decode[Broken](js.JSON.parse("{}")))
+    }
+
+    test("an absent body decodes like JSON null; fatal converter errors become ordinary defects") {
+      final case class Input(name: String, count: Int) derives NativeConverter
+      final case class Fatal(value: String)
+      given NativeConverter[Fatal]:
+        extension (value: Fatal) def toNative: js.Any = value.value
+        def fromNative(state: ParseState): Fatal = throw StackOverflowError()
+      // Without the mapping, native-converter's shape error would call JSON.stringify(undefined):
+      // a fatal UndefinedBehaviorError in these (checked) test builds.
+      assertEquals(BodyDecoding.decode[Input](js.undefined), Left(InvalidInput()))
+      assertEquals(BodyDecoding.decode[Option[Input]](js.undefined), Right(None))
+      assertEquals(BodyDecoding.decode[Option[Input]](BodyDecoding.parseJson(Some("")).toOption.get), Right(None))
+      val defect = intercept[IllegalStateException](BodyDecoding.decode[Fatal](js.JSON.parse("{}")))
+      assert(defect.getCause.isInstanceOf[StackOverflowError])
     }
 
     test("shape error paths never include the value") {
