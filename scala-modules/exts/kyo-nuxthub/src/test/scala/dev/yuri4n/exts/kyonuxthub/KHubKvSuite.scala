@@ -1,8 +1,8 @@
 package dev.yuri4n.exts.kyonuxthub
 
-import dev.yuri4n.exts.h3.ConfigError
+import dev.yuri4n.exts.h3.{ConfigError, ErrorEntry, HttpError, InvalidInput, SafeError}
 import dev.yuri4n.exts.h3.internal.NativeStorage
-import dev.yuri4n.exts.kyoh3.NitroGlobal
+import dev.yuri4n.exts.kyoh3.{KHandler, KyoTesting, NitroGlobal}
 import kyo.*
 import munit.FunSuite
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
@@ -253,18 +253,78 @@ class KHubKvSuite extends FunSuite:
       }.map(_ => ())
     }
 
-    test("decoder exceptions enter Abort[Throwable] after the native read") {
+    test("decoder exceptions become a value-free StoredValueError after the native read") {
       final case class Broken(value: String)
-      val error = new IllegalArgumentException("invalid stored value")
       given NativeConverter[Broken]:
         extension (value: Broken) def toNative: js.Any = value.value
-        def fromNative(state: ParseState): Broken = throw error
+        def fromNative(state: ParseState): Broken = throw new IllegalArgumentException("invalid stored value: private")
+      final case class Session(user: String, refreshToken: String, count: Int) derives NativeConverter
+      final case class Checked(title: String)
+      given NativeConverter[Checked]:
+        extension (value: Checked) def toNative: js.Any = value.title
+        def fromNative(state: ParseState): Checked =
+          throw InvalidInput(List(ErrorEntry("must not be blank", Some("title"))))
 
+      val broken = new KvTestFixtures.Recording
+      broken.result = js.Dynamic.literal(value = "bad")
+      val session = new KvTestFixtures.Recording
+      session.result = js.JSON.parse("{\"user\":\"alice\",\"refreshToken\":\"rt-private-123\",\"count\":\"many\"}")
+      val checked = new KvTestFixtures.Recording
+      checked.result = js.Dynamic.literal(title = " ")
+      def stored(result: Result[Throwable, Any]): StoredValueError =
+        result.fold(
+          value => fail(s"expected a failure, got $value"),
+          {
+            case error: StoredValueError => error
+            case other                   => fail(s"expected StoredValueError, got $other")
+          },
+          error => fail(s"expected a typed failure, got panic $error"),
+        )
+      for
+        custom <- run(mounted(broken.native).get[Broken]("session:abc"))
+        shape <- run(mounted(session.native).get[Session]("session:abc"))
+        schema <- run(mounted(checked.native).get[Checked]("note:1"))
+      yield
+        assertEquals(stored(custom), StoredValueError(None))
+        assertEquals(stored(shape), StoredValueError(Some("root.count")))
+        assert(!stored(shape).getMessage.contains("rt-private-123"), stored(shape).getMessage)
+        assert(!stored(shape).getMessage.contains("session:abc"), stored(shape).getMessage)
+        val schemaError: Throwable = stored(schema)
+        assert(!schemaError.isInstanceOf[SafeError], "a converter's InvalidInput must not become an approved error")
+        assertEquals(stored(schema), StoredValueError(Some("title")))
+        assertEquals(stored(shape).getCause, null)
+        assertEquals(broken.calls, List("get" -> "session:abc"))
+    }
+
+    test("an unhandled StoredValueError in a handler is an opaque 500, not a 422") {
+      final case class Checked(title: String)
+      given NativeConverter[Checked]:
+        extension (value: Checked) def toNative: js.Any = value.title
+        def fromNative(state: ParseState): Checked =
+          throw InvalidInput(List(ErrorEntry("must not be blank", Some("title"))))
       val recording = new KvTestFixtures.Recording
-      recording.result = js.Dynamic.literal(value = "bad")
-      run(mounted(recording.native).get[Broken]("broken")).map { result =>
-        aborted(result, error)
-        assertEquals(recording.calls, List("get" -> "broken"))
+      recording.result = js.Dynamic.literal(title = " ")
+      val kv = mounted(recording.native)
+      val call = KyoTesting.Call()
+      call.invoke(KHandler.define(_ => kv.get[Checked]("note:1").map(_.fold("missing")(_.title)))).map { body =>
+        assertEquals(call.response.status, 500)
+        KyoTesting.assertOpaque(body)
+      }
+    }
+
+    test("a SafeError thrown by an encoder is not an approved error") {
+      final case class Leaky(value: String)
+      given NativeConverter[Leaky]:
+        extension (value: Leaky) def toNative: js.Any = throw HttpError.conflict("private encoder detail")
+        def fromNative(state: ParseState): Leaky = Leaky("")
+      val recording = new KvTestFixtures.Recording
+      run(mounted(recording.native).set("leaky", Leaky("x"))).map { result =>
+        result.fold(
+          _ => fail("expected a failure"),
+          error => assert(error.isInstanceOf[IllegalStateException] && !error.isInstanceOf[SafeError], error.toString),
+          error => fail(s"expected a typed failure, got panic $error"),
+        )
+        assertEquals(recording.calls, Nil)
       }
     }
 

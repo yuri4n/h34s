@@ -33,6 +33,19 @@ object ZHubKvSpec extends ZIOSpecDefault:
       ZIO.fromPromiseJS(native.asInstanceOf[js.Dynamic].set(key, value).asInstanceOf[js.Promise[Unit]])
 
     def spec = suite("ZHubKv")(
+      test("a stored value that does not decode fails with a value-free StoredValueError") {
+        val native = KvTestFixtures.memory()
+        for
+          kv <- mounted(native)
+          _ <- rawSet(native, "session:abc", js.JSON.parse("{\"name\":\"private-name\",\"count\":\"many\",\"enabled\":true}"))
+          error <- kv.get[Entry]("session:abc").flip
+          _ <- removePlugin
+        yield assertTrue(
+          error == StoredValueError(Some("root.count")),
+          !error.getMessage.contains("private-name"),
+          !error.getMessage.contains("session:abc"),
+        )
+      },
       test("mount opens the requested Nitro storage mount through the h34s startup record") {
         var requested = List.empty[String]
         for

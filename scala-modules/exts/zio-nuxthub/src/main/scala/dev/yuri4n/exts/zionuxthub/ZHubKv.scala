@@ -6,12 +6,15 @@ import kyo.ZIOs
 import org.getshaka.nativeconverter.NativeConverter
 import zio.{IO, Task}
 
+export dev.yuri4n.exts.kyonuxthub.StoredValueError
+
 /** ZIO operations over a Nitro storage mount (NuxtHub KV and cache are mounts).
   *
   * Open one with `ZHubKv.mount(base)`. Every operation is a lazy ZIO value: nothing runs until you
   * run it, and each run calls the storage again. Storage rejections, synchronous storage throws and
-  * converter exceptions are typed failures. Interrupting an operation does not cancel a storage
-  * call that already started. The operations run the Kyo `KHubKv` ones.
+  * converter exceptions are typed failures; a stored value that does not decode is a
+  * `StoredValueError` (an opaque 500 when unhandled). Interrupting an operation does not cancel a
+  * storage call that already started. The operations run the Kyo `KHubKv` ones.
   */
 final class ZHubKv private (kv: KHubKv):
     /** Missing keys and stored null both become None, matching NuxtHub's get result. */
