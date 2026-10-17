@@ -189,7 +189,8 @@ lazy val kyoExample: Project = (project in file("examples/nuxt/scala/kyo"))
     Compile / fullLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala-kyo",
     cleanFiles += (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
   )
-  .dependsOn(kyoH3Ext)
+  // One schema per model: `derives Schema, NativeSchema`.
+  .dependsOn(kyoH3Ext, nativeConverterKyoSchemaExt)
 
 // Kyo storage over Nitro's unstorage mounts (NuxtHub KV and cache are mounts).
 lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxthub"))
