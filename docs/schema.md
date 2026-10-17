@@ -78,7 +78,7 @@ The native value is what `JSON.parse(Json.encode(x))` would give, built without 
 | Enum case, sealed trait case | A single-key object: `{"Red":{}}`, `{"Circle":{"radius":1.5}}`. `@discriminator("type")` gives `{"type":"Joined",...}` |
 | `Map[String, A]` | An object |
 | `Map[Int, A]` and other keys | An array of `{"key":...,"value":...}` |
-| `BigDecimal`, `BigInt` | Strings |
+| `BigDecimal`, `BigInt` | Strings. Decoding rejects (generic 422) a string longer than 1000 characters and a `BigDecimal` exponent beyond +/-10000, before parsing: Scala.js parses big numbers in quadratic time |
 | `Instant`, `Duration` | ISO strings |
 | Bytes (`Span[Byte]`) | A base64 string |
 | `Double` NaN and infinities | The strings `"NaN"`, `"Infinity"`, `"-Infinity"` |
@@ -103,9 +103,10 @@ import dev.yuri4n.exts.ntcvzioschema.NativeSchema
 import zio.schema.{DeriveSchema, Schema, StandardType, derived}
 import zio.schema.validation.Validation
 
-/** One derivation per model: the ZIO Schema, and the native converter derived from it. */
-final case class Note(id: Int, text: String) derives Schema, NativeSchema
+/** The JSON that the Notes routes send. One derivation: the ZIO Schema and the native converter. */
+final case class NoteView(id: Int, text: String) derives Schema, NativeSchema
 
+/** The JSON that `POST /api/notes` reads. */
 final case class CreateNote(text: String) derives NativeSchema
 
 object CreateNote:
@@ -137,6 +138,10 @@ Enums, sealed traits, maps, sets, tuples, `Either` and other primitives are not 
 
 `NativeSchema(schema)` also returns an explicit `Codec` with `decode`, `validate` and `encode` for code that holds a native value. Ordinary handlers do not need it.
 
+## Secrets in a schema type
+
+`Secret` has a `NativeConverter`, but no schema library knows it. Each bridge provides a `Schema[Secret]` that is a string on the wire: import `dev.yuri4n.exts.ntcvkyoschema.secretSchema` (Kyo) or `dev.yuri4n.exts.ntcvzioschema.secretSchema` (ZIO) where you derive a schema that holds a `Secret`, such as a config model. A wrong value type is the generic 422 (or a `ConfigError` for runtime config), without the value. JSON or YAML that you write with this schema contains the plain value, so do not encode a secret into a response or a log. See [configuration](configuration.md).
+
 ## Request errors
 
 | Problem | Status | Entries |
@@ -164,6 +169,6 @@ Both bridges use Scala 3.9.0 and NativeConverter 0.9.0. See [compatibility](comp
 
 What is tested:
 
-- Kyo bridge (`NativeSchemaSuite`, 23 tests with `H3BodySuite`): wire equality with kyo-schema-json for records, options, enums, sealed traits, collections, numeric edges, big numbers, times and bytes; strict decoding; validation messages and paths; no input values in messages; no JSON text round trip; no blanket instance; JSON and YAML round trips from the same schema; HTTP 422 entries.
-- ZIO bridge (`NativeSchemaSpec`, 19 tests) and ZIO request bodies (`RequestBodySpec`): supported shapes, transforms, accumulated entries with paths, and the 400/422 statuses.
+- Kyo bridge (`NativeSchemaSuite`, 25 tests with `H3BodySuite`): wire equality with kyo-schema-json for records, options, enums, sealed traits, collections, numeric edges, big numbers (and their length and exponent limits), times and bytes; strict decoding; validation messages and paths; no input values in messages; no JSON text round trip; no blanket instance; JSON and YAML round trips from the same schema; `secretSchema`; HTTP 422 entries.
+- ZIO bridge (`NativeSchemaSpec`, 20 tests, with `secretSchema`) and ZIO request bodies (`RequestBodySpec`): supported shapes, transforms, accumulated entries with paths, and the 400/422 statuses.
 - The demo's Kyo routes answered 422 with `must not be blank` and `length must be <= 80` over an h3 server; see [compatibility](compatibility.md).

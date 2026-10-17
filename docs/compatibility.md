@@ -25,6 +25,7 @@ The `feat/kyo-core` branch, version `0.2.0-SNAPSHOT`. Nothing in this profile is
 | Skunk (demo only) | 1.0.0-M12 |
 | Node / pnpm | 24 (checked with 24.19.0) / 10.34.4 |
 | Nuxt (demo lockfile) | 4.3.1, with Nitro 2.13.1 |
+| npm tooling | `@yuri4n/h34s-nuxt@0.2.0-SNAPSHOT` from this branch (workspace link or packed tarball; not published) |
 
 ### Locally verified
 
@@ -50,6 +51,9 @@ On macOS 15.7.5, x86_64, during the refactor (2026-10-17):
 | ZIO demo over the same h3 server | `/api/test` answers `abc`; `/api/notes` without the plugin is an opaque 500; with a fake plugin record and no database, a 500 with `debug.cause` and no password in it, and one close hook registered and released |
 | Production build of the demo (Scala full link, `nuxt build`, then the Node server from `.output/`) | Built with `NODE_OPTIONS=--max-old-space-size=8192` (the default heap ran out of memory). Kyo routes: the same 200, 422, 400 responses, and 415 for `text/plain`. `/api/test` streamed `abc`. `/api/notes` without a database: opaque 500. With `NUXT_H34S_DEBUG=true`: `debug.cause` present, password absent. `SIGTERM`: the `ZShared` pool registered on the first Notes request was released, exit status 0 |
 
+| `nuxt dev` on the demo (Nuxt 4.3.1, `pnpm dev` after `pnpm run scala:fast`) | Kyo GET 200 with `{"data":...}` and `no-store`; a blank name 422 with path `name`; `/api/test` answered `abc`; `/api/notes` without a database answered a 500 with `debug.cause` (Scala stack frames, no password). A Kyo handler that threw a JavaScript `TypeError` (a temporary probe route) had its stack mapped to `RequestLifecycle.scala` and `KHandler.scala` |
+| `scripts/check-npm-nuxt.mjs` (the packed module in a synthetic Nuxt 4.3.1 project) | Development diagnostics, direct loading, Scala source maps, a relink reload, production bundling, and `NUXT_H34S_DEBUG=true` at runtime |
+
 The Scala tests use real h3 1.15.4 events with mocked Node responses. They do not start Nuxt or Nitro. The consumer and production-build checks come from Phase C1 of the refactor, on the same machine.
 
 ### CI-validated
@@ -60,7 +64,7 @@ None yet. The branch has not been pushed, so no workflow has run on it. The work
 
 | Area | Status |
 | --- | --- |
-| `nuxt dev` with this branch (development diagnostics, source maps, relinking) | Not recorded |
+| Relinking the real Scala.js demo under `nuxt dev`, and breakpoint stepping | Not checked (the relink reload was checked on a synthetic project) |
 | The ZIO demo against a real PostgreSQL | Not run on this branch (no database was available) |
 | The Nitro close hook when `nuxt dev` replaces its worker | Not checked; `SIGTERM` in production was |
 | kyo-sql / kyo-sql-postgres at runtime, inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) code compiles only |

@@ -39,9 +39,15 @@ Request.fake(
 )
 ```
 
-`development`, `debug` and `bodyLimit` are also available. Body reads follow the same rules as a real request: the content type, the limit, invalid JSON and schema validation behave the same.
+`development`, `debug`, `bodyLimit` and `runtimeConfig` are also available. Body reads follow the same rules as a real request: the content type, the limit, invalid JSON and schema validation behave the same.
 
-A fake request has no Nitro plugin record. `RuntimeConfig.get(request)` therefore fails with `ConfigError("h34s Nitro plugin is not installed")`. Read configuration in your `AppHandler` and pass values to handlers as services, so the handlers stay testable.
+A handler that reads configuration per request with `RuntimeConfig.get(request)` (Kyo) or `ZRuntimeConfig.get(request)` (ZIO) needs the config in the fake request, as JSON text:
+
+```scala
+val request = Request.fake(runtimeConfig = Some("""{"greeting":{"salutation":"Hi"}}"""))
+```
+
+Without `runtimeConfig`, those reads fail with `ConfigError("h34s Nitro plugin is not installed")`, as they do without the h34s module. Often it is simpler to read configuration in your `AppHandler` and pass values to handlers as services.
 
 ## Kyo: run with `Var.runTuple`
 
@@ -88,7 +94,7 @@ private def run[A](program: ZIO[HandlerEnv & Notes, Throwable, A]): Task[(Respon
 
 test("create trims the text through the model schema and answers 201") {
   for (head, note, texts) <- run(NotesHandler.create(post("{\"text\":\"  hello  \"}")))
-  yield assertTrue(head.status.contains(Status.Created), note == Note(1, "hello"), texts == List("hello"))
+  yield assertTrue(head.status.contains(Status.Created), note == NoteView(1, "hello"), texts == List("hello"))
 }
 ```
 
@@ -105,20 +111,19 @@ test("create rejects invalid input before the service runs") {
 
 Your clients depend on the JSON shapes, the statuses and the error entries. Pin them in tests:
 
-- **Model shapes.** Convert a value and compare the JSON text with what your TypeScript types expect: `js.JSON.stringify(summon[NativeConverter[Note]].toNative(note))`. A schema type gives the shapes listed in [schemas](schema.md#kyo-wire-shapes).
+- **Model shapes.** Convert a value and compare the JSON text with what your TypeScript types expect: `note.toJson` (from `NativeConverter`). A schema type gives the shapes listed in [schemas](schema.md#kyo-wire-shapes).
 - **Error entries.** Assert the exact `InvalidInput` entries, as above. They are your 422 contract.
 - **Statuses and headers.** Assert `head.status` and `head.headers` from the run. Remember that on failure the core keeps only `OnFailure.Keep` entries.
 - **The envelope.** `{"data": ...}`, `{"errors": [...]}` and 204 come from the core and are covered by h34s's own tests. Check them end to end with an HTTP request against a running server, for example in a smoke script.
 
 ## Test configuration decoding
 
-Decode a JavaScript object with your config's converter, without Nitro. The demo's `AppConfigSpec`:
+Decode JSON text with your config's converter, without Nitro and without `scala.scalajs.js`. The demo's `AppConfigSpec`:
 
 ```scala
-val runtimeConfig = js.JSON.parse(
-  "{\"database\":{\"host\":\"127.0.0.1\",\"port\":5432,\"user\":\"h34s\",\"password\":\"hunter2\",\"name\":\"h34s\"}}",
-)
-val config = summon[NativeConverter[AppConfig]].fromNative(runtimeConfig)
+val runtimeConfig =
+  "{\"database\":{\"host\":\"127.0.0.1\",\"port\":5432,\"user\":\"h34s\",\"password\":\"hunter2\",\"name\":\"h34s\"}}"
+val config = summon[NativeConverter[AppConfig]].fromJson(runtimeConfig)
 assertTrue(config.database.password.reveal == "hunter2", !config.toString.contains("hunter2"))
 ```
 

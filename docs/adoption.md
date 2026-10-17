@@ -60,7 +60,7 @@ Keep your TypeScript handlers. Scala handlers live next to them, one route file 
 3. Move only the routes you want to Scala. A TypeScript route and a Scala route can share a path prefix; Nuxt routes by file name.
 4. Read your existing `runtimeConfig` keys from Scala with `RuntimeConfig` (Kyo) or `ZRuntimeConfig` (ZIO). See [configuration](configuration.md).
 
-The h34s wire format wraps values in `{"data": ...}`. If existing clients expect the raw value, pass `HandlerOptions(success = SuccessEnvelope.Raw)` for those routes.
+The h34s wire format wraps values in `{"data": ...}`. If existing clients expect the raw value, pass `HandlerOptions(success = SuccessEnvelope.Raw)` for those routes. `Raw` sends a string as `text/plain; charset=utf-8` and any other value as JSON (`application/json`), unless you set a content type.
 
 ## 3. Add Nuxt to an existing Scala.js project
 

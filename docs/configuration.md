@@ -28,17 +28,20 @@ Keys outside `runtimeConfig.public` are private: Nuxt never sends them to the br
 ## 2. Define a Scala type for the part you read
 
 ```scala
-import dev.yuri4n.exts.zioh3.Secret // or dev.yuri4n.exts.kyoh3.Secret
-import org.getshaka.nativeconverter.NativeConverter
+import dev.yuri4n.exts.ntcvzioschema.{NativeSchema, secretSchema}
+import dev.yuri4n.exts.zioh3.Secret
+import zio.schema.{Schema, derived}
 
 final case class DatabaseConfig(host: String, port: Int, user: String, password: Secret, name: String)
-    derives NativeConverter
+    derives Schema, NativeSchema
 
 /** The part of the Nuxt runtime config that this application reads. Other keys are ignored. */
-final case class AppConfig(database: DatabaseConfig) derives NativeConverter
+final case class AppConfig(database: DatabaseConfig) derives Schema, NativeSchema
 ```
 
-This is the demo's `AppConfig.scala`. The type only needs a `NativeConverter`; a schema type works too.
+This is the demo's `AppConfig.scala`: one derivation gives the ZIO Schema and the native converter. `secretSchema` is the bridge's `Schema[Secret]`; import it where you derive a schema that holds a `Secret`. For Kyo, import `dev.yuri4n.exts.ntcvkyoschema.{NativeSchema, secretSchema}` and `kyo.Schema` instead. The h34s APIs only need a `NativeConverter`, so `derives NativeConverter` works too when you use no schema library.
+
+The Kyo demo reads its own key, `runtimeConfig.greeting.salutation`, with `RuntimeConfig.load` inside a `Shared` (see [lifetimes](lifetimes.md#application-resources)). Its production build answered with the configured salutation, and with `NUXT_GREETING_SALUTATION` it answered with the override.
 
 ## 3. Read it
 
@@ -94,6 +97,7 @@ A derived `NativeConverter` (version 0.9) accepts a missing or `null` value for 
 Wrap every secret in `Secret`:
 
 - `toString` prints `Secret(<redacted>)`, so a secret in a case class does not appear in logs or diagnostics.
+- A value of the wrong type (a number, for example) fails with a message that names the path, never the value or the input document.
 - `secret.reveal` returns the plain value. Call it only where the value must leave your program, such as a database client.
 - `secret.matches(candidate)` compares in constant time for a given candidate length. Use it to check tokens:
 
@@ -114,4 +118,5 @@ Follow these rules:
 
 - `RuntimeConfig.get` and `load` decoding, path-only error messages, a throwing read, the missing plugin, and the opaque 500: Kyo `RuntimeConfigSuite` and ZIO `ZRuntimeConfigSpec`, with a fake plugin record.
 - The demo's `AppConfig` decoding with a redacted password: `AppConfigSpec`.
-- A production build of the demo (`nuxt build`, then the Node server, macOS x86_64): `ZRuntimeConfig.load` read the database settings, and a marker password supplied at runtime appeared neither in the server logs nor in the debug response. A separate test of each `NUXT_*` override has not been run.
+- `Request.fake(runtimeConfig = Some(json))` with `RuntimeConfig.get` and `ZRuntimeConfig.get`; `Secret` shape errors without the value (`ValuesSuite`); `secretSchema` in both schema bridges.
+- A production build of the demo (`nuxt build`, then the Node server, macOS x86_64): `ZRuntimeConfig.load` read the database settings, and a marker password supplied at runtime appeared neither in the server logs nor in the debug response. The Kyo demo's `NUXT_GREETING_SALUTATION` override was checked with `scripts/kyo-smoke.mjs`; the other `NUXT_*` overrides have no separate test.

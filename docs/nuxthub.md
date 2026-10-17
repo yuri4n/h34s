@@ -75,8 +75,8 @@ Both APIs offer `get[A](key)`, `set[A](key, value, ttlSeconds = None)`, `has(key
 ## Know the storage contract
 
 - **Missing values.** A missing key and a stored `null` are both `None`. Use `has` when the difference matters.
-- **Conversion.** Values are converted directly to native values; the driver serializes them for its backend. A value the converter rejects fails the operation. It is not treated as a missing key.
-- **Top-level strings.** Unstorage's default serialization can turn a stored top-level string such as `"42"`, `"true"` or `"null"` into another JavaScript type. Store objects (a case class) for typed records.
+- **Conversion.** Values are converted directly to native values; the driver serializes them for its backend. A stored value that the converter rejects fails `get` with `StoredValueError`, a typed failure that names only the failing path (`root.count`, or a schema path), never the key or the stored value: keys are often session ids, and values can hold tokens. It is server data, so an unhandled one is an opaque 500, never a 422, even when a schema converter rejected it. It is not treated as a missing key.
+- **Top-level strings.** Unstorage's default serialization can turn a stored top-level string such as `"42"`, `"true"` or `"null"` into another JavaScript type (a `Secret("12345")` comes back as a number and fails to decode). Store objects (a case class) for typed records.
 - **TTL.** `ttlSeconds` is forwarded as `{ ttl: seconds }`. Expiry depends on the driver. The memory driver and NuxtHub's fs-lite driver ignore it, so a successful `set` does not prove that a key expires.
 - **Keys.** Keys follow Unstorage normalization: `/` becomes `:`. `keys(Some("profiles"))` lists keys under `profiles:`. The order depends on the driver.
 - **Cancellation.** Storage calls cannot be cancelled. Interrupting a waiting fiber does not cancel or roll back a write that already started.
@@ -91,4 +91,4 @@ h34s adds no cache abstraction. Common patterns with these operations:
 
 ## What is tested
 
-`KHubKvSuite` (13 tests) and `ZHubKvSpec` (13 tests) on macOS x86_64 with Node 24.19.0: `mount` through a fake h34s startup record, `ConfigError` without the plugin or the mount, round trips with Unstorage 1.17.3's memory driver, `false` and `0` as stored values, `null` and `undefined` as `None`, lazy operations, exact TTL forwarding, JavaScript errors and rejected Promises in the failure channel, conversion errors, upstream string deserialization, and interruption during a write. No test starts Nuxt, NuxtHub or a cloud service.
+`KHubKvSuite` (15 tests) and `ZHubKvSpec` (14 tests) on macOS x86_64 with Node 24.19.0: `mount` through a fake h34s startup record, `ConfigError` without the plugin or the mount, round trips with Unstorage 1.17.3's memory driver, `false` and `0` as stored values, `null` and `undefined` as `None`, lazy operations, exact TTL forwarding, JavaScript errors and rejected Promises in the failure channel, value-free `StoredValueError`s for shape and schema mismatches (an opaque 500 in a handler), a `SafeError` from an encoder that stays unapproved, upstream string deserialization, and interruption during a write. No test starts Nuxt, NuxtHub or a cloud service.

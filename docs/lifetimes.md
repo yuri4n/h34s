@@ -24,14 +24,24 @@ The core runs every handler in a request scope. Acquire a resource in that scope
 - For a streamed body: after the stream ends, fails, or is cancelled.
 - When the client disconnects: h34s interrupts the program, waits for the finalizers, and writes nothing. See [When the client disconnects](#when-the-client-disconnects).
 
-The demo's ZIO handlers take one pooled Skunk session per request this way. `NotesLive.layer` reads the request `Scope` from `HandlerEnv`, so the session returns to the pool when the request ends:
+The demo's ZIO handlers take at most one pooled Skunk session per request this way. `NotesLive.layer` reads the request `Scope` from `HandlerEnv` and takes the session on first use (`memoize`), so a request that fails validation never touches the pool, and the session returns to the pool when the request ends:
 
 ```scala
-object NotesLive:
-    /** Notes over one pooled session that lives as long as the request scope. */
-    val layer: ZLayer[SessionPool & Scope, Throwable, Notes] =
-      ZLayer.fromZIO(ZIO.serviceWithZIO[SessionPool](_.session).map(NotesLive(_)))
+/** Notes over at most one pooled session per request. The session is taken on first use, so a
+  * handler that rejects its input never touches the pool, and it returns to the pool when the
+  * request scope closes.
+  */
+val layer: ZLayer[SessionPool & Scope, Nothing, Notes] =
+  ZLayer.fromZIO(
+    for
+      pool    <- ZIO.service[SessionPool]
+      scope   <- ZIO.service[Scope]
+      session <- pool.session.provideEnvironment(ZEnvironment(scope)).memoize
+    yield NotesLive(session),
+  )
 ```
+
+`NotesHandlerSpec` checks this with a pool whose database is down: invalid input takes no session and is a 422; valid input takes one session and fails.
 
 A failing finalizer behaves differently per runtime. Kyo 1.0.0-RC7 logs a failing `Scope` finalizer and keeps the response. A ZIO finalizer that dies turns a value or `Unit` response into a 500. Do work that must affect the response in the program, not in a finalizer.
 
@@ -41,15 +51,25 @@ A client can leave before your handler finishes: the user closes the tab, or the
 
 1. h34s interrupts your program. In ZIO, the handler's fiber is interrupted.
 2. Your finalizers run: `Scope.acquireRelease` and `Scope.ensure` in Kyo, `ZIO.acquireRelease`, `ZIO.addFinalizer` and scoped layers in ZIO.
-3. h34s waits for those finalizers, including asynchronous ones, before it tells h3 and Nitro that the request is over. No cleanup keeps running after the request is reported as done.
+3. h34s waits for those finalizers, including asynchronous ones, before it tells h3 and Nitro that the request is over. This includes work that your handler forks with Kyo's structured combinators (`Async.timeout`, `Async.race`, `Async.gather`, `Async.zip`, a concurrent `Async.foreach`) and ZIO child fibers: they are interrupted, and their cleanup finishes first.
 4. h34s writes nothing to the closed connection.
+
+The exception is work on a fiber that nothing owns: Kyo's `Fiber.initUnscoped`, and the fiber that Kyo's `Async.uninterruptible` starts. h34s cannot wait for it, so do not use request resources there.
 
 Interruption can stop work that you expected to finish. If the client leaves during a database transaction, the transaction can roll back instead of committing. For a step that must complete even when the client leaves, make that step uninterruptible:
 
-- Kyo: `Async.uninterruptible(step)`.
-- ZIO: `step.uninterruptible`, or `ZIO.uninterruptibleMask` when only part of the step must be protected.
+- Kyo: `KHandler.uninterruptible(step)`. The step runs on its own fiber that the interrupt cannot reach, and the request scope waits for it before it releases resources acquired earlier (such as the connection the step uses). Do not use Kyo's `Async.uninterruptible` alone in a handler: it protects the step, but the request settles and releases its resources while the step still runs.
+- ZIO: `step.uninterruptible`, or `ZIO.uninterruptibleMask` when only part of the step must be protected. ZIO delays the interrupt until the step ends, and h34s waits for the fiber.
 
-Keep uninterruptible regions small. A client disconnect cannot stop them, so h34s waits for them to finish before it settles the request.
+```scala
+// Kyo, with the kyo-sql service from the database guide: the insert and its commit finish even if
+// the client leaves; then earlier request resources are released; then the request settles.
+note <- KHandler.uninterruptible(notes.create(input.text))
+```
+
+The step needs only `Async & Abort[Throwable]`: provide its other effects inside it (kyo-sql's `DB.run(client)` does). This line compiles against kyo-sql-postgres 1.0.0-RC7 (see [database](database.md)); the order is tested with a sleeping step, not with a database.
+
+Keep uninterruptible regions small. A client disconnect cannot stop them, so h34s waits for them to finish before it settles the request. Tests in both runtimes disconnect during such a step and check the order: the step ends, then the request finalizers run, then the request settles. A Kyo test also documents that `Async.uninterruptible` alone does not wait.
 
 Interruption does not cancel JavaScript work that has already started, for example a storage Promise. h34s stops waiting for it; the work itself finishes or fails on its own.
 
@@ -62,6 +82,7 @@ Interruption does not cancel JavaScript work that has already started, for examp
 - The acquisition runs on its own fiber. A request that is cancelled while it waits does not cancel the acquisition for the others.
 - When the acquisition succeeds, h34s registers the resource with the Nitro close hook.
 - `close` releases it and waits for its finalizers. A later `get` acquires it again.
+- A `close` during the first acquisition releases the value as soon as it is acquired. The `get` calls that waited for it fail with `IllegalStateException`; none receives a released value.
 
 Declare a shared resource once, as a member of an `object`. Nothing runs until the first `get`.
 
@@ -75,6 +96,15 @@ object Resources:
 ```
 
 `openPool`, `closePool` and `Pool` stand for your own code. Use it in a handler with `Resources.pool.get`, which is `Pool < (Async & Abort[Throwable])`.
+
+The Kyo demo (`AppHandler.scala`) builds its greeting service this way, from the startup config, and provides it to every handler:
+
+```scala
+val greetings: Shared[Greetings] = Shared(RuntimeConfig.load[KyoConfig].map(config => Greetings.live(config.greeting)))
+
+def define[B: ResponseBody](program: Request => B < (HandlerEffects & Env[Greetings]))(using Frame): EventHandler =
+  KHandler.define(options)(request => Services.greetings.get.map(greetings => Env.run(greetings)(program(request))))
+```
 
 ZIO, with any `ZLayer[Any, E, R]`. This is the demo's (`AppHandler.scala`):
 
@@ -104,4 +134,4 @@ Without the h34s plugin (for example in unit tests), nothing is registered. Call
 
 ## What is tested
 
-`SharedSuite` (Kyo) and `ZSharedSpec` (ZIO): one acquisition for concurrent first calls, an interrupted waiter does not cancel the acquisition, failures are not cached, `close` releases once and a later `get` acquires again, and the close hook releases every registered value. Request-scope tests in both runtimes cover finalizers on success, safe failure and defect, asynchronous finalizers, and client disconnects.
+`SharedSuite` (Kyo) and `ZSharedSpec` (ZIO): one acquisition for concurrent first calls, an interrupted waiter does not cancel the acquisition, failures are not cached, a `close` during the first acquisition never hands out a released value, `close` releases once and a later `get` acquires again, and the close hook releases every registered value. Request-scope tests in both runtimes cover finalizers on success, safe failure and defect, asynchronous finalizers, client disconnects, uninterruptible steps, and (Kyo) cleanup in work forked by `Async.timeout`, `race`, `gather`, `zip` and `foreach`.

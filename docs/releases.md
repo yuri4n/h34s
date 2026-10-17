@@ -4,7 +4,7 @@
 
 The current source builds `0.2.0-SNAPSHOT`, which is not published. It changes the module set and the handler API: Kyo is the core runtime, the ZIO modules adapt it, and every module builds with Scala 3.9.0. The tables and commands below describe the current source. Where the published `0.1.0-alpha.1` differs, this guide says so; its [release notes](../.github/release-notes/0.1.0-alpha.1.md) list what that version contains.
 
-The reusable JavaScript tooling is published separately as `@yuri4n/h34s-nuxt@0.1.0-alpha.1` in the [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The Maven tag above remains unchanged. See [npm-tooling.md](npm-tooling.md) for package installation, shared configuration, and local tarball review. The current source of that package registers a new Nitro plugin that the next Scala release needs for runtime config, storage mounts, and application-scoped resources. The published `0.1.0-alpha.1` package does not have it, so use both from the same source until they are released together.
+The reusable JavaScript tooling is published separately as `@yuri4n/h34s-nuxt@0.1.0-alpha.1` in the [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The Maven tag above remains unchanged. See [npm-tooling.md](npm-tooling.md) for package installation, shared configuration, and local tarball review. The current source of that package (`0.2.0-SNAPSHOT`, the same version as `version.sbt`) registers a new Nitro plugin that the next Scala release needs for runtime config, storage mounts, and application-scoped resources. The published `0.1.0-alpha.1` package does not have it, so use both from the same source until they are released together. The next Scala release needs `@yuri4n/h34s-nuxt` at that release's version or later: release the npm package first.
 
 ## Toolchain
 
@@ -168,7 +168,12 @@ Each project compiles, links, checks its resolved dependencies, and serves real 
 
 `pnpm run scala:full` clears previous linked output before linking both application modules for production, then checks that their output exists. The normal `pnpm build` command runs this step before Nuxt's production build, so a failed link cannot package stale development code.
 
-The `v0.1.0-alpha.1` tag is already released and must not be moved. For a future release, update the Maven version, review the commit and checks, then create its matching `v<version>` tag. The tag workflow validates that exact revision, then publishes packages using `GITHUB_ACTOR` and the repository's `GITHUB_TOKEN`. It next runs `node scripts/check-consumers.mjs --published` against GitHub Packages to verify all four consumers through the authenticated registry, without local staging. Only the package publication job receives `packages: write`, which also permits this download check. A separate job receives `contents: write` to create the GitHub prerelease after publication and registry verification succeed. No additional release secret is required, and repository/package visibility remains private.
+The `v0.1.0-alpha.1` tag is already released and must not be moved. For a future release:
+
+1. Release the npm package with the same version first (see below), because the Scala libraries need its Nitro plugin.
+2. Update the Maven version in `version.sbt`.
+3. Write `.github/release-notes/<version>.md`. The release job creates the GitHub prerelease from it after publication; `scripts/check-release.mjs` refuses a tag without it, before anything is published.
+4. Review the commit and checks, then create its matching `v<version>` tag. The tag workflow validates that exact revision, then publishes packages using `GITHUB_ACTOR` and the repository's `GITHUB_TOKEN`. It next runs `node scripts/check-consumers.mjs --published` against GitHub Packages to verify all four consumers through the authenticated registry, without local staging. Only the package publication job receives `packages: write`, which also permits this download check. A separate job receives `contents: write` to create the GitHub prerelease after publication and registry verification succeed. No additional release secret is required, and repository/package visibility remains private.
 
 Treat published release versions as immutable. If a release stops after some packages have uploaded, inspect the workflow and registry before retrying; do not overwrite artifacts with different contents under the same version. A corrected release should use a new version and matching tag.
 

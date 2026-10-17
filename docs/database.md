@@ -18,7 +18,7 @@ Create the schema with your own migration tool or scripts. Handlers should never
 
 ## Kyo: kyo-sql and kyo-sql-postgres
 
-**Status: compiles, never run.** The code below compiles against kyo-sql-postgres 1.0.0-RC7 and this branch's h34s API (checked with a temporary test file; the model there derived `Schema` and `NativeConverter`). It has not been run against a database or inside Nitro, and nothing in this repository uses kyo-sql yet. Treat it as a starting point.
+**Status: compiles, never run.** The code below compiles against kyo-sql-postgres 1.0.0-RC7 and this branch's h34s API (checked with a temporary test file). It has not been run against a database or inside Nitro, and nothing in this repository uses kyo-sql yet. Treat it as a starting point.
 
 Add the client to your application:
 
@@ -33,9 +33,13 @@ It brings kyo-sql, kyo-net and kyo-schema-json with it.
 kyo-sql takes one URL such as `postgres://user:password@host:5432/db`. Declare it as a private runtime config key, empty by default, and set `NUXT_DATABASE_URL` at runtime:
 
 ```scala
-final case class DatabaseConfig(url: Secret, verifyTls: Boolean) derives NativeConverter
-final case class AppConfig(database: DatabaseConfig) derives NativeConverter
+import dev.yuri4n.exts.ntcvkyoschema.{NativeSchema, secretSchema}
+
+final case class DatabaseConfig(url: Secret, verifyTls: Boolean) derives Schema, NativeSchema
+final case class AppConfig(database: DatabaseConfig) derives Schema, NativeSchema
 ```
+
+`secretSchema` is the bridge's `Schema[Secret]`: import it where you derive a schema that holds a secret.
 
 kyo-sql 1.0.0-RC7 parses this URL itself. Read these rules before you copy a URL from a hosting provider (they come from the kyo-sql source and are not tested by h34s):
 
@@ -70,29 +74,43 @@ Set `verifyTls` to `false` only for a local database without TLS.
 
 ### Run statements per request
 
-Keep SQL in your service and map the errors a client may see:
+Keep SQL in your service and map the errors a client may see. Keep three models apart: the table row (read by kyo-sql), the domain note (what the service returns), and the JSON that a route sends. A new column then reaches the JSON only when you add it to the wire model.
 
 ```scala
-final case class Note(id: Int, text: String) derives Schema, NativeSchema
+/** The domain note. It has no table or wire format. */
+final case class Note(id: Int, text: String)
+
+/** The JSON that the Notes routes send. */
+final case class NoteView(id: Int, text: String) derives Schema, NativeSchema
+
+object NoteView:
+    def from(note: Note): NoteView = NoteView(note.id, note.text)
 
 final case class DuplicateNote() extends SafeError:
     def message: String      = "A note with this text already exists"
     override def status: Int = 409
 
 final class NotesLive(client: PostgresClient):
+    import NotesLive.NoteRow
+
     def create(text: String): Note < (Async & Abort[DuplicateNote | SqlException]) =
       Abort.recover[SqlServerConstraintViolationException](error =>
         if error.sqlState == "23505" then Abort.fail(DuplicateNote()) else Abort.fail(error),
       )(DB.run(client)(DB.transaction(
-        sql"INSERT INTO notes (text) VALUES ($text) RETURNING id, text".as[Note].run.map(_.head),
+        sql"INSERT INTO notes (text) VALUES ($text) RETURNING id, text".as[NoteRow].run.map(_.head.toNote),
       )))
 
     def list: Chunk[Note] < (Async & Abort[SqlException]) =
-      DB.run(client)(sql"SELECT id, text FROM notes ORDER BY id".as[Note].run)
+      DB.run(client)(sql"SELECT id, text FROM notes ORDER BY id".as[NoteRow].run.map(_.map(_.toNote)))
+
+object NotesLive:
+    /** The table row. It stays inside the service. */
+    private final case class NoteRow(id: Int, text: String) derives Schema:
+        def toNote: Note = Note(id, text)
 ```
 
 - `sql"..."` binds `$text` as a parameter. The value is never concatenated into the SQL text.
-- `DB.transaction` commits when the body succeeds and rolls back when it fails, also on a non-SQL `Abort`. A body that recovers from a failed statement still rolls back.
+- `DB.transaction` commits when the body succeeds and rolls back when it fails, also on a non-SQL `Abort`. A body that recovers from a failed statement still rolls back. A client disconnect interrupts it too, so the transaction can roll back. When the insert must finish anyway, run it with `KHandler.uninterruptible(notes.create(text))`; see [lifetimes](lifetimes.md#when-the-client-disconnects).
 - `SQLSTATE 23505` is a unique violation. Map only the states your client should see; `SqlException` details can contain values from the database, so never put them in a `SafeError` message.
 
 Provide the service in your `AppHandler`, the same way as any Kyo service:
@@ -159,25 +177,39 @@ object SessionPool:
 
 ### Take one session per request
 
-`NotesLive.layer` takes a session in the request scope, and the session returns to the pool when the request ends:
+`NotesLive.layer` takes at most one session per request, in the request scope, on first use. The session returns to the pool when the request ends, and a request that fails validation never takes one: invalid input is a 422 even when the database is down. A private `NoteRow` is the table row; the service returns the domain `Note`, and the handlers send `NoteView`:
 
 ```scala
-final class NotesLive(session: Session[Task]) extends Notes:
-    private val codec = (int4 *: text).to[Note]
+/** Notes in PostgreSQL. `session` gives the request's session; the first call takes it. */
+final class NotesLive(session: Task[Session[Task]]) extends Notes:
+    import NotesLive.{insert, selectAll}
 
-    def create(value: String): Task[Note] =
-      session.unique(sql"INSERT INTO h34s_notes (text) VALUES ($text) RETURNING id, text".query(codec))(value)
+    def create(value: String): Task[Note] = session.flatMap(_.unique(insert)(value)).map(_.toNote)
 
-    def list: Task[List[Note]] =
-      session.execute(sql"SELECT id, text FROM h34s_notes ORDER BY id".query(codec))
+    def list: Task[List[Note]] = session.flatMap(_.execute(selectAll)).map(_.map(_.toNote))
 
 object NotesLive:
-    /** Notes over one pooled session that lives as long as the request scope. */
-    val layer: ZLayer[SessionPool & Scope, Throwable, Notes] =
-      ZLayer.fromZIO(ZIO.serviceWithZIO[SessionPool](_.session).map(NotesLive(_)))
+    /** The table row. It stays inside this interpreter: a new column does not reach the JSON. */
+    private final case class NoteRow(id: Int, text: String):
+        def toNote: Note = Note(id, text)
+
+    private val row = (int4 *: text).to[NoteRow]
+
+    private val insert: Query[String, NoteRow] = sql"INSERT INTO h34s_notes (text) VALUES ($text) RETURNING id, text".query(row)
+
+    private val selectAll: Query[skunk.Void, NoteRow] = sql"SELECT id, text FROM h34s_notes ORDER BY id".query(row)
+
+    val layer: ZLayer[SessionPool & Scope, Nothing, Notes] =
+      ZLayer.fromZIO(
+        for
+          pool    <- ZIO.service[SessionPool]
+          scope   <- ZIO.service[Scope]
+          session <- pool.session.provideEnvironment(ZEnvironment(scope)).memoize
+        yield NotesLive(session),
+      )
 ```
 
-The demo's `AppHandler` builds `NotesLive.layer` before the handler runs, so every Notes request takes a session before it reads the body. When the database is down, even invalid input gets a 500 instead of a 422 (seen in a production build of the demo without PostgreSQL). If you want input errors first, read and validate the body before you take a session, for example by providing the layer inside the handler after `request.body.json`.
+`NotesHandlerSpec` checks the order with a pool whose database is down: invalid input takes no session; valid input takes one.
 
 Skunk's `$text` is a parameter codec; the value is bound separately. For a transaction, open Skunk's `session.transaction` resource (`Resource[Task, Transaction[Task]]`) in the same request scope, for example with `.toScopedZIO`. To map a unique violation to your own `SafeError`, match `case SqlState.UniqueViolation(_) =>` on the failure inside the service (`skunk.SqlState`, SQLSTATE 23505). These two recipes come from the Skunk API; the demo does not use them.
 
@@ -191,4 +223,4 @@ The demo's PostgreSQL setup, initialization script and smoke test are in the [de
 
 ## Test without a database
 
-Keep the service behind a trait, and test handlers with an in-memory implementation. The demo's `NotesHandlerSpec` runs the ZIO handlers with a fake request and an in-memory `Notes`; see [testing](testing.md). Test the SQL itself against a real PostgreSQL in your own integration tests.
+Keep the service behind a trait, and test handlers with an in-memory implementation. The demo's `NotesHandlerSpec` runs the ZIO handlers with a fake request and an in-memory `Notes`, and `NotesLive` with a pool whose database is down; see [testing](testing.md). Test the SQL itself against a real PostgreSQL in your own integration tests.

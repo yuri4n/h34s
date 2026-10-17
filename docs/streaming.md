@@ -6,7 +6,7 @@ Return a stream as the response body, and h34s sends its elements as they are pr
 
 ## Return a stream
 
-Kyo: return a `kyo.Stream[A, S]`, where `A` has a `NativeConverter` and `S` needs at most `Async & Abort[Throwable] & Scope`:
+Kyo: return a `kyo.Stream[String, S]`, where `S` needs at most `Async & Abort[Throwable] & Scope`:
 
 ```scala
 val letters: EventHandler = KHandler.define: _ =>
@@ -15,7 +15,7 @@ val letters: EventHandler = KHandler.define: _ =>
       .andThen(Stream.init(Seq("a", "b", "c")))
 ```
 
-ZIO: return a `ZStream[Any, E, A]`, where `E <: Throwable` (or `Nothing`) and `A` has a `NativeConverter`:
+ZIO: return a `ZStream[Any, E, String]`, where `E <: Throwable` (or `Nothing`):
 
 ```scala
 val letters: EventHandler = ZHandler.define(_ =>
@@ -28,8 +28,9 @@ Both send `abc` with status 202. These snippets come from the stream tests (`Htt
 ## Know what is written
 
 - h34s writes the response head before the first element, or before an empty stream ends.
-- Each element is converted with its `NativeConverter` and written as is: no envelope, no separator, no content type. Set `content-type` yourself.
-- Over HTTP, string elements are tested. Encode a text format such as NDJSON or Server-Sent Events yourself, one string per element.
+- Elements are strings. Each one is written as UTF-8 text, as is: no envelope and no separator. Node can write only strings and bytes to a response, so h34s does not accept other element types. A `null` element fails the stream.
+- Without a content type, h34s sends `text/plain; charset=utf-8` and `X-Content-Type-Options: nosniff`. Set `content-type` yourself for another format.
+- Encode values yourself, one string per element. For newline-delimited JSON: `stream.map(value => value.toJson + "\n")` (`toJson` comes with `NativeConverter`) and `Response.header("content-type", "application/x-ndjson")`. Server-Sent Events work the same way.
 - HTTP clients can merge or split writes. Do not rely on one client-side chunk per element.
 
 ## Keep resources alive for the transfer
@@ -59,7 +60,8 @@ A request whose response closed before the stream started never starts the strea
 | --- | --- |
 | Before the first element | The normal [failure rule](kyo.md#fail-safely): an approved `SafeError` response, or an opaque 500 |
 | After the first element | The response is already 2xx. h34s destroys the socket, so the client sees an incomplete transfer; the elements already written stay. The server logs the failure |
-| An element converter throws, even a `SafeError` | A defect: the stream's scope closes, and the rule above applies |
+| The stream throws, even a `SafeError`, or emits `null` | A defect: the stream's scope closes, and the rule above applies |
+| Writing to the response fails before anything was sent | An opaque 500 without the success status, headers and cookies; development diagnostics show the write error |
 
 Clients should treat an interrupted transfer as a failure, even when the status was successful.
 
@@ -74,4 +76,4 @@ Clients should treat an interrupted transfer as a failure, even when the status 
 
 ## What is tested
 
-Kyo `StreamSuite` and `HttpStreamSuite`, ZIO `StreamSpec` and `HttpStreamSpec`: pull-driven delivery, head before the first chunk, empty streams, order of effectful, concatenated, filtered and mapped streams, finalization exactly once after the end, cancellation waiting for asynchronous finalizers, disconnects releasing stream and request resources once, failures before and after the first chunk, converter defects, and the no-socket rejection. A real client abort against a running Nuxt server has not been tested on this branch.
+Kyo `StreamSuite` and `HttpStreamSuite`, ZIO `StreamSpec` and `HttpStreamSpec`: pull-driven delivery, head before the first chunk, empty streams, order of effectful, concatenated, filtered and mapped streams, finalization exactly once after the end, cancellation waiting for asynchronous finalizers, disconnects releasing stream and request resources once, failures before and after the first chunk, thrown errors and `null` elements, a failed first write (no success head, the write error in diagnostics), the default content type, and the no-socket rejection. A real client abort against a running Nuxt server has not been tested on this branch.

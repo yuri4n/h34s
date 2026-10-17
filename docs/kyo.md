@@ -62,14 +62,22 @@ Read the body with `request.body.json[A]` or `request.body.text()`. The first re
 
 | Situation | Result |
 | --- | --- |
-| `Content-Type` is neither absent nor JSON (`application/json`, `application/*+json`) | `HttpError` 415 |
+| `Content-Type` is neither absent nor JSON (`application/json`, `application/*+json`); with `HandlerOptions(requireJsonContentType = true)`, also when it is absent | `HttpError` 415 |
 | Body larger than the limit (checked from `Content-Length`, then while reading) | `HttpError` 413; h34s never buffers more than the limit |
 | Text is not valid JSON | `HttpError` 400 |
 | JSON does not match the converter's shape | `InvalidInput` 422 with a generic message |
 | A schema-backed converter rejects the value | `InvalidInput` 422 with your schema's messages; see [schemas](schema.md) |
 | Any other exception from the converter | A defect: opaque 500 |
 
-The default limit is `BodyLimit.default` (1 MiB). Change it for one handler with `HandlerOptions(bodyLimit = ...)`, or for one read with `request.body.json[A](BodyLimit(bytes))`. An absent body is `""` for `text()`.
+The default limit is `BodyLimit.default` (1 MiB). Change it for one handler with `HandlerOptions(bodyLimit = ...)`, or for one read with `request.body.json[A](BodyLimit(bytes))`. An absent body is `""` for `text()`. For `json[A]`, an absent or empty body decodes like JSON `null`: a model answers 422, and `json[Option[A]]` gives `None`.
+
+### Cross-site requests
+
+A browser sends no `Content-Type` for a cross-site `fetch` with a byte body or for `navigator.sendBeacon`, and such requests need no CORS preflight. By default `json[A]` accepts a body without a content type, so a cookie-authenticated route that changes state can be reached from another site when the session cookie allows it. For those routes:
+
+- Keep session cookies `SameSite=Lax` (the `SetCookie` default) or `Strict`.
+- Set `HandlerOptions(requireJsonContentType = true)`: a JSON read without a content type answers 415. `$fetch` and `curl --json` send `application/json`.
+- Check `request.header("sec-fetch-site")` or `request.header("origin")` on routes that change state.
 
 ## Return a body
 
@@ -79,7 +87,7 @@ What your function returns decides the response body:
 | --- | --- |
 | Any `A` with a `NativeConverter` | 200 (or the status you set) with `{"data": <value>}` |
 | `Unit` | 204 with no body, unless you set another status |
-| `kyo.Stream[A, S]` with a `NativeConverter[A]` | The elements, written as they come; see [streaming](streaming.md) |
+| `kyo.Stream[String, S]` | The strings, written as UTF-8 text as they come (`text/plain; charset=utf-8` unless you set a content type); see [streaming](streaming.md) |
 
 `NativeConverter` converts directly between Scala and JavaScript values. No JSON text is made on the way; h3 writes the HTTP body.
 
@@ -103,11 +111,11 @@ val created: EventHandler = KHandler.define: request =>
 | `Response.header(name, value)` | Replaces earlier values of that header |
 | `Response.appendHeader(name, value)` | Adds another value |
 | `Response.cookie(SetCookie(...))` | `Set-Cookie`. Defaults: `Path=/`, `HttpOnly`, `Secure`, `SameSite=Lax` |
-| `Response.deleteCookie(name)` | Expires a cookie |
+| `Response.deleteCookie(name, path, domain, secure, onFailure)` | Expires a cookie. `path` (default `/`) and `domain` must match the cookie; `Secure` is sent by default, which browsers need to delete a `__Host-` or `__Secure-` cookie |
 | `Response.redirect(location, status)` | A 3xx status (default `Status.Found`) and `Location` |
 | `Response.head` | What your program has set so far, without the handler defaults |
 
-An invalid header name or value, cookie name, or a non-3xx redirect status is a programming error. The call throws, and h34s answers with a 500.
+An invalid header name or value, cookie name, or a non-3xx redirect status is a programming error. The check runs when the operation runs, not when you build the value; the handler then fails, and h34s answers with a 500.
 
 ## Fail safely
 
@@ -122,7 +130,7 @@ final case class NoteNotFound(id: String) extends SafeError:
 | Failure | Status | Body (default options) |
 | --- | --- | --- |
 | `Abort.fail(safeError)` | `safeError.status` (400 by default) | `{"errors":[{"message":"..."}]}` |
-| `KHandler.failWith(status, message)` | `status` | the same shape |
+| `KHandler.failWith(status, message)` (`Nothing < Abort[HttpError]`) | `status` | the same shape |
 | `InvalidInput` from a body read | 422 | one entry per schema message, with `path` when known, never input values |
 | Anything else: thrown exceptions, panics, a `SafeError` that is thrown | 500 | `{"errors":[{"message":"Internal server error"}]}` |
 
@@ -138,10 +146,11 @@ Pass `HandlerOptions` to `KHandler.define(options)(program)`:
 
 | Option | Default | Alternatives |
 | --- | --- | --- |
-| `success` | `SuccessEnvelope.Data`: `{"data": value}` | `SuccessEnvelope.Raw`: the value as is; a `null` or `undefined` value becomes 204 |
+| `success` | `SuccessEnvelope.Data`: `{"data": value}` | `SuccessEnvelope.Raw`: the converted value without the envelope. A string is sent as `text/plain; charset=utf-8` and any other value as JSON (`application/json`), unless you set a content type; `X-Content-Type-Options: nosniff` comes with the default. A `null` or `undefined` value becomes 204 |
 | `errors` | `ErrorEnvelope.List`: always `{"errors":[...]}` | `ErrorEnvelope.SingleOrList`: `{"error":{...}}` for one entry, `{"errors":[...]}` for several |
 | `defaults` | `ResponseHead.empty` | For example `ResponseHead.noStore`: `Cache-Control: no-store` on success and failure |
 | `bodyLimit` | `BodyLimit.default` (1 MiB) | Any `BodyLimit(bytes)` |
+| `requireJsonContentType` | `false`: `json[A]` accepts a body without a content type | `true`: 415 for such a body; see [cross-site requests](#cross-site-requests) |
 
 Streams and `Unit` bodies are never wrapped.
 
@@ -164,8 +173,10 @@ object AppHandler:
     def define[B: ResponseBody](
         program: Request => B < (HandlerEffects & Env[Greetings]),
     )(using Frame): EventHandler =
-      KHandler.define(options)(request => Env.run(Services.greetings)(program(request)))
+      KHandler.define(options)(request => Services.greetings.get.map(greetings => Env.run(greetings)(program(request))))
 ```
+
+`Services.greetings` is a `Shared[Greetings]` built from the startup runtime config; see [lifetimes](lifetimes.md#application-resources).
 
 Endpoints then ask for the service:
 
@@ -190,6 +201,7 @@ These come from Kyo 1.0.0-RC7 semantics. They matter once your handlers grow:
 - **`Abort.recover` does not roll back `Var` changes.** A status or header you set before a recovered failure stays set. Set response entries after the risky step, or set them again in the recovery branch.
 - **`Var` needs an isolate across forks.** Forking operations such as `Fiber.init` and `Async.race` require an `Isolate` for a `Var` they carry, so code that forks while it needs `Var[ResponseHead]` does not compile without one. Call `Response.*` in the request fiber, before or after the parallel part.
 - **Kyo `Scope` finalizer errors are logged and do not change the response.** Do work that must affect the response in the main program, not in a finalizer.
+- **`Async.uninterruptible` does not make the request wait.** It runs the step on a fiber that nothing owns. In a handler, use `KHandler.uninterruptible(step)`; see [lifetimes](lifetimes.md#when-the-client-disconnects).
 
 ## Choose locale data in your build
 
@@ -219,9 +231,9 @@ curl -H 'content-type: application/json' --data '{"name":"Scala"}' http://127.0.
 curl -H 'content-type: application/json' --data '{"name":"  "}' http://127.0.0.1:3000/api/kyo/greeting
 ```
 
-Expected bodies: `{"data":{"message":"Hello, Kyo!"}}`, `{"data":{"message":"Hello, Scala!"}}`, and a 422 with `{"errors":[{"message":"must not be blank","path":"name"}]}`.
+Expected bodies: `{"data":{"message":"Hello, Kyo!"}}`, `{"data":{"message":"Hello, Scala!"}}`, and a 422 with `{"errors":[{"message":"must not be blank","path":"name"}]}`. The salutation comes from `runtimeConfig.greeting.salutation`; start the server with `NUXT_GREETING_SALUTATION=Hi` to change it.
 
-**Evidence.** On macOS x86_64 with Node 24.19.0, these responses came back from a production build of the demo (`nuxt build`, then the Node server), and earlier from the linked modules behind a plain h3 server in Nitro's router mode. A run under `nuxt dev` with this branch is not recorded yet. See [compatibility](compatibility.md).
+**Evidence.** On macOS x86_64 with Node 24.19.0, these responses came back from a production build of the demo (`nuxt build`, then the Node server), and under `nuxt dev` (Nuxt 4.3.1, after `pnpm run scala:fast`): GET 200 with `{data}` and `no-store`, a blank name 422 with path `name`. See [compatibility](compatibility.md).
 
 ## Next steps
 

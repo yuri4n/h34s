@@ -41,7 +41,7 @@ The handler is now a function from an immutable `Request` snapshot to the body. 
 | 0.1.0-alpha.1 | Now |
 | --- | --- |
 | `KHandler.define(program)` with a by-name `A < HandlerEffects` | `KHandler.define(request => program)` |
-| `KHandler.define[A: NativeConverter]` | `KHandler.define[B: ResponseBody]`; any `NativeConverter` value, `Unit` and `kyo.Stream` are bodies |
+| `KHandler.define[A: NativeConverter]` | `KHandler.define[B: ResponseBody]`; any `NativeConverter` value, `Unit` and `kyo.Stream[String, S]` are bodies |
 | `HandlerEffects` with `Env[KH3Event]` | `HandlerEffects = Async & Scope & Abort[Throwable] & Var[ResponseHead]` |
 | `KH3Event`, `KHandler.getEvent`, `rawEvent` | **Removed.** Use the `Request` argument |
 | `KHandler.readBody[A]`, `KH3Event.readBody[A]` | `request.body.json[A]` |
@@ -83,7 +83,7 @@ Your `AppHandler.define` now takes `Request => B < (HandlerEffects & ...)` and c
 | `GetRouterParamsError`, `SH3Event.MissingRouterParamError` | **Removed.** A missing parameter is `HttpError(400, "Missing router parameter: <name>")` |
 | `SH3Event.parseCookies` | `request.cookies`, `request.cookie(name)` |
 | `ZHandler.setResponseStatus(code)` | `Response.status(...)` |
-| `ZHandler.sendStream(stream)`, `SH3Event.sendStream` | Return the `ZStream` as the body |
+| `ZHandler.sendStream(stream)`, `SH3Event.sendStream` | Return the `ZStream` as the body. Elements are strings now: `sendStream` converted each element with its `NativeConverter`, which Node cannot write. Encode values yourself, for example `stream.map(_.toJson + "\n")` |
 | `respondWith`, `respondWithZIO` | **Removed.** Return the body; set the head with `Response.*` |
 | `ZHandler.$fetch`, `SH3Event.$fetch` | **Removed.** Call your service directly, or use an HTTP client |
 | `mkHandler`, top-level `defineEventHandler(h)` and `defineEventHandler(runtime, h)` | `ZHandler.define`. Put a `given Runtime[Any]` in scope for a custom runtime |
@@ -128,11 +128,11 @@ The wire format changed. Update your TypeScript types and `fetch` code:
 | --- | --- | --- |
 | A value | The value as is | `{"data": <value>}` |
 | `Unit` | `undefined` (h3 decided the status) | 204 with no body |
-| A stream | Through `sendStream` | The stream as the body, unchanged on the wire |
+| A stream | Through `sendStream` | The stream of strings as the body, as UTF-8 text; `text/plain; charset=utf-8` unless you set a content type |
 | A safe error | `{"errors": ["message"]}` | `{"errors": [{"message": "..."}]}`, with `path` for schema entries |
 | An internal error | `{"errors": ["Internal server error"]}`, plus top-level `debug` in development | `{"errors": [{"message": "Internal server error"}]}`; in development or debug mode the entry carries `debug.cause` |
 
-To keep the old success shape for a handler, pass `HandlerOptions(success = SuccessEnvelope.Raw)`. There is no option for the old string-array errors.
+To keep the old success shape for a handler, pass `HandlerOptions(success = SuccessEnvelope.Raw)`. A `Raw` string is sent as `text/plain; charset=utf-8` and any other value as JSON text with `application/json`, unless you set a content type; h3 no longer guesses (it sent strings as `text/html`). There is no option for the old string-array errors.
 
 Body problems now have their own statuses: 415 for a non-JSON content type, 413 for a body above the limit (1 MiB by default), 400 for invalid JSON, and 422 for a body that does not match the converter or schema. The old schema reader answered 422 for invalid JSON and `Request body does not match schema` for every rejection. A plain `readBody` failure used to be an opaque 500.
 
@@ -146,7 +146,9 @@ Body problems now have their own statuses: 415 for a non-JSON content type, 413 
 
 Keep `@yuri4n/h34s-nuxt` in `modules`. Its Nitro plugin is now `runtime/h34s.mjs` and supplies the development and debug flags, runtime config, storage and the close hook. The module registers it for you. If you registered `runtime/development.mjs` yourself, remove that entry; the old file still re-exports the new plugin for one release.
 
-The module also declares `runtimeConfig.h34s.debug`, so `NUXT_H34S_DEBUG=true` turns on diagnostics at runtime. Keep it off in production; see [debugging](debugging.md).
+The module also declares `runtimeConfig.h34s.debug: false`, so `NUXT_H34S_DEBUG=true` turns on diagnostics at runtime. Nuxt's own `debug` option does not turn them on. Keep debug mode off in production; see [debugging](debugging.md).
+
+Use the package version that matches your Scala libraries: `0.2.0-SNAPSHOT` from this branch (a packed tarball until a release exists). The published `0.1.0-alpha.1` package lacks the new plugin records, and `RuntimeConfig` and `KHubKv.mount` then fail with `ConfigError`.
 
 ## Roll back
 

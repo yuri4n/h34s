@@ -41,16 +41,18 @@ The demo keeps each handler as a plain value, so a test can call it with a fake 
 
 ```scala
 object NotesHandler:
-    val list: Request => ZIO[Notes, Throwable, List[Note]] =
-      _ => ZIO.serviceWithZIO[Notes](_.list)
+    val list: Request => ZIO[Notes, Throwable, List[NoteView]] =
+      _ => ZIO.serviceWithZIO[Notes](_.list).map(_.map(NoteView.from))
 
-    /** The schema validates and trims the input; the handler adds no validation code. */
-    val create: Request => ZIO[HandlerEnv & Notes, Throwable, Note] = request =>
+    /** The schema validates and trims the input before any database work; the handler adds no
+      * validation code.
+      */
+    val create: Request => ZIO[HandlerEnv & Notes, Throwable, NoteView] = request =>
       for
         input <- request.body.json[CreateNote]
         note  <- ZIO.serviceWithZIO[Notes](_.create(input.text))
         _     <- Response.status(Status.Created)
-      yield note
+      yield NoteView.from(note)
 
 @JSExportTopLevel("default", "notes-get")
 val listNotes: EventHandler = AppHandler.define(NotesHandler.list)
@@ -59,7 +61,7 @@ val listNotes: EventHandler = AppHandler.define(NotesHandler.list)
 val createNote: EventHandler = AppHandler.define(NotesHandler.create)
 ```
 
-`Notes`, `Note`, `CreateNote` and `AppHandler` are demo code. Define your own.
+`Notes`, `Note` (the domain note), `NoteView` (the JSON it sends), `CreateNote` (the JSON it reads) and `AppHandler` are demo code. Define your own.
 
 ## Read the request
 
@@ -78,11 +80,11 @@ The `Request` snapshot is the same value the Kyo core uses; see [Kyo handlers](k
 | --- | --- |
 | Any `A` with a `NativeConverter` | 200 (or the status you set) with `{"data": <value>}` |
 | `Unit` | 204 with no body, unless you set another status |
-| `ZStream[Any, E, A]` with `E <: Throwable` and a `NativeConverter[A]` | The elements, written as they come; see [streaming](streaming.md) |
+| `ZStream[Any, E, String]` with `E <: Throwable` | The strings, written as UTF-8 text as they come (`text/plain; charset=utf-8` unless you set a content type); see [streaming](streaming.md) |
 
 ## Set status, headers and cookies
 
-`Response` has the same operations as the Kyo API, as `URIO[ZState[ResponseHead], Unit]`: `status`, `header`, `appendHeader`, `cookie`, `deleteCookie`, `redirect`, and `head`. h34s writes the head once, after your program and its finalizers finish. The failure rule is the same: on failure, the status comes from the error, and only handler defaults, `OnFailure.Keep` entries and the error's headers survive.
+`Response` has the same operations as the Kyo API, as `URIO[ZState[ResponseHead], Unit]`: `status`, `header`, `appendHeader`, `cookie`, `deleteCookie(name, path, domain, secure, onFailure)`, `redirect`, and `head`. h34s writes the head once, after your program and its finalizers finish. The failure rule is the same: on failure, the status comes from the error, and only handler defaults, `OnFailure.Keep` entries and the error's headers survive.
 
 Two ZIO details:
 
@@ -100,7 +102,7 @@ An invalid header name or value, cookie name, or redirect status makes the effec
 | `InvalidInput` from a body read | 422 | one entry per schema message, with `path` when known |
 | Any other typed failure, a defect, interruption, or several failures | 500 | `{"errors":[{"message":"Internal server error"}]}` |
 
-`ZHandler.failWith` fails with `ErrorResponse(errors, status)`. A `SafeError` or `ErrorResponse` stays approved even when sibling fibers were interrupted with it (for example in `zipPar`). Any other `Throwable` in the error channel is not approved: catching an exception and failing with it does not make it public. Map it to your own `SafeError` instead.
+`ZHandler.failWith` fails with `ErrorResponse(errors, status)`, as in `0.1.0-alpha.1`. `ErrorResponse` is not a `SafeError` (its `errors` field is a `NonEmptyList[String]`), so `catchSome { case e: SafeError => ... }` does not catch it; h34s approves both at the boundary. A `SafeError` or `ErrorResponse` stays approved even when sibling fibers were interrupted with it (for example in `zipPar`). Any other `Throwable` in the error channel is not approved: catching an exception and failing with it does not make it public. Map it to your own `SafeError` instead.
 
 A ZIO finalizer that dies turns a value or `Unit` response into a 500, even after the program succeeded. In development or debug mode, the diagnostics show ZIO's full `Cause.prettyPrint`, with ZIO traces and Scala source lines.
 
@@ -113,7 +115,7 @@ ZHandler.define(HandlerOptions(defaults = ResponseHead.noStore)): request =>
   ...
 ```
 
-See [Kyo handlers](kyo.md#choose-the-wire-format) for the envelopes, defaults and body limit.
+See [Kyo handlers](kyo.md#choose-the-wire-format) for the envelopes, defaults, body limit and `requireJsonContentType` (see [cross-site requests](kyo.md#cross-site-requests)).
 
 ## Compose services in your AppHandler
 

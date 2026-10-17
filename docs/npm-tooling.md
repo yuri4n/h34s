@@ -4,7 +4,7 @@
 
 **[`@yuri4n/h34s-nuxt@0.1.0-alpha.1` is published](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1)** in the private GitHub npm registry. Its `npm-v0.1.0-alpha.1` tag is separate from the immutable Maven `v0.1.0-alpha.1` release.
 
-**Use the package from the same branch as your Scala libraries.** The Kyo core (`0.2.0-SNAPSHOT`) reads runtime config, storage and the close hook from the package's new Nitro plugin. The published `0.1.0-alpha.1` package only supplies the development flag, so with it `RuntimeConfig`, `KHubKv.mount` and their ZIO versions fail with `ConfigError("h34s Nitro plugin is not installed")`. Until the package is released again, install it from a packed tarball of this branch, as described below.
+**Use the package from the same branch as your Scala libraries.** On this branch the package is `0.2.0-SNAPSHOT`, like the Scala libraries, and it is not published. The Kyo core reads runtime config, storage and the close hook from the package's new Nitro plugin. The published `0.1.0-alpha.1` package only supplies the development flag, so with it `RuntimeConfig`, `KHubKv.mount` and their ZIO versions fail with `ConfigError("h34s Nitro plugin is not installed")`, and `Shared` resources are not released when Nitro closes. Until the package is released again, install it from a packed tarball of this branch, as described below.
 
 ## Install the tooling
 
@@ -21,24 +21,22 @@ Provide `GITHUB_PACKAGES_TOKEN` from your shell or secret manager using a classi
 
 In GitHub Actions, save the token as `PACKAGES_READ_TOKEN` and map `${{ secrets.PACKAGES_READ_TOKEN }}` into the `GITHUB_PACKAGES_TOKEN` process environment variable. Save the username as `PACKAGES_USER` when the same workflow also resolves Maven artifacts. GitHub reserves `GITHUB_` for saved secret and variable names.
 
-```sh
-pnpm add -D @yuri4n/h34s-nuxt@0.1.0-alpha.1
-pnpm add h3@1.15.4
-```
-
-For local source review, run this from the h34s checkout:
+With the Scala libraries of this branch, pack the package from the h34s checkout:
 
 ```sh
 npm pack ./packages/nuxt --pack-destination /tmp
 ```
 
-Then install the resulting tarball in a disposable consumer:
+Then install the resulting tarball, and h3:
 
 ```sh
-pnpm add -D /tmp/yuri4n-h34s-nuxt-0.1.0-alpha.1.tgz
+pnpm add -D /tmp/yuri4n-h34s-nuxt-0.2.0-SNAPSHOT.tgz
+pnpm add h3@1.15.4
 ```
 
-The repository example uses the local package. A packed-tarball check verifies that consumers receive the runtime plugin and helpers without referencing files outside the package. A local tarball path is a review setup; use the pinned registry dependency for an independently installable application.
+With the published `0.1.0-alpha.1` Scala libraries, install the matching published package instead: `pnpm add -D @yuri4n/h34s-nuxt@0.1.0-alpha.1`.
+
+The repository example uses the local package. A packed-tarball check verifies that consumers receive the runtime plugin and helpers without referencing files outside the package. A local tarball path is a review setup; once `0.2.0` is released, use the pinned registry dependency for an independently installable application.
 
 Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, and a production bundle that runs without the original generated files.
 

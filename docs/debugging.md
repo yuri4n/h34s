@@ -37,9 +37,9 @@ Diagnostics are on when the request's development flag **or** debug flag is the 
 | Flag | Set by | When |
 | --- | --- | --- |
 | `development` | The plugin, from Nitro's `import.meta.dev` | `nuxt dev`. A production build compiles it to `false` |
-| `debug` | The plugin, from `runtimeConfig.h34s.debug`, read once at startup | `debug: true` in `nuxt.config.ts` at build time, or `NUXT_H34S_DEBUG=true` at runtime |
+| `debug` | The plugin, from `runtimeConfig.h34s.debug`, read once at startup | `NUXT_H34S_DEBUG=true` at runtime, or `runtimeConfig: { h34s: { debug: true } }` in `nuxt.config.ts` |
 
-The Nuxt module declares `runtimeConfig.h34s.debug` with the value of Nuxt's `debug` option, which is why `NUXT_H34S_DEBUG` can override it. If your `nuxt.config.ts` already sets `runtimeConfig.h34s.debug`, your value wins. Restart the server after you change the variable.
+The Nuxt module declares `runtimeConfig.h34s.debug: false`, which is why `NUXT_H34S_DEBUG` can override it. If your `nuxt.config.ts` already sets `runtimeConfig.h34s.debug`, your value wins. Nuxt's own `debug` option does not turn on h34s debug mode: Nuxt resolves it to an object, and the `DEBUG` environment variable of a build machine can set it. Restart the server after you change the variable.
 
 Without the plugin, both flags are `false` and every failure is opaque.
 
@@ -85,4 +85,4 @@ node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
 
 These Node tests pass on macOS x86_64 with Node 24.19.0 (see [compatibility](compatibility.md)). They cover the development resolver, Rollup-to-Node source maps, map composition, the Nitro plugin's records and flags, the debug flag merge in the Nuxt module, and the close hook. The Scala suites cover opaque 500s, development and debug diagnostics, Kyo stack text and ZIO `Cause.prettyPrint` with Scala file names, and that `SafeError` entries never carry `debug`.
 
-Earlier evidence from the `0.1.0-alpha.1` era, in a prepared Linux x86_64 checkout: a real Kyo exception in `nuxt dev` mapped to `Greetings.scala`, and a Scala edit with relinking changed the live response without restarting Nuxt. That evidence predates the Kyo core and has not been repeated on this branch.
+On this branch (macOS x86_64, Node 24.19.0, Nuxt 4.3.1), `pnpm dev` after `pnpm run scala:fast` answered `/api/notes` without a database with a 500 whose `debug.cause` had Scala stack frames and no password, and a Kyo handler that threw a JavaScript `TypeError` had its stack mapped to `RequestLifecycle.scala` and `KHandler.scala`. `scripts/check-npm-nuxt.mjs` checked development diagnostics, source maps and a relink reload with the packed module on a synthetic project. Relinking the real Scala.js example under `nuxt dev` and breakpoint stepping have not been checked.
