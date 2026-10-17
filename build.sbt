@@ -236,6 +236,7 @@ lazy val zioNuxtHubExt: Project = (project in file("scala-modules/exts/zio-nuxth
   .settings(
     name := "zio-nuxthub-ext",
     libraryDependencies ++= Seq(
+      "io.getkyo"    %%% "kyo-zio"          % kyoVersion,
       "dev.zio"      %%% "zio"              % zioVersion,
       "org.getshaka" %%% "native-converter" % nativeConverterVersion,
       "dev.zio"      %%% "zio-test"         % zioVersion % Test,
