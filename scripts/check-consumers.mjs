@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import {
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -18,6 +19,7 @@ const published = process.argv.includes('--published')
 // Local staging may check a snapshot; the published registry check needs the release version.
 const version = releaseVersion(repository, { allowSnapshot: !published })
 const temporary = mkdtempSync(join(tmpdir(), 'h34s-consumers-'))
+const { GITHUB_TOKEN: _token, GITHUB_ACTOR: _actor, ...withoutCredentials } = process.env
 const maven = join(temporary, 'maven')
 const resolver = published
   ? '"GitHub Packages" at "https://maven.pkg.github.com/yuri4n/h34s"'
@@ -179,8 +181,8 @@ object Consumer:
   },
 ]
 
-function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit' })
+function run(command, args, cwd, env = process.env) {
+  const result = spawnSync(command, args, { cwd, env, stdio: 'inherit' })
   if (result.error)
     throw result.error
   assert.equal(
@@ -262,19 +264,16 @@ try {
       'releasePublish',
     ], repository)
   }
+  // The pinned h3 fixture (with integrity hashes) that the Scala suites use. npm and the
+  // JavaScript smoke checks never see the GitHub credentials; only the sbt builds that resolve
+  // published artifacts need them.
+  for (const file of ['package.json', 'package-lock.json'])
+    copyFileSync(resolve(repository, 'scala-modules/exts/h3/test-js', file), join(temporary, file))
   run(
     'npm',
-    [
-      'install',
-      '--prefix',
-      temporary,
-      '--no-package-lock',
-      '--ignore-scripts',
-      '--no-audit',
-      '--no-fund',
-      'h3@1.15.4',
-    ],
+    ['ci', '--ignore-scripts', '--no-audit', '--no-fund'],
     temporary,
+    withoutCredentials,
   )
 
   for (const consumer of consumers) {
@@ -334,7 +333,7 @@ TaskKey[Unit]("writeArtifactPaths") := IO.write(baseDirectory.value / "artifacts
       'Consumer acquired generated local-only facade artifacts',
     )
     write(join(directory, 'smoke.cjs'), smoke(consumer))
-    run(process.execPath, ['smoke.cjs'], directory)
+    run(process.execPath, ['smoke.cjs'], directory, withoutCredentials)
   }
   console.log(`Fresh Maven consumers passed for ${version}: ${consumers.map(consumer => consumer.name).join(', ')}`)
 }
