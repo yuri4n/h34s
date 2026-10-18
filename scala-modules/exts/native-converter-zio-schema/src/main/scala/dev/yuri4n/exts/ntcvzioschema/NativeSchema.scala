@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.ntcvzioschema
 
-import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, Secret}
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, Secret, WireField, WireType}
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.{Chunk, Unsafe}
 import zio.schema.{Schema, StandardType}
@@ -23,8 +23,13 @@ import scala.scalajs.js
   *
   * No converter is installed implicitly: only types that derive `NativeSchema` (or call
   * `NativeSchema.derived`) get one.
+  *
+  * The converter also knows the TypeScript type of what it writes (`WireType.Described`), so h34s
+  * types the response of a route that returns it: records are objects with the schema's field
+  * names (transient fields left out), `Option` is `T | null`, sequences are arrays, and `String`,
+  * `Boolean`, `Int` and `Double` are strings, booleans and numbers.
   */
-trait NativeSchema[A] extends NativeConverter[A]
+trait NativeSchema[A] extends NativeConverter[A] with WireType.Described
 
 /** A ZIO `Schema` for h34s `Secret`: a string on the wire.
   *
@@ -63,8 +68,13 @@ object NativeSchema:
 
         def encode(value: A): js.Any = write(schema, value, 0)
 
+        /** The TypeScript type of what `encode` writes. */
+        lazy val wireType: WireType = describe(schema, Nil)
+
         /** This schema as a `NativeConverter`. Rejected input throws `InvalidInput`. */
         def converter: NativeSchema[A] = new NativeSchema[A]:
+            def wireType: WireType = Codec.this.wireType
+
             extension (value: A) def toNative: js.Any = encode(value)
 
             def fromNative(state: ParseState): A = validate(state.json) match
@@ -236,6 +246,30 @@ object NativeSchema:
                 )
               }
             }
+
+    /** The TypeScript type of what `write` produces, case by case. A schema that refers to itself
+      * (through `Schema.Lazy`) is `unknown` where it repeats.
+      */
+    private def describe(schema: Schema[?], seen: List[Schema[?]]): WireType =
+      if seen.exists(previous => previous.asInstanceOf[AnyRef] eq schema.asInstanceOf[AnyRef]) then WireType.Unknown
+      else
+        val next = schema :: seen
+        schema match
+            case primitive: Schema.Primitive[?] =>
+              primitive.standardType match
+                  case StandardType.StringType                   => WireType.StringValue
+                  case StandardType.BoolType                     => WireType.BooleanValue
+                  case StandardType.IntType | StandardType.DoubleType => WireType.NumberValue
+                  case _                                         => WireType.Unknown
+            case record: Schema.Record[?] =>
+              WireType.ObjectOf(record.fields.toList.filterNot(_.transient).map(field =>
+                WireField(field.fieldName, describe(field.schema, next)),
+              ))
+            case optional: Schema.Optional[?]         => WireType.nullable(describe(optional.schema, next))
+            case sequence: Schema.Sequence[?, ?, ?]   => WireType.ArrayOf(describe(sequence.elementSchema, next))
+            case transform: Schema.Transform[?, ?, ?] => describe(transform.schema, next)
+            case deferred: Schema.Lazy[?]             => describe(deferred.schema, next)
+            case _                                    => WireType.Unknown
 
     private def write(schema: Schema[?], value: Any, depth: Int): js.Any =
       require(depth <= maxDepth, "Native schema value exceeds maximum depth")
