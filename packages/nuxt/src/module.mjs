@@ -11,12 +11,18 @@ export default async function h34sNuxt(options, nuxt) {
   const root = nuxt.options.rootDir
   const config = await loadConfig({ root, configFile: options?.configFile })
   const outputs = config.modules.map(module => module.output)
-  const directories = outputs.map(output => resolve(root, output))
-  // Nitro may copy the handler entries, so this module recognizes its own by their module path.
-  const ours = handler => typeof handler?.handler === 'string' && directories.some(directory => inside(directory, handler.handler))
+  // The handlers this module mounted. Nitro may copy the entries, so they are compared by value.
+  let mounted = new Set()
+  const ours = handler => mounted.has(identity(handler))
+  function mount(nitro, next) {
+    const kept = (nitro.handlers ?? []).filter(handler => !ours(handler))
+    if (nitro.handlers !== undefined || next.length > 0)
+      nitro.handlers = [...kept, ...next]
+    mounted = new Set(next.map(identity))
+  }
   nuxt.hook('nitro:config', (nitro) => {
     declareDebugFlag(nitro)
-    mountRoutes(nitro, readMounts(root, config), ours)
+    mount(nitro, readMounts(root, config))
     const runtime = fileURLToPath(new URL('./runtime/', import.meta.url))
     nitro.plugins ??= []
     nitro.plugins.push(
@@ -75,7 +81,7 @@ export default async function h34sNuxt(options, nuxt) {
         const next = [...routes.handlers, ...kept]
         if (key(next) === key(current))
           return
-        mountRoutes(nitro.options, next, ours)
+        mount(nitro.options, next)
         console.info(`[h34s] Scala routes changed: ${next.length} mounted`)
         await nitro.hooks.callHook('rollup:reload')
       }, 200)
@@ -90,11 +96,14 @@ export default async function h34sNuxt(options, nuxt) {
   })
 }
 
-/** Compares handler lists by what Nitro uses, in a stable order. */
+/** A handler entry by what Nitro uses. */
+function identity({ route, method, lazy, handler }) {
+  return JSON.stringify([route, method ?? '', lazy === true, handler])
+}
+
+/** Compares handler lists in a stable order. */
 function key(handlers) {
-  return JSON.stringify(
-    handlers.map(({ route, method, lazy, handler }) => [route, method ?? '', lazy, handler]).sort(),
-  )
+  return JSON.stringify(handlers.map(identity).sort())
 }
 
 /** The Nitro handlers of the linked routes. A missing manifest is reported, not fatal. */
@@ -106,13 +115,6 @@ function readMounts(root, config) {
     )
   }
   return handlers
-}
-
-/** Replaces this module's handlers in `nitro.handlers` with `next`. */
-function mountRoutes(nitro, next, ours) {
-  if (nitro.handlers === undefined && next.length === 0)
-    return
-  nitro.handlers = [...(nitro.handlers ?? []).filter(handler => !ours(handler)), ...next]
 }
 
 function inside(directory, file) {

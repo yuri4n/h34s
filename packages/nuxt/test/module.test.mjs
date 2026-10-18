@@ -45,10 +45,13 @@ test('mounts the routes of each output manifest as lazy Nitro handlers, after ex
   ])
   await manifest(root, 'server/.scala-kyo', [{ module: 'greeting.js', route: '/api/kyo/greeting', method: 'post' }])
   const existing = { route: '/api/own', handler: join(root, 'server/own.ts') }
-  const nitro = { dev: false, handlers: [existing] }
+  // A handler you register yourself stays, also when its module is in a Scala.js output.
+  const manual = { route: '/api/manual', handler: join(root, 'server/.scala/manual.js') }
+  const nitro = { dev: false, handlers: [existing, manual] }
   configure(nitro)
   assert.deepEqual(nitro.handlers, [
     existing,
+    manual,
     { route: '/api/notes', method: 'get', lazy: true, handler: join(root, 'server/.scala/notes-get.js') },
     { route: '/api/test', lazy: true, handler: join(root, 'server/.scala/test.js') },
     { route: '/api/kyo/greeting', method: 'post', lazy: true, handler: join(root, 'server/.scala-kyo/greeting.js') },
