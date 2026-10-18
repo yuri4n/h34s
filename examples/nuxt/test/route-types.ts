@@ -1,6 +1,10 @@
 // Type checks of the generated route declarations, run by `scripts/check-route-types.mjs` after
 // linking. Each `@ts-expect-error` must stay an error: the types are precise, not `any`.
+import type listNotes from '../server/.scala/notes-get.js'
 import type { ErrorBody } from '../server/.scala/notes-post'
+
+/** A route file that re-exports the linked module (`export { default } from ...`) gets this type. */
+type ListBody = Awaited<ReturnType<typeof listNotes>>
 
 export async function checks(): Promise<void> {
   const greeting = await $fetch('/api/kyo/greeting')
@@ -22,5 +26,9 @@ export async function checks(): Promise<void> {
   // @ts-expect-error an entry needs a message
   const missing: ErrorBody = { errors: [{ path: 'text' }] }
 
-  console.warn(message, wrong, extra, id, texts, stream, errors, missing)
+  const listed: ListBody = { data: [{ id: 1, text: 'a' }] }
+  // @ts-expect-error ids are numbers
+  const badList: ListBody = { data: [{ id: '1', text: 'a' }] }
+
+  console.warn(message, wrong, extra, id, texts, stream, errors, missing, listed, badList)
 }
