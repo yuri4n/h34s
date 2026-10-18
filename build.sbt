@@ -1,10 +1,20 @@
 import org.scalajs.linker.interface.{ESVersion, ModuleKind, OutputPatterns}
 
+// One toolchain for every module: Scala 3.9.0 with JDK 25 at build time.
+// Kyo is the core runtime; the ZIO modules adapt it and inherit Kyo transitively.
+lazy val kyoVersion             = "1.0.0-RC7"
+lazy val zioVersion             = "2.1.26" // kyo-zio 1.0.0-RC7 pins this version
+lazy val zioJsonVersion         = "0.7.44"
+lazy val zioPreludeVersion      = "1.0.0-RC41"
+lazy val zioSchemaVersion       = "1.7.5"
+lazy val nativeConverterVersion = "0.9.0"
+lazy val munitVersion           = "1.2.1"
+
 // Explicitly exclude aggregate projects, applications and the migration experiment.
 lazy val releaseModules = Seq(
-  "h3Ext", "zioH3Ext", "kyoH3Ext", "zioJsExt", "nativeConverterZIOExt",
-  "nativeConverterZIOJsonExt", "nativeConverterZIOSchemaExt", "zioH3SchemaExt",
-  "nuxtHubExt", "zioNuxtHubExt", "kyoNuxtHubExt",
+  "h3Ext", "kyoH3Ext", "zioH3Ext", "nativeConverterZIOExt",
+  "nativeConverterZIOJsonExt", "nativeConverterZIOSchemaExt", "nativeConverterKyoSchemaExt",
+  "zioNuxtHubExt", "kyoNuxtHubExt",
 )
 addCommandAlias("releaseCheck", releaseModules.map(_ + "/makePom").mkString(";"))
 addCommandAlias("releasePublishLocal", releaseModules.map(_ + "/publishLocal").mkString(";"))
@@ -12,13 +22,11 @@ addCommandAlias("releasePublish", releaseModules.map(_ + "/publish").mkString(";
 
 inThisBuild(
   Seq(
-    // scalaVersion      := "3.7.4",
-    scalaVersion      := "3.5.2",
+    scalaVersion      := "3.9.0",
     organization      := "dev.yuri4n",
     homepage          := Some(url("https://github.com/yuri4n/h34s")),
     scmInfo           := Some(ScmInfo(url("https://github.com/yuri4n/h34s"), "scm:git:https://github.com/yuri4n/h34s.git")),
     publishMavenStyle := true,
-    // Scala 3.5 Scaladoc currently fails reading generated inline h3 TASTy.
     // Publish the compiled library and sources; guides live in the docs site.
     Compile / packageDoc / publishArtifact := false,
     pomIncludeRepository := (_ => false),
@@ -43,27 +51,43 @@ lazy val configureCommonJsProject: Project => Project =
     .settings(
       libraryDependencies ++= Seq(
         "dev.zio"       %%% "zio-interop-cats"      % "23.1.0.13",
-        "dev.zio"       %%% "zio-json"              % "0.7.38",
-        "dev.zio"       %%% "zio-schema-derivation" % "1.7.5",
-        "dev.zio"       %%% "zio-schema-json"       % "1.7.5",
-        "dev.zio"       %%% "zio-schema"            % "1.7.5",
-        "dev.zio"       %%% "zio-streams"           % "2.1.23",
-        "dev.zio"       %%% "zio"                   % "2.1.23",
+        "dev.zio"       %%% "zio-json"              % zioJsonVersion,
+        "dev.zio"       %%% "zio-schema-derivation" % zioSchemaVersion,
+        "dev.zio"       %%% "zio-schema-json"       % zioSchemaVersion,
+        "dev.zio"       %%% "zio-schema"            % zioSchemaVersion,
+        "dev.zio"       %%% "zio-streams"           % zioVersion,
+        "dev.zio"       %%% "zio"                   % zioVersion,
         "eu.timepit"    %%% "refined"               % "0.11.3",
         "is.cir"        %%% "ciris-refined"         % "3.12.0",
         "is.cir"        %%% "ciris"                 % "3.12.0",
-        "org.getshaka"  %%% "native-converter"      % "0.9.0",
+        "org.getshaka"  %%% "native-converter"      % nativeConverterVersion,
         "org.tpolecat"  %%% "skunk-core"            % "1.0.0-M12",
         "org.tpolecat"  %%% "skunk-refined"         % "1.0.0-M12",
         "org.typelevel" %%% "cats-effect"           % "3.6.3",
         "co.fs2"        %%% "fs2-core"              % "3.12.2",
-        "dev.zio"       %%% "zio-test"              % "2.1.23" % Test,
-        "dev.zio"       %%% "zio-test-sbt"          % "2.1.23" % Test,
+        "dev.zio"       %%% "zio-test"              % zioVersion % Test,
+        "dev.zio"       %%% "zio-test-sbt"          % zioVersion % Test,
       ),
     )
 
+/** Scala.js tests link as CommonJS so Node can require the pinned npm test fixtures. */
+lazy val commonJsTests = Seq(
+  Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
+    .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
+)
+
+/** Node resolves npm fixtures from these test-js directories (override with -Dh34s.<name>.nodePath). */
+def testJsEnv(fixtures: (String, File)*) =
+  new org.scalajs.jsenv.nodejs.NodeJSEnv(
+    org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
+      "NODE_PATH" -> fixtures.map { case (name, moduleDirectory) =>
+        sys.props.getOrElse(s"h34s.$name.nodePath", (moduleDirectory / "test-js" / "node_modules").getAbsolutePath)
+      }.mkString(java.io.File.pathSeparator),
+    )),
+  )
+
 lazy val root = (project in file("."))
-  .aggregate(exts, nuxtsvr, kyoH3Ext, kyoExample, nuxtHubExt, zioNuxtHubExt, kyoNuxtHubExt)
+  .aggregate(exts, nuxtsvr, kyoExample)
   .settings(
     publish / skip := true,
   )
@@ -72,103 +96,83 @@ lazy val exts = (project in file("scala-modules/exts"))
   .settings(
     name    := "exts",
     publish / skip := true,
-
   )
   .dependsOn(
-    // h3Ext,
     zioH3Ext,
-    zioJsExt,
     zioMigrationsExt,
     nativeConverterZIOExt,
     nativeConverterZIOJsonExt,
     nativeConverterZIOSchemaExt,
-    zioH3SchemaExt,
   )
   .aggregate(
     h3Ext,
+    kyoH3Ext,
+    nativeConverterKyoSchemaExt,
+    kyoNuxtHubExt,
     zioH3Ext,
-    zioJsExt,
+    zioNuxtHubExt,
     zioMigrationsExt,
     nativeConverterZIOExt,
     nativeConverterZIOJsonExt,
     nativeConverterZIOSchemaExt,
-    zioH3SchemaExt,
   )
 
+// Effect-free native layer: hand-written internal h3/Node/Nitro facades and the
+// shared public values (EventHandler, Request, SafeError, Secret, ...).
 lazy val h3Ext: Project = (project in file("scala-modules/exts/h3"))
-  .settings(
-    name    := "h3-ext",
-
-  )
-  .enablePlugins(ScalablyTypedConverterGenSourcePlugin)
-  .settings(
-    stOutputPackage := "dev.yuri4n.h34s.facades",
-    stMinimize := Selection.AllExcept("h3"),
-    libraryDependencies ++= Seq(
-      "org.getshaka" %%% "native-converter" % "0.9.0",
-    ),
-    Compile / npmDependencies := Seq(
-      "h3" -> "1.15.4",
-      // "@types/node" -> "25.0.3",
-    ),
-    stIgnore += "@types/node",
-  )
-
-lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
-    name    := "zio-h3-ext",
-
+    name := "h3-ext",
     libraryDependencies ++= Seq(
-      "dev.zio"      %%% "zio"              % "2.1.23",
-      "dev.zio"      %%% "zio-prelude"      % "1.0.0-RC41",
-      "dev.zio"      %%% "zio-streams"      % "2.1.23",
-      "dev.zio"      %%% "zio-json"         % "0.7.38",
-      "org.getshaka" %%% "native-converter" % "0.9.0",
-      "dev.zio"      %%% "zio-test"         % "2.1.23" % Test,
-      "dev.zio"      %%% "zio-test-sbt"     % "2.1.23" % Test,
+      "org.getshaka"  %%% "native-converter" % nativeConverterVersion,
+      "org.scalameta" %%% "munit"            % munitVersion % Test,
     ),
-    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
-      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
-    Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(
-      org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
-        "NODE_PATH" -> ((h3Ext / Compile / npmUpdate).value / "node_modules").getAbsolutePath,
-      )),
-    ),
+    commonJsTests,
+    Test / jsEnv := testJsEnv("h3" -> baseDirectory.value),
   )
-  .dependsOn(h3Ext, zioJsExt, nativeConverterZIOExt)
 
-// Kyo RC7 macros need Java 25 at build time. Only Kyo modules use Scala 3.9.0;
-// the ZIO modules keep Scala 3.5.2. The application runtime remains Node.
-// Depend directly on h3Ext so Kyo consumers do not acquire ZIO or application services.
+// The core: Kyo request lifecycle, body limits, errors, configuration, shared
+// resources and streaming. Kyo consumers never acquire ZIO.
 lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "kyo-h3-ext",
-
-    scalaVersion := "3.9.0",
     libraryDependencies ++= Seq(
-      "io.getkyo" %%% "kyo-core" % "1.0.0-RC7",
-      "org.getshaka" %%% "native-converter" % "0.9.0",
-      "org.scalameta" %%% "munit" % "1.2.1" % Test,
+      "io.getkyo"     %%% "kyo-core"         % kyoVersion,
+      "org.getshaka"  %%% "native-converter" % nativeConverterVersion,
+      "org.scalameta" %%% "munit"            % munitVersion % Test,
     ),
-    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
-      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
-    Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(
-      org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
-        "NODE_PATH" -> ((h3Ext / Compile / npmUpdate).value / "node_modules").getAbsolutePath,
-      )),
-    ),
+    commonJsTests,
+    Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
   )
-  .dependsOn(h3Ext)
+  // Tests reuse the native h3 event and Node response fixtures of h3-ext.
+  .dependsOn(h3Ext % "compile->compile;test->test")
+
+// Optional Kyo Schema bridge: `derives Schema, NativeSchema`. It needs kyo-schema only; JSON and
+// YAML come from the application's own kyo-schema-json / kyo-schema-yaml dependency.
+lazy val nativeConverterKyoSchemaExt: Project =
+  (project in file("scala-modules/exts/native-converter-kyo-schema"))
+    .enablePlugins(ScalaJSPlugin)
+    .settings(
+      name := "native-converter-kyo-schema-ext",
+      libraryDependencies ++= Seq(
+        "io.getkyo"     %%% "kyo-schema"       % kyoVersion,
+        "org.getshaka"  %%% "native-converter" % nativeConverterVersion,
+        // The tests compare the native shape with kyo-schema-json and round-trip YAML.
+        "io.getkyo"     %%% "kyo-schema-json"  % kyoVersion   % Test,
+        "io.getkyo"     %%% "kyo-schema-yaml"  % kyoVersion   % Test,
+        "org.scalameta" %%% "munit"            % munitVersion % Test,
+      ),
+      commonJsTests,
+      Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
+    )
+    // InvalidInput comes from h3-ext. The h3 integration test reuses kyo-h3's test fixtures only.
+    .dependsOn(h3Ext, kyoH3Ext % "test->test")
 
 lazy val kyoExample: Project = (project in file("examples/nuxt/scala/kyo"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "kyo-example",
-
-    scalaVersion := "3.9.0",
     // This English-only example uses scala-java-locales' built-in English fallback.
     // Kyo's full currency database adds tens of MB of JS; locale policy belongs
     // to the application, so the reusable kyoH3Ext dependency graph is unchanged.
@@ -183,14 +187,53 @@ lazy val kyoExample: Project = (project in file("examples/nuxt/scala/kyo"))
     Compile / fullLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala-kyo",
     cleanFiles += (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
   )
-  .dependsOn(kyoH3Ext)
+  // One schema per model: `derives Schema, NativeSchema`.
+  .dependsOn(kyoH3Ext, nativeConverterKyoSchemaExt)
 
-// Optional storage bindings. The native module imports neither a generated
-// NuxtHub module nor an effect runtime; applications supply their configured KV.
-lazy val nuxtHubExt: Project = (project in file("scala-modules/exts/nuxthub"))
+// Kyo storage over Nitro's unstorage mounts (NuxtHub KV and cache are mounts).
+lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxthub"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
-    name := "nuxthub-ext",
+    name := "kyo-nuxthub-ext",
+    libraryDependencies ++= Seq(
+      "org.getshaka"  %%% "native-converter" % nativeConverterVersion,
+      "org.scalameta" %%% "munit"            % munitVersion % Test,
+    ),
+    commonJsTests,
+    Test / jsEnv := testJsEnv(
+      "nuxthub" -> baseDirectory.value,
+      "h3"      -> (h3Ext / baseDirectory).value,
+    ),
+  )
+  // Tests install a fake h34s Nitro startup record with kyo-h3's NitroGlobal fixture.
+  .dependsOn(kyoH3Ext % "compile->compile;test->test")
+
+// The ZIO adapter over the Kyo core: ZHandler, ZStream bodies, ZShared and the awaiting
+// ZIO <-> Kyo bridge. ZIO consumers get Kyo transitively.
+lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    name := "zio-h3-ext",
+    libraryDependencies ++= Seq(
+      "io.getkyo"    %%% "kyo-zio"               % kyoVersion,
+      "dev.zio"      %%% "zio"                   % zioVersion,
+      "dev.zio"      %%% "zio-prelude"           % zioPreludeVersion,
+      "dev.zio"      %%% "zio-streams"           % zioVersion,
+      "dev.zio"      %%% "zio-json"              % zioJsonVersion,
+      "org.getshaka" %%% "native-converter"      % nativeConverterVersion,
+      "dev.zio"      %%% "zio-schema-derivation" % zioSchemaVersion % Test,
+      "dev.zio"      %%% "zio-test"              % zioVersion       % Test,
+      "dev.zio"      %%% "zio-test-sbt"          % zioVersion       % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    commonJsTests,
+    Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
+  )
+  // Tests reuse the h3 event fixtures and NitroGlobal; schema request tests use NativeSchema.
+  .dependsOn(
+    kyoH3Ext % "compile->compile;test->test",
+    nativeConverterZIOExt,
+    nativeConverterZIOSchemaExt % "test->compile",
   )
 
 lazy val zioNuxtHubExt: Project = (project in file("scala-modules/exts/zio-nuxthub"))
@@ -198,120 +241,66 @@ lazy val zioNuxtHubExt: Project = (project in file("scala-modules/exts/zio-nuxth
   .settings(
     name := "zio-nuxthub-ext",
     libraryDependencies ++= Seq(
-      "dev.zio" %%% "zio" % "2.1.23",
-      "org.getshaka" %%% "native-converter" % "0.9.0",
-      "dev.zio" %%% "zio-test" % "2.1.23" % Test,
-      "dev.zio" %%% "zio-test-sbt" % "2.1.23" % Test,
+      "io.getkyo"    %%% "kyo-zio"          % kyoVersion,
+      "dev.zio"      %%% "zio"              % zioVersion,
+      "org.getshaka" %%% "native-converter" % nativeConverterVersion,
+      "dev.zio"      %%% "zio-test"         % zioVersion % Test,
+      "dev.zio"      %%% "zio-test-sbt"     % zioVersion % Test,
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
-      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
-    Test / jsEnv := nuxtHubTestJsEnv((nuxtHubExt / baseDirectory).value),
-  )
-  .dependsOn(nuxtHubExt % "compile->compile;test->test")
-
-lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxthub"))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(
-    name := "kyo-nuxthub-ext",
-    scalaVersion := "3.9.0",
-    libraryDependencies ++= Seq(
-      "io.getkyo" %%% "kyo-core" % "1.0.0-RC7",
-      "org.getshaka" %%% "native-converter" % "0.9.0",
-      "org.scalameta" %%% "munit" % "1.2.1" % Test,
-    ),
-    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
-      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
-    Test / jsEnv := nuxtHubTestJsEnv((nuxtHubExt / baseDirectory).value),
-  )
-  .dependsOn(nuxtHubExt % "compile->compile;test->test")
-
-def nuxtHubTestJsEnv(moduleDirectory: File) =
-  new org.scalajs.jsenv.nodejs.NodeJSEnv(
-    org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
-      "NODE_PATH" -> sys.props.getOrElse("h34s.nuxthub.nodePath", (moduleDirectory / "test-js" / "node_modules").getAbsolutePath),
-    )),
-  )
-
-lazy val zioJsExt: Project = (project in file("scala-modules/exts/zio-js"))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(
-    name    := "zio-js-ext",
-
-    libraryDependencies ++= Seq(
-      "dev.zio"      %%% "zio"              % "2.1.23",
-      "dev.zio"      %%% "zio-streams"      % "2.1.23",
-      "dev.zio"      %%% "zio-json"         % "0.7.38",
-      "org.getshaka" %%% "native-converter" % "0.9.0",
+    commonJsTests,
+    Test / jsEnv := testJsEnv(
+      "nuxthub" -> (kyoNuxtHubExt / baseDirectory).value,
+      "h3"      -> (h3Ext / baseDirectory).value,
     ),
   )
+  .dependsOn(kyoNuxtHubExt % "compile->compile;test->test", zioH3Ext)
 
 lazy val nativeConverterZIOExt = (project in file("scala-modules/exts/native-converter-zio"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
-    name    := "native-converter-zio-ext",
-
+    name := "native-converter-zio-ext",
     libraryDependencies ++= Seq(
-      "dev.zio"      %%% "zio"              % "2.1.23",
-      "dev.zio"      %%% "zio-prelude"      % "1.0.0-RC41",
-      "dev.zio"      %%% "zio-streams"      % "2.1.23",
-      "dev.zio"      %%% "zio-json"         % "0.7.38",
-      "org.getshaka" %%% "native-converter" % "0.9.0",
+      "dev.zio"      %%% "zio"              % zioVersion,
+      "dev.zio"      %%% "zio-prelude"      % zioPreludeVersion,
+      "dev.zio"      %%% "zio-streams"      % zioVersion,
+      "dev.zio"      %%% "zio-json"         % zioJsonVersion,
+      "org.getshaka" %%% "native-converter" % nativeConverterVersion,
     ),
   )
+  // NativeConverter[Unit] lives in h3-ext; this module re-exports it.
+  .dependsOn(h3Ext)
 
 lazy val nativeConverterZIOJsonExt: Project =
   (project in file("scala-modules/exts/native-converter-zio-json"))
     .enablePlugins(ScalaJSPlugin)
     .settings(
-      name    := "native-converter-zio-json-ext",
-
+      name := "native-converter-zio-json-ext",
       libraryDependencies ++= Seq(
-        "dev.zio"      %%% "zio-json"         % "0.7.38",
-        "org.getshaka" %%% "native-converter" % "0.9.0",
+        "dev.zio"      %%% "zio-json"         % zioJsonVersion,
+        "org.getshaka" %%% "native-converter" % nativeConverterVersion,
       ),
     )
     .dependsOn(nativeConverterZIOExt)
 
-// Optional schema integrations. NativeConverter-only users need neither project.
+// Optional ZIO Schema integration (`derives Schema, NativeSchema`). NativeConverter-only users
+// do not need it. It depends on h3-ext for InvalidInput/ErrorEntry (effect-free).
 lazy val nativeConverterZIOSchemaExt: Project =
   (project in file("scala-modules/exts/native-converter-zio-schema"))
     .enablePlugins(ScalaJSPlugin)
     .settings(
       name := "native-converter-zio-schema-ext",
-
       libraryDependencies ++= Seq(
-        "dev.zio" %%% "zio-schema" % "1.7.5",
-        "org.getshaka" %%% "native-converter" % "0.9.0",
-        "dev.zio" %%% "zio-schema-derivation" % "1.7.5" % Test,
-        "dev.zio" %%% "zio-test" % "2.1.23" % Test,
-        "dev.zio" %%% "zio-test-sbt" % "2.1.23" % Test,
+        "dev.zio"      %%% "zio-schema"            % zioSchemaVersion,
+        "org.getshaka" %%% "native-converter"      % nativeConverterVersion,
+        "dev.zio"      %%% "zio-schema-derivation" % zioSchemaVersion % Test,
+        "dev.zio"      %%% "zio-test"              % zioVersion       % Test,
+        "dev.zio"      %%% "zio-test-sbt"          % zioVersion       % Test,
       ),
       testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-      Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
-        .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
+      commonJsTests,
     )
-
-lazy val zioH3SchemaExt: Project = (project in file("scala-modules/exts/zio-h3-schema"))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(
-    name := "zio-h3-schema-ext",
-
-    libraryDependencies ++= Seq(
-      "dev.zio" %%% "zio-schema-derivation" % "1.7.5" % Test,
-      "dev.zio" %%% "zio-test" % "2.1.23" % Test,
-      "dev.zio" %%% "zio-test-sbt" % "2.1.23" % Test,
-    ),
-    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
-      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
-    Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(
-      org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
-        "NODE_PATH" -> ((h3Ext / Compile / npmUpdate).value / "node_modules").getAbsolutePath,
-      )),
-    ),
-  )
-  .dependsOn(zioH3Ext, nativeConverterZIOSchemaExt)
+    .dependsOn(h3Ext)
 
 lazy val zioMigrationsExt: Project = (project in file("scala-modules/exts/zio-migrations"))
   .configure(configureCommonJsProject)
@@ -319,14 +308,12 @@ lazy val zioMigrationsExt: Project = (project in file("scala-modules/exts/zio-mi
     name    := "zio-migrations-ext",
     // The recovered migration experiment is not a supported release module.
     publish / skip := true,
-
   )
 
 lazy val nuxtsvr: Project = (project in file("examples/nuxt/scala/zio"))
   .configure(configureCommonJsProject)
   .settings(
     name                                                := "nuxtsvr",
-
     publish / skip                                      := true,
     scalaJSUseMainModuleInitializer                     := false,
     scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)
@@ -337,12 +324,7 @@ lazy val nuxtsvr: Project = (project in file("examples/nuxt/scala/zio"))
     Compile / fullLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala",
     cleanFiles += (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    Test / scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.CommonJSModule)
-      .withOutputPatterns(OutputPatterns.fromJSFile("%s.cjs"))),
-    Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(
-      org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
-        "NODE_PATH" -> ((h3Ext / Compile / npmUpdate).value / "node_modules").getAbsolutePath,
-      )),
-    ),
+    commonJsTests,
+    Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
   )
-  .dependsOn(exts)
+  .dependsOn(zioH3Ext, nativeConverterZIOSchemaExt)

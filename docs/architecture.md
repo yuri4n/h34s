@@ -1,49 +1,87 @@
-# Direction: one repository, independent effect integrations
+# Architecture: a Kyo core with a ZIO adapter
 
-h34s is a toolbox for adding Scala.js server code to your Nuxt application. Install the native bindings or the effect integration you need. The repository also contains an optional integration demo in `examples/nuxt/` and an independent documentation app in `website/`.
+h34s is a toolbox for running Scala.js server code in your Nuxt/Nitro application. You add the modules you need, write your models and services, and mount your handlers as Nuxt routes. The repository also holds a runnable demo in `examples/nuxt/` and the documentation site in `website/`. Neither is part of the toolbox.
 
-| Module responsibility | Dependencies and execution |
-| --- | --- |
-| Native h3 bindings | Scala.js and h3 facades; no mandatory ZIO or Kyo runtime |
-| ZIO API | Ordinary ZIO handlers, services, scopes, streams, and the ZIO runtime |
-| Optional ZIO Schema bridges | Schema-driven native conversion and request validation; no schema requirement in the NativeConverter-only core |
-| Kyo API | Native Kyo handlers, Env services, Scope cleanup, and Kyo runtime execution; see [Kyo guide](kyo.md) |
-| Your application | Define models, configure databases, compose service layers, and own resources; optionally write an `AppHandler` wrapper |
-| npm/Nuxt integration | Invoke Scala linking and install development loading, source maps, and the diagnostics plugin after configuration |
-| Your Nuxt routes | Mount each exported Scala.js handler in a route file |
+**Status.** This page describes the design of `0.2.0-alpha.1`. The published `0.1.0-alpha.1` release has a different module graph with two independent runtimes; the [migration guide](migration.md) lists every change.
 
-ZIO defines the primary documented developer experience. It is not a neutral representation of arbitrary effects, and its programs are not automatically translated into native Kyo execution. Share transport contracts and behavior tests between integrations. A shared Kyo implementation can be evaluated later behind explicit interoperability tests; neither consumer should acquire a second runtime by default.
+## Layers
 
-Eleven reusable Maven artifacts and the separate npm tooling are published at `0.1.0-alpha.1`. See [releases](releases.md) for coordinates and [npm tooling](npm-tooling.md) for setup. The demo, aggregates, and experimental migration module are excluded from publication. Installing the toolbox does not install the demo's database service or UI.
+One runtime does the hard work. The h3 transport, the request lifecycle, cancellation, streaming, error rendering, configuration access and application-scoped resources are implemented once, in Kyo. The ZIO API is a hand-written adapter over that core.
 
-## Application-owned environments
+| Layer | sbt project / artifact | What it gives you | Depends on |
+| --- | --- | --- | --- |
+| Native layer | `h3Ext` / `h3-ext` | Pure values shared by every runtime: `EventHandler`, `Request`, `RequestBody`, `BodyLimit`, `ResponseHead`, `Status`, `SetCookie`, `OnFailure`, `HandlerOptions`, `SafeError`, `HttpError`, `InvalidInput`, `ErrorEntry`, `ConfigError`, `Secret`, `NativeConverter[Unit]`. The h3, Node and Nitro facades are internal. | native-converter. No effect library. |
+| Kyo core | `kyoH3Ext` / `kyo-h3-ext` | `KHandler.define`, the request lifecycle, body reading with limits, `Response`, error rendering, diagnostics, `RuntimeConfig`, `Shared`, Kyo streams | `h3-ext`, kyo-core 1.0.0-RC7 |
+| ZIO adapter | `zioH3Ext` / `zio-h3-ext` | `ZHandler.define`, `Response` over `ZState`, `ZStream` bodies, `ZRuntimeConfig`, `ZShared`, and the awaiting ZIO-to-Kyo bridge | `kyo-h3-ext`, kyo-zio, ZIO 2.1.26, zio-prelude, zio-json, `native-converter-zio-ext` |
+| Kyo Schema bridge | `nativeConverterKyoSchemaExt` / `native-converter-kyo-schema-ext` | `derives Schema, NativeSchema` for Kyo Schema | `h3-ext`, kyo-schema |
+| ZIO Schema bridge | `nativeConverterZIOSchemaExt` / `native-converter-zio-schema-ext` | `derives Schema, NativeSchema` for ZIO Schema | `h3-ext`, zio-schema 1.7.5 |
+| ZIO converters | `nativeConverterZIOExt`, `nativeConverterZIOJsonExt` | `NonEmptyList` and zio-json `Json` converters, `eimap` | `h3-ext`, ZIO |
+| Storage | `kyoNuxtHubExt` / `kyo-nuxthub-ext`, `zioNuxtHubExt` / `zio-nuxthub-ext` | `KHubKv.mount`, `ZHubKv.mount` over Nitro storage | Kyo core; the ZIO one also needs the ZIO adapter |
+| npm tooling | `@yuri4n/h34s-nuxt` | Build CLI, Nuxt module, development loading, source maps, and the Nitro plugin that supplies flags, runtime config, storage and the close hook | Node, Nuxt. No Scala dependency. |
+| Your application | your sbt project and Nuxt app | Models, services, `AppHandler`, resources, route mounts, database and deployment | the modules you choose |
 
-`ZHandler.define` supplies the HTTP request context, scopes request execution, hides the ZIO runtime/JavaScript Promise boundary, and converts the result through `NativeConverter`.
+Dependencies point one way. Kyo modules never depend on ZIO. ZIO modules get Kyo transitively.
 
-Define your services and compose their `ZLayer` values in your application. If you want a shared entry point, write your own `AppHandler.define` to provide that environment before calling `ZHandler.define`. `AppHandler` is the demo's naming convention, not a library export. The optional Notes demo shows this with `Services.layer`, database configuration, a scoped Skunk connection, and `NotesLive`. Its endpoints request `Notes` with `ZIO.serviceWithZIO[Notes]`.
+```text
+h3-ext                                 (no effect library)
+├── kyo-h3-ext                         (Kyo core)
+│   ├── kyo-nuxthub-ext
+│   └── zio-h3-ext                     (also uses native-converter-zio-ext, kyo-zio, ZIO)
+│       └── zio-nuxthub-ext            (also uses kyo-nuxthub-ext)
+├── native-converter-kyo-schema-ext    (also uses kyo-schema)
+├── native-converter-zio-schema-ext    (also uses zio-schema)
+└── native-converter-zio-ext           (also uses ZIO)
+    └── native-converter-zio-json-ext
+```
 
-This first example opens one connection per request and closes it when that request completes or fails. It is not an application-wide pool. Reusing a `ZLayer` value does not memoize it across requests. A pool will require explicit startup/shutdown ownership and request-scoped leases in a subsequent change.
+Each module depends on its parent. A build check during the refactor found no `dev.zio` artifact on the Kyo core's compile classpath.
 
-Skunk runs directly in Scala.js/Nitro. Doobie depends on JDBC and would require a JVM backend; that is not the selected application architecture.
+Pick the smallest set for your application:
 
-For Kyo, define your services and resolve their `Env` requirements before calling `KHandler.define`. Follow the demo's optional `AppHandler` wrapper to provide `Greetings` with `Env.run`. Choose `kyoH3Ext` and the native bindings for this path. Its compiler is Scala 3.9.0 for Kyo 1.0.0-RC7; the ZIO modules use Scala 3.5.2. Both use the Scala.js 1.22.0 linker. See [Kyo](kyo.md) for runtime and lifecycle differences.
+- A Kyo application adds `kyo-h3-ext`. Add `native-converter-kyo-schema-ext` for schemas and `kyo-nuxthub-ext` for storage.
+- A ZIO application adds `zio-h3-ext`. Add `native-converter-zio-schema-ext` for schemas and `zio-nuxthub-ext` for storage.
+- Every application adds the npm package `@yuri4n/h34s-nuxt` and the runtime dependency `h3@1.15.4`.
 
-## Errors and streaming
+## Follow one request
 
-Schema validation is optional. NativeConverter-only handlers retain their existing entry point and converter ownership. The Notes example defines normalization and validation once in its model schema and opts into `readBodyWithSchema`. The optional native bridge creates a converter only when explicitly requested; it installs no competing default given. See [schema integration](schema.md) for supported forms and the extension points for JSON, YAML, and Kyo schemas.
+1. Nuxt routes the request to a route file in `server/api/`. That file re-exports a linked Scala.js module. You write these one-line files yourself for now; automatic route registration is planned.
+2. The h34s Nitro plugin has attached a frozen record to `event.context.h34s`: the development and debug flags, the request's runtime config, and Nitro storage. Requests cannot change this record.
+3. `KHandler.define` takes one immutable `Request` snapshot. It runs your function `Request => B < HandlerEffects` once, on its own fiber, in a request `Scope`, with a `Var[ResponseHead]` that starts empty.
+4. Your program reads the body, calls your services, sets status, headers and cookies with `Response.*`, and returns the body.
+5. When the program and its finalizers have finished, the core writes the response once. On success it applies the handler defaults, then everything the program set. On failure it applies the [failure rule](kyo.md#fail-safely). It renders the body with the handler's `HandlerOptions`.
+6. If the client disconnects first, the core interrupts the program, waits for its cleanup, and writes nothing.
 
-`SafeError` messages and explicit `ZHandler.failWith` messages are approved response data. Unexpected exceptions and defects produce status 500 with `Internal server error`. In Nuxt development mode, the response also contains `debug.cause` with the original ZIO cause, nested errors, and trace. Production responses omit that field; full diagnostics remain in server logs.
+`ZHandler.define` adds one step. It runs your ZIO program in one ZIO fiber per request, on the given ZIO `Runtime`, with a `ZState[ResponseHead]` and a ZIO `Scope`. It then hands the result and the head to the core, which does steps 5 and 6. Interrupting a request interrupts the ZIO fiber and waits for its finalizers.
 
-The Nitro request plugin supplies `event.context.h34s.development` from the build-time `import.meta.dev` flag. The library requires boolean `true` and defaults to opaque responses when the integration is absent. Headers and query parameters cannot enable it. See [debugging](debugging.md) for source maps and the Node debugger.
+## Where your code goes
 
-The Web Stream adapter pulls one upstream chunk at a time and awaits scoped cleanup during cancellation. The adapter queue is bounded by upstream chunk size, not a promise that every chunk contains one element. This is not an end-to-end HTTP memory bound: h3's Web Stream sink does not await Node response `drain`, so a slow client can still grow outgoing Node buffers.
+The functional-design layers map to code like this:
 
-`sendStream` supports direct Node HTTP responses: it observes response close, interrupts upstream work, and releases request resources. A failure after headers have been sent destroys the response instead of appending an error document. h3's no-socket local-fetch path is explicitly rejected because it returns the stream before consumption, which cannot preserve the request scope with this API. Use a browser/direct HTTP request for streaming. Other Nitro deployment adapters and local-fetch stream scope transfer need their own implementation and tests.
+| Layer | What lives there | Who owns it |
+| --- | --- | --- |
+| Business logic | Your services and programs, as Kyo `A < S` or ZIO effects | You |
+| Interfaces | Your service traits (`Greetings`, `Notes`) and the h34s values (`Request`, `SafeError`, `Secret`) | You and h34s |
+| Implementation | The h34s runtime, its internal facades, and your service interpreters (`NotesLive`) | h34s and you |
+| Application | Your `AppHandler`: configuration, then `Shared`/`ZShared` resources, then `Env`/`ZLayer` wiring | You |
+
+`AppHandler` is a name the demo uses for this one wiring point. It is your code, not an h34s export. Call `KHandler.define` or `ZHandler.define` directly when you do not need a wrapper.
+
+## Errors and diagnostics
+
+A handler is an error boundary. Only a `SafeError` that your program fails with through the typed channel reaches the client, with its status and entries. Everything else becomes an opaque 500. Diagnostics appear only in Nuxt development mode or in debug mode. See [Kyo handlers](kyo.md#fail-safely), [ZIO handlers](zio.md#fail-safely) and [debugging](debugging.md).
+
+The two runtimes differ in one place. A Kyo `Scope` finalizer that fails is logged by Kyo 1.0.0-RC7 and does not change the response. A ZIO finalizer that dies turns a value or `Unit` response into a 500, because the failure is part of the ZIO `Exit`. For a streamed ZIO body the response is already decided, so the failure is only logged.
+
+## What h34s does not do
+
+- Register routes or generate TypeScript types. You write the route files; the wire types are yours for now.
+- Supply a database client, a connection pool or migrations. Use kyo-sql or Skunk directly; see [database](database.md).
+- Package or deploy your application. Nix and sbt-native-packager support are planned.
+- Run anywhere but Node. The core needs a Node HTTP response for streaming. Other Nitro presets are untested.
 
 ## Next coherent slices
 
-1. Extend the tested consumer profiles for the published libraries and npm tooling.
-2. Automate route discovery and type generation so adding an endpoint does not require a TypeScript mounting file.
-3. Extend the Kyo handler API with optional Schema and streaming adapters, preserving independent runtimes and transport contracts.
-4. Add an application-scoped Skunk pool with startup/shutdown and stream lease tests.
-5. Extend the verified production Nuxt/Scala.js pipeline with the planned Nix and native-packager paths.
+1. Generated route registration and `.d.ts` emission, so a new endpoint needs no TypeScript file.
+2. A published release of this module graph, after review and explicit authorization.
+3. The planned Nix and sbt-native-packager paths over the same build pipeline.
+4. Interactive documentation: compiler-derived types, symbol links and runnable examples.

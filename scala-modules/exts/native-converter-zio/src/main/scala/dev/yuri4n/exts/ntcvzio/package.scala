@@ -6,13 +6,8 @@ import zio.prelude.NonEmptyList
 import org.getshaka.nativeconverter.ParseState
 
 object ntcvzio:
-    given NativeConverter[Unit] with
-        extension (value: Unit) def toNative: js.Any = js.undefined
-
-        override def fromNative(parseState: ParseState): Unit =
-          parseState.json match
-              case a if a == js.undefined => ()
-              case _                      => parseState.fail("Expected undefined for Unit type")
+    /** The shared `undefined <-> ()` converter, defined once in h3-ext. */
+    export dev.yuri4n.exts.h3.unitNativeConverter
 
     extension [A](nativeConverter: NativeConverter[A])
       def eimap[B](f: A => Either[String, B], g: B => A): NativeConverter[B] =
@@ -24,7 +19,7 @@ object ntcvzio:
                   case Right(b)  => b
                   case Left(err) => parseState.fail(s"Error parsing value: $err")
 
-    given [A: NativeConverter]: NativeConverter[NonEmptyList[A]] = NativeConverter.ListConv.eimap(
+    given [A: NativeConverter] => NativeConverter[NonEmptyList[A]] = NativeConverter.ListConv.eimap(
       {
         case head :: tail => Right(NonEmptyList(head, tail*))
         case Nil          => Left("Cannot convert empty list to NonEmptyList")

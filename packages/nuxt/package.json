@@ -1,6 +1,6 @@
 {
   "name": "@yuri4n/h34s-nuxt",
-  "version": "0.1.0-alpha.1",
+  "version": "0.2.0-alpha.1",
   "description": "Scala.js linking, development modules and source maps for Nuxt",
   "type": "module",
   "license": "UNLICENSED",

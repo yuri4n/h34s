@@ -1,17 +1,17 @@
 ---
 title: h34s
-description: Use Scala.js in your Nuxt app with ZIO or Kyo handlers, optional adapters, and build tooling.
+description: Write Nuxt server routes in Scala.js, on a Kyo core with a first-class ZIO adapter, optional schema and storage bridges, and build tooling.
 navigation: false
 ---
 
 # Scala handlers. Nuxt applications.
 
-[AI SLOP]{.ai-slop} Written with Codex. Human review pending.
+[AI SLOP]{.ai-slop} Written with AI assistance. Human review pending.
 
-h34s is a toolbox for running Scala.js in your Nuxt/Nitro application. Choose native h3 bindings, ZIO handlers, or Kyo handlers, then add optional adapters and npm build tooling as needed. Define your models and services in your application, provide their dependencies, and mount the linked handlers as Nuxt routes.
+h34s is a toolbox for running Scala.js in your Nuxt/Nitro application. Its core is written in Kyo: one runtime owns the request lifecycle, cancellation, streaming, errors, configuration and application resources. Write your handlers in Kyo, or in ZIO through a first-class adapter over that core. Kyo applications never depend on ZIO; ZIO applications get Kyo through the adapter.
 
-Use the ZIO API for request decoding, responses, and scoped streaming, or choose the independent Kyo API for Kyo programs. For a database, configure Skunk and PostgreSQL in your application; the Notes example shows one way to do this. h34s does not create your application or configure its database.
+You write ordinary Scala: a handler is a function from the request to the response body. Configuration, storage and shared resources come from Scala APIs. Your models, services and databases stay in your application; the guides show how to plug in libraries such as kyo-sql or Skunk. Schemas are optional.
 
-Start with [the getting-started guide](/guide/getting-started), [adopt h34s in an existing project](/guide/adoption), or explore [ZIO handlers](/guide/handlers) and [Kyo handlers](/guide/kyo).
+Start with [the getting-started tutorial](/guide/getting-started), choose an [adoption path](/guide/adoption), or read about [Kyo handlers](/guide/kyo) and [ZIO handlers](/guide/zio).
 
-ZIO handlers run on ZIO's runtime; Kyo handlers run on Kyo's runtime. Private Maven libraries are published under `dev.yuri4n` at `0.1.0-alpha.1`. The separate [npm build tooling](/guide/npm-tooling) publishes the shared CLI and Nuxt module as `@yuri4n/h34s-nuxt@0.1.0-alpha.1`. Follow the [release installation guide](https://github.com/yuri4n/h34s/blob/main/docs/releases.md). Automatic route and type generation, Nix, and application packaging remain planned; [project status](/reference/status) records the current limits.
+This site describes `0.2.0-alpha.1`. Install it after its tag workflows have published and verified the packages; follow the [release installation guide](https://github.com/yuri4n/h34s/blob/v0.2.0-alpha.1/docs/releases.md). The published `0.1.0-alpha.1` libraries and `@yuri4n/h34s-nuxt@0.1.0-alpha.1` have an older API; see the [migration guide](/reference/migration). Route generation, Nix and application packaging are planned; [status](/reference/status) records what works today.

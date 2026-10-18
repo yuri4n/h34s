@@ -50,6 +50,9 @@ try {
   }
   const files = run('tar', ['-tzf', tarball]).trim().split('\n')
   assert.ok(files.includes('package/README.md'), 'README is shipped')
+  // The Nitro plugin, its Nitro-free record factory and the deprecated entry kept for one release.
+  for (const runtime of ['h34s', 'context', 'development'])
+    assert.ok(files.includes(`package/src/runtime/${runtime}.mjs`), `runtime/${runtime}.mjs is shipped`)
   for (const file of files) {
     assert.match(
       file,
@@ -146,6 +149,9 @@ assert.equal(dev.sourceMap, true)
 assert.equal(dev.devServer.watch.length, 1)
 assert.equal(dev.rollupConfig.plugins.length, 2)
 assert.ok(dev.plugins[0].includes('node_modules/@yuri4n/h34s-nuxt/'))
+assert.ok(dev.plugins[0].endsWith('/runtime/h34s.mjs'))
+// Declared so that NUXT_H34S_DEBUG=true can enable diagnostics at runtime; off by default.
+assert.deepEqual(dev.runtimeConfig.h34s, { debug: false })
 assert.ok(dev.externals.inline[0].includes('node_modules/@yuri4n/h34s-nuxt/'))
 `,
   )

@@ -111,6 +111,19 @@ async function response(url, running, revision) {
   throw new Error(`Nuxt did not serve ${revision}: ${last}\n${running.log}`)
 }
 
+/** The h34s records in one probe response: debug flag, runtime config, storage and close hooks. */
+function assertRecords(value, { debug }) {
+  assert.equal(value.debug, debug, 'Request record debug flag')
+  assert.equal(value.startupDebug, debug, 'Startup record debug flag')
+  assert.equal(value.configDebug, debug, 'runtimeConfig.h34s.debug through the request record')
+  assert.equal(value.startupConfigDebug, debug, 'runtimeConfig.h34s.debug through the startup record')
+  assert.deepEqual(value.stored, { revision: value.revision }, 'Request record storage')
+  assert.deepEqual(value.startupStored, { revision: value.revision }, 'Startup record storage is the same Nitro storage')
+  assert.deepEqual(value.keys, ['probe'], 'Storage keys are relative to the mount')
+  assert.equal(value.deleted, true, 'Storage deletes')
+  assert.equal(value.onClose, 'function', 'Startup record registers close hooks')
+}
+
 function linkedModule(revision) {
   const output = join(app, 'server/.scala/hello.js')
   write(`${output}.next`, `export const revision = ${JSON.stringify(revision)}\nexport function probe() { return new Error('h34s source map probe').stack }\nexport const linkedUrl = import.meta.url\n//# sourceMappingURL=hello.js.map\n`)
@@ -153,17 +166,39 @@ export default defineConfig({ modules: [{ output: 'server/.scala', entries: ['he
     mappings: 'AAAA;AACA',
   }))
   linkedModule('first')
+  // The probe reads the h34s Nitro records the way the Scala.js handlers do: the request record
+  // (development, debug, runtime config, storage) and the startup record (runtime config, storage,
+  // close hooks). Storage and runtime config come from the plugin's `nitropack/runtime` import.
   write(join(app, 'server/api/probe.get.ts'), `import { revision, probe, linkedUrl } from '../.scala/hello.js'
-export default defineEventHandler(event => ({
-  development: event.context.h34s?.development,
-  revision, linkedUrl, stack: probe()
-}))\n`)
+export default defineEventHandler(async (event) => {
+  const request = event.context.h34s
+  const startup = (globalThis as any)[Symbol.for('h34s.nitro')]
+  // A named mount, as KHubKv.mount('kv') opens one, with the methods the KV adapters call.
+  const storage = request.storage('h34s')
+  await storage.set('probe', { revision })
+  const stored = await storage.get('probe')
+  const startupStored = await startup.storage('h34s').get('probe')
+  const keys = await storage.keys()
+  await storage.del('probe')
+  return {
+    development: request.development,
+    debug: request.debug,
+    startupDebug: startup.debug,
+    configDebug: request.runtimeConfig().h34s?.debug,
+    startupConfigDebug: startup.runtimeConfig().h34s?.debug,
+    stored, startupStored, keys,
+    deleted: !(await storage.has('probe')),
+    onClose: typeof startup.onClose,
+    revision, linkedUrl, stack: probe()
+  }
+})\n`)
   const nuxt = join(app, 'node_modules/nuxt/bin/nuxt.mjs')
   const devPort = await port()
   const dev = start([nuxt, 'dev', '--host', '127.0.0.1', '--port', String(devPort)], { NODE_ENV: 'development' })
   const devUrl = `http://127.0.0.1:${devPort}/api/probe`
   const first = await response(devUrl, dev, 'first')
   assert.equal(first.development, true, 'The installed runtime plugin must receive Nuxt development mode')
+  assertRecords(first, { debug: false })
   assert.equal(first.linkedUrl, pathToFileURL(join(app, 'server/.scala/hello.js')).href, 'Development loads the linked module directly')
   assert.match(first.stack, /Hello\.scala:2/, 'Node maps the linked JavaScript stack back to Scala')
   linkedModule('second')
@@ -185,7 +220,18 @@ export default defineEventHandler(event => ({
   const deployed = await response(`http://127.0.0.1:${productionPort}/api/probe`, production, 'second')
   assert.equal(deployed.development, false, 'Production disables development diagnostics')
   assert.ok(!deployed.linkedUrl.includes('/server/.scala/'), 'Production bundles the generated module')
-  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, production bundling and production diagnostics disabled`)
+  assertRecords(deployed, { debug: false })
+  await stop(production)
+
+  // NUXT_H34S_DEBUG overrides the declared runtimeConfig.h34s.debug at runtime, without a rebuild.
+  const debugPort = await port()
+  const debugging = start([join(app, '.output/server/index.mjs')], {
+    NODE_ENV: 'production', NITRO_HOST: '127.0.0.1', NITRO_PORT: String(debugPort), NUXT_H34S_DEBUG: 'true',
+  })
+  const debugged = await response(`http://127.0.0.1:${debugPort}/api/probe`, debugging, 'second')
+  assert.equal(debugged.development, false, 'The debug flag does not switch on development mode')
+  assertRecords(debugged, { debug: true })
+  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`)
 }
 finally {
   await Promise.allSettled([...children].map(stop))

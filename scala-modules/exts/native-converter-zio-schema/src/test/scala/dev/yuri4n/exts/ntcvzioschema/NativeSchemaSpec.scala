@@ -1,8 +1,9 @@
 package dev.yuri4n.exts.ntcvzioschema
 
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput}
 import org.getshaka.nativeconverter.NativeConverter
 import zio.*
-import zio.schema.{DeriveSchema, Schema, StandardType}
+import zio.schema.{DeriveSchema, Schema, StandardType, derived}
 import zio.schema.annotation.{fieldName, fieldNameAliases, rejectExtraFields, transientField, validate}
 import zio.schema.validation.Validation
 import zio.test.*
@@ -24,6 +25,23 @@ object NativeSchemaSpec extends ZIOSpecDefault:
     final case class NameCollision(@fieldName("x") first: String, @fieldName("x") second: String)
     final case class AliasCollision(@fieldNameAliases("second") first: String, second: String)
 
+    /** One derivation: the schema and the native converter derived from it. */
+    final case class Member(
+        @validate(Validation.minLength(2)) name: String,
+        @validate(Validation.greaterThan(0)) age: Int,
+        tags: List[String],
+    ) derives Schema, NativeSchema
+    final case class Team(lead: Member, members: List[Member]) derives Schema, NativeSchema
+
+    /** A config-like model that holds a secret (the package's `secretSchema` is in scope here;
+      * other packages import it).
+      */
+    final case class Credentials(user: String, token: dev.yuri4n.exts.h3.Secret) derives Schema, NativeSchema
+
+    private def rejected[A](value: js.Any)(using converter: NativeConverter[A]): Either[Throwable, A] =
+      try Right(converter.fromNative(value))
+      catch case error: Throwable => Left(error)
+
     given Schema[Pair] = DeriveSchema.gen[Pair]
     given Schema[Constrained] = DeriveSchema.gen[Constrained]
     given Schema[Nested] = DeriveSchema.gen[Nested]
@@ -33,6 +51,19 @@ object NativeSchemaSpec extends ZIOSpecDefault:
     given Schema[NestedDefault] = DeriveSchema.gen[NestedDefault]
 
     def spec = suite("optional native schema bridge")(
+      test("Secret fields with the bridge's Schema[Secret]: a string on the wire, never in an error") {
+        val converter = summon[NativeConverter[Credentials]]
+        val written = converter.toNative(Credentials("alice", dev.yuri4n.exts.h3.Secret("t0k3n")))
+        val decoded = converter.fromNative(js.Dynamic.literal(user = "bob", token = "s3cr3t"))
+        val wrong = rejected[Credentials](js.Dynamic.literal(user = "bob", token = 12345))
+        assertTrue(
+          written.asInstanceOf[js.Dynamic].token.asInstanceOf[String] == "t0k3n",
+          decoded.token.matches("s3cr3t"),
+          decoded.toString == "Credentials(bob,Secret(<redacted>))",
+          wrong == Left(InvalidInput()),
+          !wrong.left.toOption.get.getMessage.contains("12345"),
+        )
+      },
       test("constructs records in schema order, independent of JavaScript property order") {
         val codec = NativeSchema(Schema[Pair])
         assertTrue(codec.decode(js.Dynamic.literal(second = "two", first = "one")) == Right(Pair("one", "two")))
@@ -149,5 +180,45 @@ object NativeSchemaSpec extends ZIOSpecDefault:
         yield assertTrue(rejected.decode("value") == Left(NativeSchema.InvalidValue),
           defect.causeOption.flatMap(_.failureOption).exists(_.getMessage == "private defect"),
           unsupported.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[NativeSchema.UnsupportedSchema]))
+      },
+      // N15
+      test("`derives Schema, NativeSchema` gives a NativeConverter that round-trips") {
+        val member = Member("Ada", 36, List("math"))
+        val converter = summon[NativeConverter[Member]]
+        assertTrue(
+          converter.fromNative(converter.toNative(member)) == member,
+          summon[NativeSchema[Team]].fromNative(summon[NativeSchema[Team]].toNative(Team(member, List(member)))) == Team(member, List(member)),
+        )
+      },
+      // N16
+      test("failed checks throw InvalidInput with one entry per check and its field path, never the input") {
+        val input = js.Dynamic.literal(
+          lead = js.Dynamic.literal(name = "A", age = 0, tags = js.Array()),
+          members = js.Array(js.Dynamic.literal(name = "Bo", age = 1, tags = js.Array()), js.Dynamic.literal(name = "C", age = 2, tags = js.Array())),
+        )
+        val result = rejected[Team](input)
+        assertTrue(
+          result == Left(InvalidInput(List(
+            ErrorEntry("must have at least 2 characters", Some("lead.name")),
+            ErrorEntry("must be greater than 0", Some("lead.age")),
+            ErrorEntry("must have at least 2 characters", Some("members[1].name")),
+          ))),
+          !result.left.exists(error => error.getMessage.contains("\"A\"") || error.getMessage.contains(" C ")),
+        )
+      },
+      // N17
+      test("wrong shapes throw a generic InvalidInput, even next to failed checks") {
+        val shapes: List[js.Any] = List(null, js.Array(), js.Dynamic.literal(name = "A", age = "old", tags = js.Array()),
+          js.Dynamic.literal(name = "Ada", age = 1, tags = js.Array(1)))
+        assertTrue(shapes.forall(value => rejected[Member](value) == Left(InvalidInput())))
+      },
+      // N18
+      test("Codec.validate exposes the same rejection without throwing") {
+        val codec = NativeSchema(Schema[Constrained])
+        assertTrue(
+          codec.validate(js.Dynamic.literal(text = "a")) == Left(InvalidInput(List(ErrorEntry("must have at least 2 characters", Some("text"))))),
+          codec.validate(js.Dynamic.literal(text = 1)) == Left(InvalidInput()),
+          codec.validate(js.Dynamic.literal(text = "ab")) == Right(Constrained("ab")),
+        )
       },
     ) @@ TestAspect.sequential

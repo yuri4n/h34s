@@ -1,35 +1,159 @@
 # Adoption paths
 
-Choose the h34s modules you need, write your models and services in your application, and mount your Scala.js exports in Nuxt route files. Choose either ZIO or Kyo for effect execution; each integration supplies its own request context and runtime boundary.
+h34s is a toolbox. You add a Scala.js server module to a Nuxt application, write handlers in Kyo (or ZIO), and mount them as Nuxt routes. Your models, services, configuration and resources stay in your application.
 
-## New project
+Pick the path that matches what you have:
 
-Create your Nuxt project with the Nuxt tooling, then follow the integration steps below to add an sbt/Scala.js module. Install the [published Maven modules](releases.md) for your chosen effect API and the [npm build tooling](npm-tooling.md), both at `0.1.0-alpha.1`. Define your application model and services yourself; h34s does not generate an application scaffold or an `AppHandler` object.
+1. [Start a new project](#1-start-a-new-project)
+2. [Add Scala handlers to an existing Nuxt app](#2-add-scala-handlers-to-an-existing-nuxt-app)
+3. [Add Nuxt to an existing Scala.js project](#3-add-nuxt-to-an-existing-scalajs-project)
 
-To explore a working integration first, run the optional `examples/nuxt/` demo using [development.md](development.md). Start with the route that needs no database; add the Notes/Skunk example only if you want to try PostgreSQL. The demo and shared repository build are development fixtures, not dependencies you need to copy into your project. There is no `create-h34s` command.
+Every path ends with the same steps: [write a handler, mount it, run it](#write-mount-and-run-a-handler).
 
-## Existing Nuxt application
+## Get the libraries
 
-Keep your TypeScript handlers. Add a Scala.js/sbt build alongside them and an application module whose `fastLinkJS` output points to `server/.scala`. The current configured ZIO profile uses Scala 3.5.2, Scala.js 1.22.0, h3 1.15.4, and the repository's resolved ZIO versions. The [release guide](releases.md#toolchain) lists the complete toolchain and the separate Kyo compiler requirement. The [schema compatibility table](schema.md#dependencies-and-compatibility) distinguishes current configuration from earlier local verification; other version/platform combinations need their own verification.
+**The API in these guides is `0.2.0-alpha.1`.** The published `0.1.0-alpha.1` has a different API; see the [migration guide](migration.md).
 
-For ZIO, add `"dev.yuri4n" %%% "zio-h3-ext" % "0.1.0-alpha.1"` with the registry authentication in [releases.md](releases.md). For Kyo, choose `kyo-h3-ext` at the same version and follow the [Kyo compiler profile](kyo.md). Each dependency brings its native bindings transitively. Install npm `h3@1.15.4` in your Nuxt application as well. Source development can instead use explicit sbt project references from a checkout/submodule. Keep your application module independent of the demo's services and the experimental migration module.
+Install `0.2.0-alpha.1` from the private GitHub Packages registry described in [releases.md](releases.md), after its release workflow has published and verified the packages.
 
-Schema support is optional in every path. The NativeConverter-only reader is complete without schema dependencies. Applications that want model-defined validation can additionally depend on `zio-h3-schema-ext` at the same release version, or reference `nativeConverterZIOSchemaExt` and `zioH3SchemaExt` when integrating source projects. See [schema.md](schema.md) for the explicit API and supported forms.
+To build against h34s source changes that are not released, use one of these:
 
-Export a Scala handler with `@JSExportTopLevel("default", "notes-get")`. For the current integration, mount it once in `server/api/notes.get.ts`:
+- Publish an h34s checkout to your local Ivy repository: run `sbt releasePublishLocal` in it (JDK 25), then depend on the version in its `version.sbt`. sbt resolves the local Ivy repository by default, before the registry, so remove that local copy before you depend on a registry release with the same version. This path has not been exercised by hand; the repository's own consumer check publishes to a temporary Maven directory instead.
+- Reference the h34s source projects from your sbt build.
 
-```ts
-export { default } from '../.scala/notes-get.js'
+Pick the modules for your runtime. Kyo applications never need ZIO; ZIO applications get Kyo through the ZIO adapter:
+
+| You want | Kyo | ZIO |
+| --- | --- | --- |
+| Handlers | `kyo-h3-ext` | `zio-h3-ext` |
+| Schemas (optional) | `native-converter-kyo-schema-ext` | `native-converter-zio-schema-ext` + `zio-schema-derivation` 1.7.5 |
+| Nitro storage (optional) | `kyo-nuxthub-ext` | `zio-nuxthub-ext` |
+
+On the npm side, every application needs `@yuri4n/h34s-nuxt` (a dev dependency) and `h3@1.15.4` (a runtime dependency). See [npm tooling](npm-tooling.md).
+
+## Toolchain
+
+| Tool | Version | Why |
+| --- | --- | --- |
+| JDK | 25 | Runs sbt; Kyo 1.0.0-RC7 macros need it. Not needed in production |
+| sbt | 1.11.7 | Builds and links Scala.js |
+| Scala / Scala.js | 3.9.0 / 1.22.0 | Every h34s module uses this pair |
+| Node / pnpm | 24 / 10.34.4 | Runs Nuxt and your handlers |
+
+See [compatibility](compatibility.md) for what was tested.
+
+## 1. Start a new project
+
+1. Create a Nuxt 4 application with Nuxt's own tooling. h34s has no project generator.
+2. Add an sbt build next to it, as in [Configure the Scala.js module](#configure-the-scalajs-module).
+3. Add the npm package and the Nuxt module, as in [npm tooling](npm-tooling.md).
+4. [Write, mount and run a handler](#write-mount-and-run-a-handler).
+
+To see a working setup first, run the demo in `examples/nuxt/` with the [development guide](development.md). Its Kyo greeting needs no database. The demo is a reference, not a template: you do not need to clone this repository to use h34s.
+
+## 2. Add Scala handlers to an existing Nuxt app
+
+Keep your TypeScript handlers. Scala handlers live next to them, one route file per export.
+
+1. Add an sbt build in your repository (for example in `scala-server/`), as in [Configure the Scala.js module](#configure-the-scalajs-module). Point its linker output at a generated directory such as `server/.scala`.
+2. Add `@yuri4n/h34s-nuxt` and `h3@1.15.4`, and register the module in `nuxt.config.ts`. See [npm tooling](npm-tooling.md).
+3. Move only the routes you want to Scala. A TypeScript route and a Scala route can share a path prefix; Nuxt routes by file name.
+4. Read your existing `runtimeConfig` keys from Scala with `RuntimeConfig` (Kyo) or `ZRuntimeConfig` (ZIO). See [configuration](configuration.md).
+
+The h34s wire format wraps values in `{"data": ...}`. If existing clients expect the raw value, pass `HandlerOptions(success = SuccessEnvelope.Raw)` for those routes. `Raw` sends a string as `text/plain; charset=utf-8` and any other value as JSON (`application/json`), unless you set a content type.
+
+## 3. Add Nuxt to an existing Scala.js project
+
+1. Add a dedicated server module with ES-module output, as below. Keep your models and services in their own modules and depend on them from the server module.
+2. Create the Nuxt application next to your sbt build, add the npm package, and point `h34s.config.mjs` at your server module.
+3. [Write, mount and run a handler](#write-mount-and-run-a-handler).
+
+Only Scala.js-compatible code can enter Nitro. Your shared models must cross-build for Scala.js. Use Scala 3.9.0 for the modules that h34s handlers depend on.
+
+If your backend is JVM-only, you have two choices: cross-build the models and services that can run on Scala.js, or keep the JVM server and call it over HTTP from Nuxt. JDBC libraries, including Doobie, do not run in Scala.js. For PostgreSQL inside Nitro, use kyo-sql or Skunk; see [databases](database.md).
+
+## Configure the Scala.js module
+
+```properties
+# project/build.properties
+sbt.version=1.11.7
 ```
 
-Keep your existing Nuxt routes. Configure the [npm tooling](npm-tooling.md) with your sbt project, output directory, and route entry files. Its Nuxt module supplies development loading, source maps, and error-mode integration. Run `h34s-scala dev` before Nuxt, `h34s-scala watch` during edits, and `h34s-scala build` before production packaging. Write your own `AppHandler` wrapper if you want to share ZIO layer or Kyo environment composition across endpoints. Configure database resources and schema separately when your application needs them.
+```scala
+// project/plugins.sbt
+addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0")
+```
 
-The Maven release verified independent ZIO, Kyo, and Schema consumers. The npm tooling also passed packed-package checks in minimal external Nuxt consumers; see its [verified profiles](npm-tooling.md). These checks do not establish every full application setup or deployment. Create route mounts yourself until automatic mounting is implemented, and install only the dependencies your application needs.
+```scala
+// build.sbt
+import org.scalajs.linker.interface.{ModuleKind, OutputPatterns}
 
-## Existing Scala application
+lazy val server = project.in(file("scala-server"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    scalaVersion := "3.9.0",
+    libraryDependencies += "dev.yuri4n" %%% "kyo-h3-ext" % "0.2.0-alpha.1",
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)
+      .withOutputPatterns(OutputPatterns.fromJSFile("%s.js"))),
+    Compile / fastLinkJS / scalaJSLinkerConfig ~= (_.withSourceMap(true)),
+    Compile / fastLinkJS / scalaJSLinkerOutputDirectory :=
+      (LocalRootProject / baseDirectory).value / "server" / ".scala",
+    Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
+      (LocalRootProject / baseDirectory).value / "server" / ".scala",
+  )
+```
 
-For an existing Scala.js application, add a Nuxt frontend and a dedicated Scala.js server module with ES-module output. Add the h34s library dependency or source project references as above, keep your models/services in your own application modules, and mount exports in Nuxt. Compile shared models and service code for Scala.js; JVM-only dependencies cannot enter the Nitro bundle.
+For ZIO, replace `kyo-h3-ext` with `zio-h3-ext`. Run sbt with JDK 25.
 
-For a JVM-only application, share platform-compatible models through a cross-built module, or keep the JVM server and call it over HTTP. JDBC/Doobie does not compile to Scala.js. The selected h34s example uses Skunk directly in Nitro; adding Nuxt to a JVM application does not silently migrate its database runtime.
+`OutputPatterns.fromJSFile("%s.js")` makes each exported module a `<name>.js` file, which the route files import. Keep only generated files in `server/.scala`: a production build clears it.
 
-A clean consumer project for each adoption path, generated TypeScript wire types, and the installation helper are subsequent deliverables. They should be demonstrated before these integration recipes are presented as verified one-command setup flows.
+## Write, mount and run a handler
+
+1. Write a handler and export it as the `default` export of its own module:
+
+   ```scala
+   import dev.yuri4n.exts.kyoh3.*
+   import org.getshaka.nativeconverter.NativeConverter
+
+   import scala.scalajs.js.annotation.JSExportTopLevel
+
+   final case class Greeting(message: String) derives NativeConverter
+
+   @JSExportTopLevel("default", "hello-get")
+   val hello: EventHandler = KHandler.define(_ => Greeting("Hello from Scala"))
+   ```
+
+2. Mount it with a one-line route file, `server/api/hello.get.ts`:
+
+   ```ts
+   export { default } from '../.scala/hello-get.js'
+   ```
+
+3. List the module in `h34s.config.mjs`:
+
+   ```js
+   import { defineConfig } from '@yuri4n/h34s-nuxt/build'
+
+   export default defineConfig({
+     modules: [{ project: 'server', output: 'server/.scala', entries: ['hello-get.js'] }],
+   })
+   ```
+
+4. Link and start Nuxt with the scripts from [npm tooling](npm-tooling.md): `pnpm dev:scala`.
+5. Request `http://127.0.0.1:3000/api/hello`. Expected body: `{"data":{"message":"Hello from Scala"}}`.
+
+If the request returns 404, check that the route file name and the `default` export match. If Nitro cannot resolve `h3`, add `h3@1.15.4` to your app's dependencies. If the module is missing, check that linking finished and wrote `server/.scala/hello-get.js`.
+
+Route files are the one piece of JavaScript you still write. Generated route registration is planned.
+
+## Grow from there
+
+- Wire your services in one `AppHandler`: [Kyo](kyo.md#compose-services-in-your-apphandler) or [ZIO](zio.md#compose-services-in-your-apphandler).
+- Read [configuration](configuration.md) and keep secrets in `Secret`.
+- Hold pools in `Shared` / `ZShared`: [lifetimes](lifetimes.md).
+- Validate input with [schemas](schema.md).
+- Add [streaming](streaming.md), [storage](nuxthub.md), [tests](testing.md) and a [database](database.md).
+
+## What is verified
+
+The repository's consumer check builds four fresh sbt projects (Kyo, ZIO, Kyo Schema, ZIO Schema) against a temporary Maven repository and serves real h3 requests. A complete Nuxt application created from scratch with these steps has not been verified yet, on any path.

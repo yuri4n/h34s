@@ -7,8 +7,9 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import h34sNuxt from '../src/module.mjs'
+import './nitro-runtime-stub.mjs'
 
-async function setup(t, options) {
+async function setup(t, options, nuxtOptions = {}) {
   const root = await mkdtemp(join(tmpdir(), 'h34s-nuxt-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const file = options?.configFile ?? 'h34s.config.mjs'
@@ -21,7 +22,7 @@ async function setup(t, options) {
   )
   let configure
   await h34sNuxt(options, {
-    options: { rootDir: root },
+    options: { rootDir: root, ...nuxtOptions },
     hook(name, callback) {
       assert.equal(name, 'nitro:config')
       configure = callback
@@ -55,7 +56,7 @@ test('registers maps, direct loading, output watches and diagnostics in developm
     sourcemapExcludeSources: false,
   })
   assert.equal(nitro.plugins[0], 'existing-plugin')
-  assert.ok(nitro.plugins[1].endsWith('/runtime/development.mjs'))
+  assert.ok(nitro.plugins[1].endsWith('/runtime/h34s.mjs'))
   assert.ok(nitro.externals.inline[0].endsWith('/runtime/'))
 })
 
@@ -67,23 +68,51 @@ test('production leaves source maps, bundling and watches unchanged and denies d
     'dev',
     'externals',
     'plugins',
+    'runtimeConfig',
     'sourceMap',
   ])
+  assert.deepEqual(nitro.runtimeConfig, { h34s: { debug: false } })
   assert.equal(nitro.sourceMap, false)
   const { default: plugin } = await import(pathToFileURL(nitro.plugins[0]))
   let request
   plugin({
     hooks: {
       hook(name, fn) {
-        assert.equal(name, 'request')
-        request = fn
+        if (name === 'request')
+          request = fn
+        else
+          assert.equal(name, 'close')
       },
     },
   })
   const event = { context: { application: true } }
   request(event)
-  assert.deepEqual(event.context, {
-    application: true,
-    h34s: { development: false },
-  })
+  assert.equal(event.context.application, true)
+  assert.equal(event.context.h34s.version, 1)
+  assert.equal(event.context.h34s.development, false)
+  delete globalThis[Symbol.for('h34s.nitro')]
+})
+
+test('declares runtimeConfig.h34s.debug as false, whatever Nuxt\'s own debug option says', async (t) => {
+  // Nuxt resolves `debug: true` to an object such as this one before modules run, and `DEBUG` in
+  // the build environment can set it: neither may enable diagnostics.
+  const resolved = { templates: true, modules: true, watchers: true, hooks: { server: true, client: true }, nitro: true, router: true, hydration: true }
+  for (const debug of [true, false, resolved, { hooks: true }, 'true', undefined]) {
+    const { configure } = await setup(t, undefined, { debug })
+    const nitro = { dev: false, runtimeConfig: { app: { baseURL: '/' }, public: {} } }
+    configure(nitro)
+    assert.deepEqual(nitro.runtimeConfig.h34s, { debug: false }, JSON.stringify(debug))
+    assert.deepEqual(nitro.runtimeConfig.app, { baseURL: '/' }, 'other runtime config is kept')
+    assert.equal(nitro.runtimeConfig.public.h34s, undefined, 'the flag is private')
+  }
+})
+
+test('keeps the application\'s own runtimeConfig.h34s values', async (t) => {
+  const { configure } = await setup(t, undefined, { debug: true })
+  const own = { dev: false, runtimeConfig: { h34s: { debug: true, extra: 1 } } }
+  configure(own)
+  assert.deepEqual(own.runtimeConfig.h34s, { debug: true, extra: 1 }, 'runtimeConfig.h34s.debug: true in nuxt.config wins')
+  const partial = { dev: false, runtimeConfig: { h34s: { extra: 1 } } }
+  configure(partial)
+  assert.deepEqual(partial.runtimeConfig.h34s, { extra: 1, debug: false })
 })

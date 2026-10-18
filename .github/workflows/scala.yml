@@ -74,24 +74,33 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Test Nuxt development integration
         run: node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
-      - name: Install the isolated KV test fixture
-        run: npm ci --prefix scala-modules/exts/nuxthub/test-js --ignore-scripts
-      - name: Test native, ZIO, Kyo, optional schema, and KV APIs
+      - name: Install the isolated h3 and storage test fixtures
+        # Every scala-modules/exts/*/test-js directory: h3 for the h3, Kyo, ZIO and schema
+        # suites, unstorage for the Kyo and ZIO storage suites.
+        run: |
+          for fixture in scala-modules/exts/*/test-js; do
+            npm ci --prefix "$fixture" --ignore-scripts
+          done
+      - name: Test the native layer, the Kyo core, the ZIO adapter, schema bridges, storage and the ZIO example
         run: >-
           sbt -batch
-          'zioH3Ext/test'
+          'h3Ext/test'
           'kyoH3Ext/test'
-          'nativeConverterZIOSchemaExt/test'
-          'zioH3SchemaExt/test'
-          'nuxtsvr/test'
-          'zioNuxtHubExt/test'
           'kyoNuxtHubExt/test'
+          'nativeConverterKyoSchemaExt/test'
+          'zioH3Ext/test'
+          'zioNuxtHubExt/test'
+          'nativeConverterZIOSchemaExt/test'
+          'nativeConverterZIOJsonExt/compile'
+          'zioMigrationsExt/compile'
+          'nuxtsvr/test'
       - name: Link production example applications
         run: pnpm run scala:full
       - name: Check publication metadata
+        # Pull requests may carry a -SNAPSHOT version; a tag (release.yml) always needs a concrete one.
         run: |
           sbt -batch releaseCheck
-          node scripts/check-release.mjs
+          node scripts/check-release.mjs --allow-snapshot
       - name: Stage reusable libraries locally
         run: sbt -batch releasePublishLocal
       - name: Verify independent Maven consumers

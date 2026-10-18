@@ -13,7 +13,6 @@
     "dev": "pnpm run example:dev",
     "generate": "pnpm run example:generate",
     "preview": "pnpm run example:preview",
-    "scala:types": "sbt h3Ext/compile",
     "scala:fast": "h34s-scala dev --config examples/nuxt/h34s.build.config.mjs",
     "scala:full": "h34s-scala build --config examples/nuxt/h34s.build.config.mjs",
     "dev:scala": "pnpm run scala:fast && pnpm run dev",

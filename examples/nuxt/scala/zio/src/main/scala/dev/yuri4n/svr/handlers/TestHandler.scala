@@ -1,11 +1,11 @@
 package dev.yuri4n.svr.handlers
 
-import dev.yuri4n.exts.zioh3.ZHandler
+import dev.yuri4n.exts.zioh3.{EventHandler, ZHandler}
+import zio.ZIO
 import zio.stream.ZStream
 
 import scala.scalajs.js.annotation.JSExportTopLevel
 
-// The dependency-free quickstart; database routes use the application's AppHandler.
+// The dependency-free quickstart: a streamed body. Database routes use the example's AppHandler.
 @JSExportTopLevel("default", "test")
-val handler = ZHandler.define:
-    ZHandler.sendStream(ZStream("a", "b", "c"))
+val handler: EventHandler = ZHandler.define(_ => ZIO.succeed(ZStream("a", "b", "c")))

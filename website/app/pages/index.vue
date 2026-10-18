@@ -3,12 +3,15 @@ definePageMeta({ layout: 'default' })
 useSeoMeta({
   title: 'Scala handlers for Nuxt',
   description:
-    'Use the h34s toolbox to run Scala.js in your Nuxt app. Choose ZIO or Kyo handlers and provide your own services.',
+    'Write Nuxt server routes as plain Scala.js functions. h34s runs them on a Kyo core, with a first-class ZIO adapter. Your services stay in your app.',
 })
 
-const example = `@JSExportTopLevel("default", "notes-get")
-val listNotes = AppHandler.define:
-  ZIO.serviceWithZIO[Notes](_.list)`
+const example = `@JSExportTopLevel("default", "kyo-greeting-post")
+val personalizedGreeting: EventHandler = AppHandler.define: request =>
+  for
+    input    <- request.body.json[GreetingRequest]
+    greeting <- Env.use[Greetings](_.greet(input.name))
+  yield greeting`
 const copied = ref(false)
 const copyError = ref('')
 
@@ -54,29 +57,35 @@ const paths = [
 const guides = [
   {
     icon: 'i-lucide-layers',
-    title: 'Handlers & environments',
-    description: 'Keep endpoint code small. Compose services in your app.',
-    to: '/guide/handlers',
-    tag: 'ZIO',
-  },
-  {
-    icon: 'i-lucide-layers',
     title: 'Kyo handlers & services',
-    description: 'Use native Kyo effects and resolve services in your app.',
+    description: 'Request in, body out. Wire your services once in your app.',
     to: '/guide/kyo',
     tag: 'KYO',
   },
   {
+    icon: 'i-lucide-layers',
+    title: 'The ZIO adapter',
+    description: 'Write ordinary ZIO programs over the same core.',
+    to: '/guide/zio',
+    tag: 'ZIO',
+  },
+  {
+    icon: 'i-lucide-settings',
+    title: 'Configuration & lifetimes',
+    description: 'Read runtime config from Scala. Share pools safely.',
+    to: '/guide/configuration',
+    tag: 'APP',
+  },
+  {
     icon: 'i-lucide-database',
-    title: 'PostgreSQL with Skunk',
-    description:
-      'Configure an optional database in your app with typed queries.',
+    title: 'PostgreSQL, your way',
+    description: 'Plug in kyo-sql or Skunk directly. No wrapper needed.',
     to: '/guide/database',
     tag: 'DATABASE',
   },
   {
     icon: 'i-lucide-waves',
-    title: 'Streams & cleanup',
+    title: 'Streams & cancellation',
     description: 'Keep resources alive until a response finishes.',
     to: '/guide/streaming',
     tag: 'LIFECYCLE',
@@ -97,15 +106,16 @@ const guides = [
       <div class="hero-copy">
         <NuxtLink class="preview-note" to="/reference/status">
           <span class="status-dot" aria-hidden="true" />
-          Published alpha
+          Kyo-core preview
           <UIcon name="i-lucide-arrow-up-right" aria-hidden="true" />
         </NuxtLink>
         <h1 id="hero-title">
           Scala handlers.<br /><span>Nuxt applications.</span>
         </h1>
         <p class="hero-description">
-          Use h34s to run Scala.js in your Nuxt app. Choose ZIO or Kyo handlers,
-          define your services, and provide their dependencies in your app.
+          Write Nuxt server routes as plain Scala.js functions. h34s runs them
+          on a Kyo core, with a first-class ZIO adapter. Your services stay in
+          your app.
         </p>
         <div class="hero-actions">
           <UButton
@@ -115,17 +125,12 @@ const guides = [
           >
             Get started
           </UButton>
-          <UButton
-            to="/guide/handlers"
-            size="xl"
-            color="neutral"
-            variant="outline"
-          >
+          <UButton to="/guide/kyo" size="xl" color="neutral" variant="outline">
             Explore the handler API
           </UButton>
         </div>
         <p class="hero-footnote">
-          Install the Maven libraries and npm tooling. The repository demo is
+          Release 0.2.0-alpha.1 is a private alpha. The repository demo is
           optional.
         </p>
       </div>
@@ -135,7 +140,7 @@ const guides = [
           <div class="code-card-header">
             <span
               ><span class="scala-file-mark" aria-hidden="true">≡</span>
-              NotesHandler.scala</span
+              Handlers.scala</span
             >
             <button
               class="copy-code"
@@ -152,38 +157,41 @@ const guides = [
           <div class="code-comment">// Your application handler</div>
           <pre
             class="hero-code"
-          ><code><span class="syntax-annotation">@JSExportTopLevel</span>(<span class="syntax-string">"default"</span>, <span class="syntax-string">"notes-get"</span>)
-<span class="syntax-keyword">val</span> listNotes = <span class="syntax-type">AppHandler</span>.define:
-  <span class="syntax-type">ZIO</span>.serviceWithZIO[<span class="syntax-type">Notes</span>](_.list)</code></pre>
+          ><code><span class="syntax-annotation">@JSExportTopLevel</span>(<span class="syntax-string">"default"</span>, <span class="syntax-string">"kyo-greeting-post"</span>)
+<span class="syntax-keyword">val</span> personalizedGreeting: <span class="syntax-type">EventHandler</span> = <span class="syntax-type">AppHandler</span>.define: request =>
+  <span class="syntax-keyword">for</span>
+    input    &lt;- request.body.json[<span class="syntax-type">GreetingRequest</span>]
+    greeting &lt;- <span class="syntax-type">Env</span>.use[<span class="syntax-type">Greetings</span>](_.greet(input.name))
+  <span class="syntax-keyword">yield</span> greeting</code></pre>
           <div class="code-scope">
             <UIcon name="i-lucide-layers" aria-hidden="true" /> Define
             AppHandler to provide your services
           </div>
           <div class="response-example">
             <div class="response-label">
-              <span>GET</span> /api/notes
+              <span>POST</span> /api/kyo/greeting
               <span class="response-shape">response shape</span>
             </div>
-            <pre><code>[{ "id": 1, "text": "Hello from Scala" }]</code></pre>
+            <pre><code>{ "data": { "message": "Hello, Scala!" } }</code></pre>
           </div>
           <p v-if="copied || copyError" class="copy-feedback" role="status">
             {{ copyError || 'Handler copied to clipboard.' }}
           </p>
         </div>
         <div class="code-caption">
-          <span class="caption-rule" /> AppHandler and Notes are your
-          application code.
+          <span class="caption-rule" /> AppHandler, Greetings and
+          GreetingRequest are your application code.
         </div>
       </div>
     </section>
 
     <div
       class="technology-line"
-      aria-label="Scala.js with h3 and Nuxt; choose ZIO or Kyo. Skunk is an optional example."
+      aria-label="Scala.js on h3 and Nuxt, with a Kyo core and an optional ZIO adapter. Databases are your choice."
     >
-      <span class="technology-label">Choose your integrations.</span>
-      <span>Scala.js</span><span>ZIO or</span><span>Kyo</span><span>h3</span
-      ><span>Nuxt</span><span>Skunk example</span>
+      <span class="technology-label">Pick what you need.</span>
+      <span>Scala.js</span><span>Kyo core</span><span>ZIO adapter</span
+      ><span>h3</span><span>Nuxt</span><span>Your database</span>
     </div>
 
     <section class="home-section" aria-labelledby="paths-title">
@@ -261,10 +269,9 @@ const guides = [
       </div>
       <div class="status-description">
         <p>
-          Private Maven libraries and npm tooling are published. Choose ZIO or
-          Kyo handlers and configure your own services. ZIO Schema decoding is
-          optional; the demo shows Skunk database access. Automatic routes and
-          production packaging remain planned.
+          0.1.0-alpha.1 has the older API. 0.2.0-alpha.1 moves the core to Kyo,
+          adds a ZIO adapter, Scala configuration, shared resources and one
+          schema per model. Route generation and packaging remain planned.
         </p>
         <NuxtLink class="text-link" to="/reference/status"
           >What works today
@@ -273,8 +280,8 @@ const guides = [
       </div>
     </section>
     <p class="home-review-note">
-      <span class="ai-slop">AI SLOP</span> Written with Codex. Human review
-      pending.
+      <span class="ai-slop">AI SLOP</span> Written with AI assistance. Human
+      review pending.
     </p>
   </div>
 </template>

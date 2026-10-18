@@ -1,104 +1,143 @@
 package dev.yuri4n.exts.zioh3
 
-import dev.yuri4n.exts.h3.CommonEvHandler
-import dev.yuri4n.h34s.facades.h3.mod.{EventHandlerRequest, H3Event}
+import dev.yuri4n.exts.zioh3.ZioTesting.*
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
 
-import scala.concurrent.{Promise as FuturePromise}
 import scala.scalajs.js
 
+/** ZStream bodies through the core's h3 `sendStream` path (Z13-Z18). */
 object HttpStreamSpec extends ZIOSpecDefault:
-    private final class Response:
-      val firstWrite = FuturePromise[Unit]()
-      var closeListener: js.Function0[Unit] = () => ()
-      var removed = false
-      var ended = false
-      val chunks = scala.collection.mutable.ListBuffer.empty[String]
-      val native: js.Dynamic = js.Dynamic.literal(
-        socket = js.Dynamic.literal(), statusCode = 200, headersSent = false, writableEnded = false,
-        destroyed = false, closed = false,
-      )
-      native.updateDynamic("once")(((_: String, listener: js.Function0[Unit]) => closeListener = listener): js.Function2[String, js.Function0[Unit], Unit])
-      native.updateDynamic("removeListener")(((_: String, _: js.Function0[Unit]) => removed = true): js.Function2[String, js.Function0[Unit], Unit])
-      native.updateDynamic("write")(((chunk: String) => {
-        chunks += chunk
-        native.headersSent = true
-        firstWrite.trySuccess(())
-        ()
-      }): js.Function1[String, Unit])
-      native.updateDynamic("end")((() => { ended = true; () }): js.Function0[Unit])
-      native.updateDynamic("destroy")((() => { native.destroyed = true; closeListener() }): js.Function0[Unit])
-      def disconnect(): Unit =
-        native.destroyed = true
-        native.closed = true
-        closeListener()
-      def event = new H3Event[EventHandlerRequest](js.Dynamic.literal(method = "GET", url = "/stream", headers = js.Dynamic.literal()), native)
-      def invoke(handler: CommonEvHandler): Task[js.Any] =
-        ZIO.fromPromiseJS(handler(event).asInstanceOf[js.Promise[js.Any]])
-
-    def spec = suite("h3 HTTP streaming")(
-      test("writes a Web Stream and closes the response") {
-        val response = new Response
-        for _ <- response.invoke(ZHandler.define(ZHandler.sendStream(ZStream("a", "b", "c"))))
-        yield assertTrue(response.chunks.toList == List("a", "b", "c"), response.ended, response.removed)
+    def spec = suite("ZStream response bodies over h3")(
+      // Z13, C12
+      test("writes the head before the first chunk, then every chunk, and ends the response") {
+        val call = Call("/stream")
+        val handler = ZHandler.define { _ =>
+          Response.status(Status.Accepted) *> Response.header("content-type", "text/plain") *> ZIO.succeed(ZStream("a", "b", "c"))
+        }
+        for body <- call.invoke(handler)
+        yield assertTrue(
+          js.isUndefined(body),
+          call.response.headAtFirstWrite.contains(202 -> List("content-type")),
+          call.response.chunks.toList == List("a", "b", "c"),
+          call.response.ended, !call.response.hasListener, call.handled,
+        )
       },
-      test("disconnect interrupts the stream and closes request resources") {
-        val response = new Response
+      test("an empty stream still writes the head and ends the response") {
+        val call = Call("/stream")
+        for _ <- call.invoke(ZHandler.define(_ => Response.status(Status.NoContent).as(ZStream.empty: ZStream[Any, Nothing, String])))
+        yield assertTrue(call.response.status == 204, call.response.ended, call.response.chunks.isEmpty)
+      },
+      test("request resources stay open until the stream ends, then close once") {
+        var open = false
+        var releases = 0
+        val call = Call("/stream")
+        val handler = ZHandler.define { _ =>
+          ZIO.acquireRelease(ZIO.succeed { open = true })(_ => ZIO.succeed { open = false; releases += 1 })
+            .as(ZStream.fromZIO(ZIO.succeed(open.toString)) ++ ZStream.fromZIO(ZIO.succeed(open.toString)))
+        }
+        for _ <- call.invoke(handler)
+        yield assertTrue(call.response.chunks.toList == List("true", "true"), !open, releases == 1)
+      },
+      // Z14, C7
+      test("disconnect interrupts the stream and releases stream and request resources once") {
+        var released = 0
+        var streamReleased = 0
+        val call = Call("/stream")
+        val stream = ZStream.unwrapScoped(
+          ZIO.acquireRelease(ZIO.unit)(_ => ZIO.succeed { streamReleased += 1 }).as(ZStream("first") ++ ZStream.never),
+        )
+        val handler = ZHandler.define(_ => ZIO.acquireRelease(ZIO.unit)(_ => ZIO.succeed { released += 1 }).as(stream))
         for
-          released <- Ref.make(0)
-          streamReleased <- Ref.make(0)
-          stream = ZStream.unwrapScoped(
-            ZIO.acquireRelease(ZIO.unit)(_ => streamReleased.update(_ + 1)).as(ZStream("first") ++ ZStream.never)
-          )
-          handler = ZHandler.define(
-            ZIO.acquireRelease(ZIO.unit)(_ => released.update(_ + 1)) *>
-              ZHandler.sendStream(stream)
-          )
-          running <- response.invoke(handler).fork
-          _ <- ZIO.fromFuture(_ => response.firstWrite.future)
-          _ <- ZIO.succeed(response.disconnect())
-          _ <- running.join
-          count <- released.get
-          streamCount <- streamReleased.get
-        yield assertTrue(count == 1, streamCount == 1, response.removed)
+          running <- call.invoke(handler).fork
+          _ <- ZIO.fromFuture(_ => call.response.firstWrite.future)
+          _ <- ZIO.succeed(call.response.disconnect())
+          body <- running.join
+        yield assertTrue(
+          js.isUndefined(body), released == 1, streamReleased == 1,
+          call.response.chunks.toList == List("first"), !call.response.hasListener,
+        )
       },
-      test("handles a response closed before the stream starts") {
-        val response = new Response
-        response.disconnect()
-        for _ <- response.invoke(ZHandler.define(ZHandler.sendStream(ZStream.never: ZStream[Any, Throwable, String])))
-        yield assertTrue(response.removed)
+      // Z15
+      test("a response closed before the stream starts completes without starting it") {
+        var started = false
+        val call = Call("/stream")
+        call.response.disconnect()
+        for body <- call.invoke(ZHandler.define(_ => ZIO.succeed { started = true; ZStream("never") }))
+        yield assertTrue(js.isUndefined(body), !started, !call.response.hasListener)
       },
-      test("effect interruption before the first write joins stream cleanup") {
-        val response = new Response
+      // Z16
+      test("interruption before the first write waits for the stream's asynchronous cleanup") {
+        val call = Call("/stream")
         for
           acquired <- Promise.make[Nothing, Unit]
+          finalizing <- Promise.make[Nothing, Unit]
+          release <- Promise.make[Nothing, Unit]
           released <- Ref.make(0)
           stream = ZStream.unwrapScoped(
-            ZIO.acquireRelease(acquired.succeed(()))(_ => released.update(_ + 1))
-              .as(ZStream.never: ZStream[Any, Throwable, String])
+            ZIO.acquireRelease(acquired.succeed(()))(_ => finalizing.succeed(()) *> release.await *> released.update(_ + 1))
+              .as(ZStream.never: ZStream[Any, Nothing, String]),
           )
-          sending <- SH3Event(response.event).sendStream(stream).fork
+          running <- call.invoke(ZHandler.define(_ => ZIO.succeed(stream))).fork
           _ <- acquired.await
-          _ <- sending.interrupt
+          _ <- ZIO.succeed(call.response.disconnect())
+          _ <- finalizing.await
+          _ <- turns(3)
+          pending <- running.poll
+          _ <- release.succeed(())
+          _ <- running.join
           count <- released.get
-        yield assertTrue(count == 1, response.removed)
+        yield assertTrue(pending.isEmpty, count == 1, call.response.chunks.isEmpty, !call.response.hasListener)
       },
-      test("terminates the socket if upstream fails after a chunk was sent") {
-        val response = new Response
-        for _ <- response.invoke(ZHandler.define(ZHandler.sendStream(ZStream("prefix") ++ ZStream.fail(new Exception("private details")))))
-        yield assertTrue(response.native.destroyed.asInstanceOf[Boolean], response.chunks.toList == List("prefix"), response.removed)
+      // Z17
+      test("a failure after the first chunk destroys the socket and keeps written chunks") {
+        val call = Call("/stream")
+        val stream = ZStream("prefix") ++ ZStream.fail(new Exception("private details"))
+        for body <- call.invoke(ZHandler.define(_ => ZIO.succeed(stream)))
+        yield assertTrue(js.isUndefined(body), call.response.destroyed, call.response.chunks.toList == List("prefix"), !call.response.hasListener)
       },
-      test("rejects local-fetch streaming before acquiring stream resources") {
-        val response = new Response
-        response.native.socket = js.undefined
+      test("a failure before the first chunk is rendered with the failure rule") {
+        val call = Call("/stream")
+        val handler = ZHandler.define { _ =>
+          Response.status(Status.Accepted) *> Response.header("x-discarded", "1") *>
+            ZIO.succeed(ZStream.fail(HttpError.conflict("Busy")): ZStream[Any, HttpError, String])
+        }
+        for body <- call.invoke(handler)
+        yield assertTrue(
+          call.response.status == 409, wire(body) == errors("Busy"),
+          call.response.header("x-discarded").isEmpty, call.response.chunks.isEmpty,
+        )
+      },
+      test("a SafeError thrown inside a stream is a defect, not an approved error; a null element too") {
+        final case class Approved(message: String) extends SafeError:
+          override def status: Int = 409
+        val thrown = Call("/stream")
+        val nullElement = Call("/stream")
         for
-          acquired <- Ref.make(0)
-          stream = ZStream.fromZIO(acquired.update(_ + 1).as("data"))
-          _ <- response.invoke(ZHandler.define(ZHandler.sendStream(stream)))
-          count <- acquired.get
-        yield assertTrue(count == 0, response.native.statusCode.asInstanceOf[Int] == 500)
+          thrownBody <- thrown.invoke(ZHandler.define(_ => ZIO.succeed(ZStream("x").map[String](_ => throw Approved("private detail")))))
+          nullBody <- nullElement.invoke(ZHandler.define(_ => ZIO.succeed(ZStream[String](null))))
+        yield assertTrue(
+          thrown.response.status == 500, wire(thrownBody) == opaque, thrown.response.chunks.isEmpty,
+          nullElement.response.status == 500, wire(nullBody) == opaque,
+        )
       },
-    ) @@ TestAspect.timeout(10.seconds)
+      test("a stream without a content type is sent as text/plain with nosniff") {
+        val call = Call("/stream")
+        for _ <- call.invoke(ZHandler.define(_ => ZIO.succeed(ZStream("a"))))
+        yield assertTrue(
+          call.response.header("content-type").contains("text/plain; charset=utf-8"),
+          call.response.header("x-content-type-options").contains("nosniff"),
+          call.response.chunks.toList == List("a"),
+        )
+      },
+      // Z18
+      test("without a Node socket, streaming fails before acquiring stream resources") {
+        var acquired = 0
+        val call = Call("/stream", withSocket = false)
+        val stream = ZStream.fromZIO(ZIO.succeed { acquired += 1; "data" })
+        for body <- call.invoke(ZHandler.define(_ => ZIO.succeed(stream)))
+        yield assertTrue(acquired == 0, call.response.status == 500, wire(body) == opaque)
+      },
+    ) @@ TestAspect.timeout(45.seconds)
 end HttpStreamSpec

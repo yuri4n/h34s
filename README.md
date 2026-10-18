@@ -1,77 +1,78 @@
 # h34s
 
-A toolbox for running Scala.js server code in your Nuxt/Nitro application.
+Write Nuxt server routes in Scala.js.
 
-Choose the native h3 bindings, ZIO or Kyo handler API, and optional adapters you need. Define your own models, services, and resource policy in your application. Use the npm tooling to link Scala.js and load it in Nuxt. Start with the [adoption guide](docs/adoption.md) to add these tools to your project.
+h34s is a toolbox for your Nuxt/Nitro application. Its core is written in Kyo: one runtime owns the request lifecycle, cancellation, streaming, error rendering, configuration and application resources. Write your handlers in Kyo, or in ZIO through a hand-written, first-class adapter over that core. Kyo applications never depend on ZIO; ZIO applications get Kyo through the adapter.
 
-The runnable demo is in [`examples/nuxt/`](examples/nuxt/README.md). The documentation site is a separate Nuxt app in [`website/`](website/README.md). The repository root holds the libraries and shared tooling; you do not need to copy the demo to use h34s.
+You write ordinary Scala. A handler is a function from an immutable request to the response body. Configuration, storage and shared resources come from Scala APIs. Your models, services and databases stay in your application.
 
-**Status: [Maven alpha `0.1.0-alpha.1` released](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1).** Eleven independently consumable `dev.yuri4n` libraries are available through private GitHub Packages, including native h3 bindings, ZIO/Kyo APIs, and optional Schema and NuxtHub KV adapters. See the [installation and release guide](docs/releases.md) for authentication, coordinates, and validation.
+**Status: `0.2.0-alpha.1`.** This source releases the libraries and `@yuri4n/h34s-nuxt` as `0.2.0-alpha.1`. Install them only after their tag workflows have published and verified the packages; this status does not mean that publication has completed. Check the [releases](https://github.com/yuri4n/h34s/releases) and the [release notes](.github/release-notes/0.2.0-alpha.1.md). The published [`0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1) libraries and [`@yuri4n/h34s-nuxt@0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) have an older API with two independent runtimes. The [migration guide](docs/migration.md) lists every change.
 
-Reusable build scripts and Nuxt development integration are published as **`@yuri4n/h34s-nuxt@0.1.0-alpha.1`** in the [separate npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The [npm tooling guide](docs/npm-tooling.md) covers installation and application configuration. Applications keep their sbt build and services; the package supplies the CLI, source-map support, development loading, and diagnostics plugin.
-
-Both effect APIs use their own runtimes, native conversion, and application-owned services. The ZIO example also covers streaming and Skunk. Kyo streaming and Kyo Schema adapters, automatic route/type generation, and application packaging remain planned.
-
-## Write application code in ZIO
-
-Define your services, then write your own `AppHandler` to provide them before calling `ZHandler.define`. Follow the [handler guide](website/content/1.guide/3.handlers.md#compose-services-once-in-application-code) for the example composition. `AppHandler` and `Notes` below are application code you create; h34s does not export them. With that setup, write the endpoint as:
+## A Kyo handler
 
 ```scala
-val listNotes = AppHandler.define:
-    ZIO.serviceWithZIO[Notes](_.list)
+import dev.yuri4n.exts.kyoh3.*
+import kyo.*
+import org.getshaka.nativeconverter.NativeConverter
+
+import scala.scalajs.js.annotation.JSExportTopLevel
+
+final case class Greeting(message: String) derives NativeConverter
+
+@JSExportTopLevel("default", "hello-get")
+val hello: EventHandler = KHandler.define(_ => Greeting("Hello from Scala"))
 ```
 
-Keep your models and connection policy in your application module. To try the optional Notes example, use its `Services.layer` to compose database configuration, a scoped Skunk connection, and `NotesLive`. The h34s boundary supplies request context, scopes execution, handles native conversion, and runs the effect.
+Mount it with a one-line route file, `server/api/hello.get.ts`:
 
-Schema support is optional. The plain `ZHandler.readBody[A: NativeConverter]` API remains complete without schema dependencies. The Notes example opts into `ZHandler.readBodyWithSchema[CreateNote]`, keeping trimming and validation in the model's ZIO Schema. See the [optional schema guide](docs/schema.md) for the explicit native-value bridge and its supported forms.
-
-To run the demo, follow the [development guide](docs/development.md). It covers the stream route that needs no database and the optional PostgreSQL insert/read example. Use the [adoption guide](docs/adoption.md) for your own Nuxt or Scala.js project.
-
-Nuxt development mode exposes failure details and maps generated JavaScript back to Scala source locations. The [debugging guide](docs/debugging.md) explains diagnostics and Node debugging; production error responses stay opaque.
-
-## Write application code in Kyo
-
-Define a service such as `Greetings` in your application. Write your own `AppHandler` to resolve it with `Env.run` before calling `KHandler.define`, following the [Kyo guide](docs/kyo.md). Then request the service in the endpoint:
-
-```scala
-val greeting = AppHandler.define:
-    Env.use[Greetings](_.greet("Kyo"))
+```ts
+export { default } from '../.scala/hello-get.js'
 ```
 
-`KHandler.define` supplies request context, runs Kyo, scopes cleanup, and converts the response. It does not depend on ZIO. See the [Kyo guide](docs/kyo.md) for models, body decoding, service composition, lifecycle limits, and a runnable Nitro example.
+`GET /api/hello` answers `{"data":{"message":"Hello from Scala"}}`. Errors are `{"errors":[{"message":"..."}]}`; only `SafeError` data reaches clients. Everything else is an opaque 500, with diagnostics only in Nuxt development mode or debug mode.
 
-The `AppHandler` name is a convention used by the demos. Call `ZHandler.define` or `KHandler.define` directly when you do not need an application wrapper.
+## Try the demo
 
-## Documentation website
-
-The separate [Nuxt/Docus website](website/README.md) uses the shared
-`yuri4n.dev` docs layer. From the repository root:
+You need JDK 25 (for sbt), sbt 1.11.7, Node 24 and pnpm 10.34.4. From the repository root:
 
 ```sh
-git submodule update --init --recursive
-pnpm --dir website install --frozen-lockfile
-pnpm docs:dev
+pnpm install --frozen-lockfile
+pnpm run scala:fast
+pnpm dev
 ```
 
-The website runs on port 3001 without Scala linking or PostgreSQL. Its own
-lockfile keeps documentation dependencies separate from the example app.
+Then, in another terminal:
 
-## Module direction
+```sh
+curl -H 'content-type: application/json' --data '{"name":"Scala"}' http://127.0.0.1:3000/api/kyo/greeting
+```
 
-Keep one repository with separately consumable native h3 bindings, ZIO integration, and a first-class Kyo integration. ZIO is the main documented experience; each effect API uses its own runtime. See [architecture and lifecycle](docs/architecture.md) for the agreed boundaries and next slices.
+Expected body: `{"data":{"message":"Hello, Scala!"}}`. Send `{"name":"  "}` to see a 422 with `{"errors":[{"message":"must not be blank","path":"name"}]}`. The Kyo greeting needs no database. The ZIO demo's `/api/test` streams `abc`; its Notes routes need PostgreSQL (see the [development guide](docs/development.md)).
+
+## Guides
+
+| Start | Build | Operate |
+| --- | --- | --- |
+| [Adoption paths](docs/adoption.md) | [Configuration and secrets](docs/configuration.md) | [Debugging](docs/debugging.md) |
+| [Kyo handlers](docs/kyo.md) | [Lifetimes: `Shared`, request scopes](docs/lifetimes.md) | [npm tooling](docs/npm-tooling.md) |
+| [ZIO handlers](docs/zio.md) | [Schemas](docs/schema.md) | [Compatibility](docs/compatibility.md) |
+| [Architecture](docs/architecture.md) | [PostgreSQL with kyo-sql or Skunk](docs/database.md) | [Releases](docs/releases.md) |
+| [Migration from 0.1.0-alpha.1](docs/migration.md) | [Streaming and cancellation](docs/streaming.md) | [Development of this repository](docs/development.md) |
+| | [Testing](docs/testing.md) | |
+| | [Nitro storage and NuxtHub KV](docs/nuxthub.md) | |
+
+The documentation website in [`website/`](website/README.md) presents the same guides.
 
 ## What is here
 
-- `scala-modules/exts/`: native h3 bindings, ZIO handlers, conversion integrations, streaming tests, and recovered experimental migration helpers.
-- `examples/nuxt/`: the optional Nuxt integration demo, its UI/content, route mounts, and application configuration.
-- `examples/nuxt/scala/kyo/`: Kyo models, application services, `AppHandler`, and exported GET/POST handlers.
-- `examples/nuxt/scala/zio/`: the Notes model, Skunk service, environment composition, handlers, and schema, alongside recovered playground services.
-- `packages/nuxt/`: reusable npm CLI and Nuxt module, with a separate release lifecycle.
-- `examples/nuxt/h34s.config.mjs`: demo-specific sbt project IDs, generated outputs, and expected route entry files. Its build wrapper lets root commands use the shared sbt build.
-- `examples/nuxt/server/api/`: demo mounts for linked Scala.js handlers. Generated output is ignored.
-- `website/`: the independently installed documentation site.
-- `scripts/smoke.mjs`: direct HTTP streaming and database insert/read checks against a running development instance.
+- `scala-modules/exts/`: the libraries. `h3` (effect-free native layer), `kyo-h3` (the Kyo core), `zio-h3` (the ZIO adapter), the Kyo and ZIO schema bridges, the ZIO converters, and the Kyo and ZIO storage modules. `zio-migrations` is an unpublished experiment.
+- `packages/nuxt/`: the npm package `@yuri4n/h34s-nuxt`: build CLI, Nuxt module, development loading, source maps and the Nitro plugin.
+- `examples/nuxt/`: an optional demo application. `scala/kyo/` has the Kyo greeting; `scala/zio/` has the ZIO stream and the Skunk Notes example. It is a reference, not a template.
+- `website/`: the documentation site, a separate Nuxt app.
+- `scripts/`: release, consumer and smoke checks.
 
-The [baseline report](docs/baseline.md) records the original import and its historical limitations. The current integration removes source rewriting and the missing `TaskStream` reference. `pnpm build` now links both example applications for production before building Nuxt, with a guard against stale linked output. Full application packaging, Nix support, and Scala-to-TypeScript generation remain separate work.
+h34s does not generate route files, TypeScript types, application scaffolds, database layers or deployment packages yet. Route generation, Nix and sbt-native-packager support are planned.
 
-Use small feature branches, focused commits, and reviewable pull requests. [AGENTS.md](AGENTS.md) records the detailed project direction and delivery rules.
+## Contributing
+
+Use small feature branches, focused commits and reviewable pull requests. [AGENTS.md](AGENTS.md) records the project direction, the user's decisions and the delivery rules.

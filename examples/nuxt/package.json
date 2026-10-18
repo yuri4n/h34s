@@ -4,9 +4,9 @@
   "private": true,
   "packageManager": "pnpm@10.34.4",
   "scripts": {
-    "build": "pnpm run scala:full && nuxt build",
+    "build": "pnpm run scala:full && node --max-old-space-size=8192 node_modules/nuxt/bin/nuxt.mjs build",
     "dev": "node --enable-source-maps node_modules/nuxt/bin/nuxt.mjs dev",
-    "generate": "pnpm run scala:full && nuxt generate",
+    "generate": "pnpm run scala:full && node --max-old-space-size=8192 node_modules/nuxt/bin/nuxt.mjs generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "scala:fast": "pnpm --dir ../.. run scala:fast",

@@ -2,7 +2,7 @@
 
 Shared Scala.js build CLI and Nuxt development integration for h34s. It supplies build ordering, output checks, development loading, source maps, and the Nuxt-controlled error diagnostics plugin. Applications keep their sbt builds, route mounts, models, services, and database migrations.
 
-The npm package has its own [`npm-v0.1.0-alpha.1` release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). Check that release before installing from the registry; an unpublished source checkout can be reviewed as a packed tarball. Maven `v*` releases publish the Scala libraries separately.
+The npm package has its own `npm-v<version>` releases. This version, `0.2.0-alpha.1`, has the release tag [`npm-v0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1) and matches the `0.2.0-alpha.1` Scala libraries; the [`npm-v0.1.0-alpha.1` release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) matches `0.1.0-alpha.1`. Check the release before installing from the registry; an unpublished source checkout can be reviewed as a packed tarball. Maven `v*` releases publish the Scala libraries separately.
 
 Requires Node >=22.18, Nuxt 4.3.1 or 4.4.2, and sbt/Java on the build machine. These Nuxt versions are explicit compatibility profiles. Runtime Scala dependencies are installed through Maven; installing this package does not add ZIO, Kyo, or Schema to the Scala classpath.
 
@@ -34,7 +34,9 @@ export default defineNuxtConfig({
 })
 ```
 
-Remove copied development loaders, source-map hooks, and the `h34s-development` plugin when switching to this module. It installs the development diagnostics flag automatically; only Nuxt development mode enables detailed errors.
+The module registers the h34s Nitro plugin (`runtime/h34s.mjs`). The Scala APIs read Nitro through it: `RuntimeConfig` and `ZRuntimeConfig` (Nuxt `runtimeConfig`), `KHubKv.mount` and `ZHubKv.mount` (Nitro storage), and `Shared` and `ZShared` (application resources, released by Nitro's `close` hook; the Node server preset runs it on `SIGTERM` and `SIGINT` unless you change `NITRO_SHUTDOWN_*`). Without the module, those calls fail with `ConfigError("h34s Nitro plugin is not installed")`, and the handler answers an opaque 500.
+
+Remove copied development loaders, source-map hooks, and the `h34s-development` plugin when switching to this module. It installs the diagnostics flags automatically. Detailed errors appear only in Nuxt development mode or when debug mode is on: `NUXT_H34S_DEBUG=true` at runtime, or `runtimeConfig: { h34s: { debug: true } }` in `nuxt.config`. Nuxt's own `debug` option does not turn it on. Requests can never turn them on. Keep debug mode off in production: it sends error causes and stack text to clients.
 
 ## Run
 

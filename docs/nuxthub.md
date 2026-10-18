@@ -1,38 +1,38 @@
-# Optional NuxtHub KV bindings
+# Nitro storage and NuxtHub KV
 
-This slice binds NuxtHub **0.10.8**'s generated KV API. It does not bind NuxtHub DB, Drizzle schemas, Blob storage, or Alchemy deployment resources. Applications own those integrations and their configuration.
+Use key-value storage from Scala without JavaScript. `KHubKv.mount(base)` (Kyo) and `ZHubKv.mount(base)` (ZIO) open a Nitro storage mount: the same storage that Nitro's `useStorage(base)` returns. You do not import `@nuxthub/kv` or pass a native object.
 
-The modules are independent:
+**Status.** `mount` is new in `0.2.0-alpha.1`. It replaces the `KHubKv(native)` and `ZHubKv(native)` constructors of `0.1.0-alpha.1`; see the [migration guide](migration.md).
 
-| sbt project | API | Runtime dependencies |
+| Module | API | Depends on |
 | --- | --- | --- |
-| `nuxtHubExt` | `HubKv`, `NativeKvSetOptions` | Scala.js only |
-| `zioNuxtHubExt` | `ZHubKv` | ZIO 2.1.23 and NativeConverter 0.9.0 |
-| `kyoNuxtHubExt` | `KHubKv` | Kyo 1.0.0-RC7 and NativeConverter 0.9.0 |
+| `kyo-nuxthub-ext` | `KHubKv` (package `dev.yuri4n.exts.kyonuxthub`) | the Kyo core |
+| `zio-nuxthub-ext` | `ZHubKv` (package `dev.yuri4n.exts.zionuxthub`) | `kyo-nuxthub-ext` and the ZIO adapter |
 
-Neither adapter requires Schema or the other effect runtime. The native module also works without either adapter. The configured alpha coordinates are `dev.yuri4n` %%% `nuxthub-ext`, `zio-nuxthub-ext`, or `kyo-nuxthub-ext`, all at `0.1.0-alpha.1`. Installation requires a successful matching release workflow; see the [private package installation guide](releases.md).
+Neither module needs a schema. The h34s Nitro plugin, which the `@yuri4n/h34s-nuxt` module registers, supplies the storage.
 
-## Supply the application's KV
+## Choose a mount
 
-Enable and configure KV in the Nuxt application, then run Nuxt preparation so `@nuxthub/kv` exists. NuxtHub generates this module; the reusable h34s libraries never import it. Supply its `kv` value at the application composition boundary.
+A mount is a named part of Nitro storage with its own driver. Configure mounts in `nuxt.config.ts` with Nitro's `storage` option, or let a module such as NuxtHub add them. For example, a Redis-backed `cache` mount:
 
-For example, an application can declare its own import:
-
-```scala
-import dev.yuri4n.exts.nuxthub.HubKv
-import scala.scalajs.js
-import scala.scalajs.js.annotation.JSImport
-
-@js.native
-@JSImport("@nuxthub/kv", "kv")
-object ApplicationKv extends HubKv
+```ts
+export default defineNuxtConfig({
+  modules: ['@yuri4n/h34s-nuxt'],
+  nitro: {
+    storage: {
+      cache: { driver: 'redis', url: process.env.REDIS_URL },
+    },
+  },
+})
 ```
 
-This import belongs in the application, alongside its service composition. An application can also receive a native KV object from its JavaScript entry point and pass it to the adapter. The library does not create storage drivers, read credentials, or own the application's storage shutdown.
+Keep connection URLs and passwords out of committed files; read them from the environment as shown. `mount("")` opens the root storage, which sees every mount.
 
-## Use ordinary effect programs
+NuxtHub: whether NuxtHub 0.10.8 exposes its KV as a Nitro storage mount has not been verified. The bindings were tested with Unstorage 1.17.3's memory driver, the driver NuxtHub 0.10.8 generates for local KV. Check the mount name in your NuxtHub setup before you rely on it.
 
-Models need only NativeConverter:
+## Open and use a mount
+
+Models need only a `NativeConverter` (or a [schema](schema.md)):
 
 ```scala
 import org.getshaka.nativeconverter.NativeConverter
@@ -40,56 +40,55 @@ import org.getshaka.nativeconverter.NativeConverter
 final case class Profile(name: String, visits: Int) derives NativeConverter
 ```
 
-The ZIO adapter returns `Task` values:
-
-```scala
-import dev.yuri4n.exts.zionuxthub.ZHubKv
-
-val cache = ZHubKv(ApplicationKv)
-val update = for
-  _ <- cache.set("profiles:42", Profile("Yuri", 1), ttlSeconds = Some(300))
-  profile <- cache.get[Profile]("profiles:42")
-yield profile // Option[Profile]
-```
-
-The Kyo adapter executes directly in Kyo:
+Kyo:
 
 ```scala
 import dev.yuri4n.exts.kyonuxthub.KHubKv
 import kyo.*
 
-val cache = KHubKv(ApplicationKv)
-val update = cache.set("profiles:42", Profile("Yuri", 1)).map { _ =>
-  cache.get[Profile]("profiles:42")
-} // Option[Profile] < (Async & Abort[Throwable])
+val visit: Option[Profile] < (Async & Abort[Throwable]) =
+  for
+    cache   <- KHubKv.mount("cache")
+    _       <- cache.set("profiles:42", Profile("Yuri", 1), ttlSeconds = Some(300.0))
+    profile <- cache.get[Profile]("profiles:42")
+  yield profile
 ```
 
-Provide the adapter through your ordinary ZIO layers or Kyo `Env` when you need service composition. If you use an `AppHandler` wrapper, write that composition in your application before calling the h34s handler boundary. The KV adapter wraps the store you supply; it does not create your application services or HTTP routes.
+ZIO:
 
-Both adapters expose `get[A](key)`, `set[A](key, value, ttlSeconds = None)`, `has(key)`, `delete(key)`, and `keys(base = None)`. Storage calls and conversion are deferred until execution. Reusing an operation executes a new storage call each time. Synchronous native exceptions, rejected Promises, and conversion errors enter the effect's `Throwable` failure channel.
+```scala
+import dev.yuri4n.exts.zionuxthub.ZHubKv
+import zio.*
 
-## Preserve the storage contract
-
-NuxtHub's generated `kv` exposes `get`, `set`, `has`, `del`, and `keys`. The Scala `delete` method calls `del`; these bindings do not assume a raw `getItem` API.
-
-- Missing values and stored `null` both become `None`. Use `has` when that distinction matters. Native `set(key, undefined)` deletes a key.
-- NativeConverter defines the stored representation; it does not validate domain rules. Conversion uses native values directly, without a JSON text round trip in the adapter. The storage driver still serializes values as required by its backend.
-- Unstorage's default serialization does not preserve every top-level string: text such as `"42"`, `"true"`, or `"null"` can deserialize into another JavaScript type. The adapter preserves that upstream behavior. Prefer model objects for typed records; strings inside DTO fields retain their type. If the converter rejects a value, the operation fails rather than treating the key as missing.
-- `ttlSeconds` is forwarded as the native `{ ttl: seconds }` option. Expiration is driver-dependent. The tested memory driver and NuxtHub's fs-lite driver do not implement TTL; a successful `set` does not prove expiration support.
-- Keys follow Unstorage normalization, including `/` to `:`. `keys(Some("profiles"))` selects descendants under `profiles:`; ordering is driver-dependent. This bounded API does not expose every driver-specific transaction option.
-- Storage Promises have no cancellation contract here. Interrupting a waiting fiber does **not** cancel or roll back an already-started write. Design retries and writes with that behavior in mind.
-
-## Test the adapters
-
-Use the repository's Scala toolchain: Scala 3.5.2 for native/ZIO modules, Scala 3.9.0 for Kyo, Scala.js 1.22.0, and Java 25 for Kyo macros. Install the isolated, private JavaScript test fixture with its lockfile:
-
-```sh
-npm ci --prefix scala-modules/exts/nuxthub/test-js --ignore-scripts
-sbt 'zioNuxtHubExt/test' 'kyoNuxtHubExt/test'
+val visit: Task[Option[Profile]] =
+  for
+    cache   <- ZHubKv.mount("cache")
+    _       <- cache.set("profiles:42", Profile("Yuri", 1), ttlSeconds = Some(300.0))
+    profile <- cache.get[Profile]("profiles:42")
+  yield profile
 ```
 
-The fixture pins Unstorage **1.17.3** and constructs `createStorage({ driver: memoryDriver({}) })`, exactly as NuxtHub 0.10.8 generates for its memory driver. It does not start Nuxt or connect to a cloud service. Fault-injection tests separately check failure channels, deferred execution, and TTL forwarding. A test-only `-Dh34s.nuxthub.nodePath=/absolute/node_modules` sbt property can select an existing fixture installation.
+Both APIs offer `get[A](key)`, `set[A](key, value, ttlSeconds = None)`, `has(key)`, `delete(key)` and `keys(base = None)`. Kyo operations are `A < (Async & Abort[Throwable])`; ZIO operations are `Task[A]`. Each run calls the storage again.
 
-All 21 adapter tests pass in the prepared Linux x86_64 checkout: 10 ZIO and 11 Kyo. Both include actual JavaScript failures and interruption while the underlying native operation can still complete. Resolved compile classpaths confirm that neither effect adapter depends on the other runtime.
+`mount` fails with `ConfigError` when the h34s plugin is not installed (`h34s Nitro plugin is not installed`) or when the mount is not available. An unhandled `ConfigError` is an opaque 500.
 
-The source contract comes from [NuxtHub 0.10.8](https://registry.npmjs.org/@nuxthub/core/-/core-0.10.8.tgz), `dist/module.mjs` and `dist/kv/runtime/kv.d.ts`, and [Unstorage 1.17.3](https://registry.npmjs.org/unstorage/-/unstorage-1.17.3.tgz). These tests do not establish AWS, Cloudflare, Redis, or production deployment support.
+## Know the storage contract
+
+- **Missing values.** A missing key and a stored `null` are both `None`. Use `has` when the difference matters.
+- **Conversion.** Values are converted directly to native values; the driver serializes them for its backend. A stored value that the converter rejects fails `get` with `StoredValueError`, a typed failure that names only the failing path (`root.count`, or a schema path), never the key or the stored value: keys are often session ids, and values can hold tokens. It is server data, so an unhandled one is an opaque 500, never a 422, even when a schema converter rejected it. It is not treated as a missing key.
+- **Top-level strings.** Unstorage's default serialization can turn a stored top-level string such as `"42"`, `"true"` or `"null"` into another JavaScript type (a `Secret("12345")` comes back as a number and fails to decode). Store objects (a case class) for typed records.
+- **TTL.** `ttlSeconds` is forwarded as `{ ttl: seconds }`. Expiry depends on the driver. The memory driver and NuxtHub's fs-lite driver ignore it, so a successful `set` does not prove that a key expires.
+- **Keys.** Keys follow Unstorage normalization: `/` becomes `:`. `keys(Some("profiles"))` lists keys under `profiles:`. The order depends on the driver.
+- **Cancellation.** Storage calls cannot be cancelled. Interrupting a waiting fiber does not cancel or roll back a write that already started.
+
+## Invalidate cached data
+
+h34s adds no cache abstraction. Common patterns with these operations:
+
+- **Delete on write.** After you change the source data, `delete` the cached key in the same handler.
+- **Generation keys.** Store a generation number under one key and include it in every cached key (`catalogue:v7:page:1`). Increment it to invalidate everything at once; old keys expire through the driver's TTL.
+- **Short TTLs.** For data that may be slightly stale, set `ttlSeconds` and accept the delay. Check that your driver supports TTL first.
+
+## What is tested
+
+`KHubKvSuite` (15 tests) and `ZHubKvSpec` (14 tests) on macOS x86_64 with Node 24.19.0: `mount` through a fake h34s startup record, `ConfigError` without the plugin or the mount, round trips with Unstorage 1.17.3's memory driver, `false` and `0` as stored values, `null` and `undefined` as `None`, lazy operations, exact TTL forwarding, JavaScript errors and rejected Promises in the failure channel, value-free `StoredValueError`s for shape and schema mismatches (an opaque 500 in a handler), a `SafeError` from an encoder that stays unapproved, upstream string deserialization, and interruption during a write. No test starts Nuxt, NuxtHub or a cloud service.
