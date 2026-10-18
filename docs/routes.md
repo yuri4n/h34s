@@ -71,14 +71,14 @@ Errors do not take part in Nitro's types. Each declaration exports the error bod
 ```ts
 import type { ErrorBody } from '~~/server/.scala/notes-post'
 
-try {
-  await $fetch('/api/notes', { method: 'POST', body: { text: '' } })
-}
-catch (error) {
-  // $fetch puts the parsed error body on `data`.
-  const body = (error as { data?: ErrorBody }).data
-  // body?.errors: { message: string; path?: string; debug?: { cause: string } }[]
-}
+await $fetch('/api/notes', {
+  method: 'POST',
+  body: { text: '' },
+  onResponseError({ response }) {
+    const body: ErrorBody = response._data
+    // body.errors: { message: string; path?: string }[]
+  },
+})
 ```
 
 `debug` appears only on internal errors in development or debug mode. See [debugging](debugging.md).

@@ -26,6 +26,16 @@ export async function checks(): Promise<void> {
   // @ts-expect-error an entry needs a message
   const missing: ErrorBody = { errors: [{ path: 'text' }] }
 
+  // The error body, as the routes guide reads it.
+  await $fetch('/api/notes', {
+    method: 'POST',
+    body: { text: '' },
+    onResponseError({ response }) {
+      const body: ErrorBody = response._data
+      console.warn(body.errors.map(entry => entry.path ?? entry.message))
+    },
+  })
+
   const listed: ListBody = { data: [{ id: 1, text: 'a' }] }
   // @ts-expect-error ids are numbers
   const badList: ListBody = { data: [{ id: '1', text: 'a' }] }
