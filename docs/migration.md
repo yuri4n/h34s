@@ -122,7 +122,7 @@ val createNote: EventHandler = AppHandler.define(create)
 
 ## 4. Update your clients
 
-The wire format changed. Update your TypeScript types and `fetch` code:
+The wire format changed. Update your `fetch` code, and remove the TypeScript interfaces you wrote for these bodies: the generated declarations type `$fetch` (see [routes and typed `$fetch`](routes.md)):
 
 | Response | 0.1.0-alpha.1 | Now (default options) |
 | --- | --- | --- |
@@ -147,6 +147,15 @@ Body problems now have their own statuses: 415 for a non-JSON content type, 413 
 Keep `@yuri4n/h34s-nuxt` in `modules`. Its Nitro plugin is now `runtime/h34s.mjs` and supplies the development and debug flags, runtime config, storage and the close hook. The module registers it for you. If you registered `runtime/development.mjs` yourself, remove that entry; the old file still re-exports the new plugin for one release.
 
 The module also declares `runtimeConfig.h34s.debug: false`, so `NUXT_H34S_DEBUG=true` turns on diagnostics at runtime. Nuxt's own `debug` option does not turn them on. Keep debug mode off in production; see [debugging](debugging.md).
+
+Mount your handlers from Scala, then delete the route files:
+
+1. Add `.at(Route.get("/api/notes"))` (with the route and method of the file) to each exported handler.
+2. Remove `entries` from `h34s.config.mjs`, or keep them for outputs that still have route files.
+3. Link with `h34s-scala dev`. It prints the routes it found and writes `h34s-routes.json` and the `.d.ts` files.
+4. Delete the `server/api` files that re-export the linked modules, and the hand-written `declare module` types for them. A route file and `.at` for the same route register the handler twice.
+
+Route files keep working if you want to move later. See [routes and typed `$fetch`](routes.md).
 
 Use the package version that matches your Scala libraries: `@yuri4n/h34s-nuxt@0.2.0-alpha.1`. The published `0.1.0-alpha.1` package lacks the new plugin records, and `RuntimeConfig` and `KHubKv.mount` then fail with `ConfigError`.
 

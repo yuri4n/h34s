@@ -53,11 +53,11 @@ To see a working setup first, run the demo in `examples/nuxt/` with the [develop
 
 ## 2. Add Scala handlers to an existing Nuxt app
 
-Keep your TypeScript handlers. Scala handlers live next to them, one route file per export.
+Keep your TypeScript handlers. Scala handlers live next to them and declare their own routes.
 
 1. Add an sbt build in your repository (for example in `scala-server/`), as in [Configure the Scala.js module](#configure-the-scalajs-module). Point its linker output at a generated directory such as `server/.scala`.
 2. Add `@yuri4n/h34s-nuxt` and `h3@1.15.4`, and register the module in `nuxt.config.ts`. See [npm tooling](npm-tooling.md).
-3. Move only the routes you want to Scala. A TypeScript route and a Scala route can share a path prefix; Nuxt routes by file name.
+3. Move only the routes you want to Scala. A TypeScript route and a Scala route can share a path prefix. Give each Scala route its own path and method: two handlers for the same route and method conflict.
 4. Read your existing `runtimeConfig` keys from Scala with `RuntimeConfig` (Kyo) or `ZRuntimeConfig` (ZIO). See [configuration](configuration.md).
 
 The h34s wire format wraps values in `{"data": ...}`. If existing clients expect the raw value, pass `HandlerOptions(success = SuccessEnvelope.Raw)` for those routes. `Raw` sends a string as `text/plain; charset=utf-8` and any other value as JSON (`application/json`), unless you set a content type.
@@ -105,11 +105,11 @@ lazy val server = project.in(file("scala-server"))
 
 For ZIO, replace `kyo-h3-ext` with `zio-h3-ext`. Run sbt with JDK 25.
 
-`OutputPatterns.fromJSFile("%s.js")` makes each exported module a `<name>.js` file, which the route files import. Keep only generated files in `server/.scala`: a production build clears it.
+`OutputPatterns.fromJSFile("%s.js")` makes each exported module a `<name>.js` file, which Nitro mounts. Keep only generated files in `server/.scala`: a production build clears it.
 
 ## Write, mount and run a handler
 
-1. Write a handler and export it as the `default` export of its own module:
+1. Write a handler, export it as the `default` export of its own module, and give it a route with `.at`:
 
    ```scala
    import dev.yuri4n.exts.kyoh3.*
@@ -120,31 +120,25 @@ For ZIO, replace `kyo-h3-ext` with `zio-h3-ext`. Run sbt with JDK 25.
    final case class Greeting(message: String) derives NativeConverter
 
    @JSExportTopLevel("default", "hello-get")
-   val hello: EventHandler = KHandler.define(_ => Greeting("Hello from Scala"))
+   val hello: EventHandler = KHandler.define(_ => Greeting("Hello from Scala")).at(Route.get("/api/hello"))
    ```
 
-2. Mount it with a one-line route file, `server/api/hello.get.ts`:
-
-   ```ts
-   export { default } from '../.scala/hello-get.js'
-   ```
-
-3. List the module in `h34s.config.mjs`:
+2. Point `h34s.config.mjs` at the linked output:
 
    ```js
    import { defineConfig } from '@yuri4n/h34s-nuxt/build'
 
    export default defineConfig({
-     modules: [{ project: 'server', output: 'server/.scala', entries: ['hello-get.js'] }],
+     modules: [{ project: 'server', output: 'server/.scala' }],
    })
    ```
 
-4. Link and start Nuxt with the scripts from [npm tooling](npm-tooling.md): `pnpm dev:scala`.
-5. Request `http://127.0.0.1:3000/api/hello`. Expected body: `{"data":{"message":"Hello from Scala"}}`.
+3. Link and start Nuxt with the scripts from [npm tooling](npm-tooling.md): `pnpm dev:scala`. The link step prints `[h34s] 1 route in server/.scala`.
+4. Request `http://127.0.0.1:3000/api/hello`. Expected body: `{"data":{"message":"Hello from Scala"}}`.
 
-If the request returns 404, check that the route file name and the `default` export match. If Nitro cannot resolve `h3`, add `h3@1.15.4` to your app's dependencies. If the module is missing, check that linking finished and wrote `server/.scala/hello-get.js`.
+You write no route file: the Nuxt module mounts the route from the manifest that `h34s-scala` writes after linking, and `$fetch('/api/hello')` is typed from the generated declaration. `derives NativeConverter` types the body as `unknown`; derive `NativeSchema` from a schema to get its fields. See [routes and typed `$fetch`](routes.md).
 
-Route files are the one piece of JavaScript you still write. Generated route registration is planned.
+If the request returns 404, check that the link step printed the route; if Nuxt warns that `server/.scala/h34s-routes.json` is missing, link first and restart Nuxt. If Nitro cannot resolve `h3`, add `h3@1.15.4` to your app's dependencies.
 
 ## Grow from there
 

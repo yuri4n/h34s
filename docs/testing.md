@@ -111,7 +111,7 @@ test("create rejects invalid input before the service runs") {
 
 Your clients depend on the JSON shapes, the statuses and the error entries. Pin them in tests:
 
-- **Model shapes.** Convert a value and compare the JSON text with what your TypeScript types expect: `note.toJson` (from `NativeConverter`). A schema type gives the shapes listed in [schemas](schema.md#kyo-wire-shapes).
+- **Model shapes.** Convert a value and compare the JSON text with what your clients expect: `note.toJson` (from `NativeConverter`). For a converter that describes its TypeScript type, also check `converter.wireType.describes(js.JSON.parse(note.toJson))`; see [routes and typed `$fetch`](routes.md#where-the-types-come-from). A schema type gives the shapes listed in [schemas](schema.md#kyo-wire-shapes).
 - **Error entries.** Assert the exact `InvalidInput` entries, as above. They are your 422 contract.
 - **Statuses and headers.** Assert `head.status` and `head.headers` from the run. Remember that on failure the core keeps only `OnFailure.Keep` entries.
 - **The envelope.** `{"data": ...}`, `{"errors": [...]}` and 204 come from the core and are covered by h34s's own tests. Check them end to end with an HTTP request against a running server, for example in a smoke script.

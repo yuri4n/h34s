@@ -29,15 +29,11 @@ pnpm run scala:fast
 pnpm dev
 ```
 
-In the prepared cloud environment the linking command is:
-
-```sh
-/workspace/tooling/h34s-sbt 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
-```
+In the prepared cloud environment, put the prepared launcher on `PATH` (see above) and run the same `pnpm run scala:fast`. Linking with sbt alone (`nuxtsvr/fastLinkJS`) is not enough: the CLI collects the routes after linking, and the linker deletes the previous route manifests and declarations.
 
 Development loads the linked Scala.js ES modules directly in Node. Nitro watches both output directories and replaces its worker after relinking, keeping Node’s module cache fresh. This avoids the large Rollup graphs that exhausted an 8 GB heap during bundled watch rebuilds. The current `pnpm dev` script enables Node source maps automatically and needs no heap override. The application pins `h3` as a direct runtime dependency for the linked modules.
 
-Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. It streams its body, and streamed bodies are sent as they are. Value bodies use the default envelope instead: `/api/kyo/greeting` answers `{"data":{"message":"Hello, Kyo!"}}`. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `pnpm run scala:watch` in another terminal. The root scripts pass `examples/nuxt/h34s.build.config.mjs` to the CLI. That wrapper uses the demo's `h34s.config.mjs` and resolves its output paths from the repository root.
+Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. It streams its body, and streamed bodies are sent as they are. Value bodies use the default envelope instead: `/api/kyo/greeting` answers `{"data":{"message":"Hello, Kyo!"}}`. `pnpm run scala:fast` links both applications and prints `[h34s] 5 routes in ...`: the Scala handlers declare their routes with `.at(Route...)`, and the demo has no `server/api` route files. Scala source changes need another `pnpm run scala:fast`; Nuxt watches the linked JavaScript and the route manifests. For continuous Scala linking, use `pnpm run scala:watch` in another terminal; it collects the routes again after each link. See [routes and typed `$fetch`](routes.md). The root scripts pass `examples/nuxt/h34s.build.config.mjs` to the CLI. That wrapper uses the demo's `h34s.config.mjs` and resolves its output paths from the repository root.
 
 Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
 
@@ -97,7 +93,7 @@ With the combined build toolchain selected, run:
 pnpm build
 ```
 
-This runs `pnpm run scala:full` before the demo's Nuxt production build. The packaged `h34s-scala build` step reads `examples/nuxt/h34s.build.config.mjs`, clears previous output from both `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, and checks that both outputs exist. A failed link stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own. Nuxt writes the deployable output to `examples/nuxt/.output/`.
+This runs `pnpm run scala:full` before the demo's Nuxt production build. The packaged `h34s-scala build` step reads `examples/nuxt/h34s.build.config.mjs`, clears previous output from both `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, then loads both outputs to collect their routes and write the route manifests and `.d.ts` declarations. A failed link, or an output without handlers, stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own. Nuxt writes the deployable output to `examples/nuxt/.output/`.
 
 The example's `build` and `generate` scripts run Nuxt with an 8 GiB Node heap (`node --max-old-space-size=8192`). Nitro bundles the linked Scala.js output for production, about 16 MB of JavaScript for the two applications. With Node's default heap (about 4 GiB on a 16 GB machine), that step ran out of memory. Give your own application's Nuxt build the same option if its linked Scala.js output is similarly large.
 
@@ -121,10 +117,19 @@ Run the library and example tests, link both applications, and run the tooling t
 ```sh
 for fixture in scala-modules/exts/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
 sbt 'h3Ext/test' 'kyoH3Ext/test' 'kyoNuxtHubExt/test' 'nativeConverterKyoSchemaExt/test' \
-  'zioH3Ext/test' 'zioNuxtHubExt/test' 'nativeConverterZIOSchemaExt/test' 'nuxtsvr/test' \
-  'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
+  'zioH3Ext/test' 'zioNuxtHubExt/test' 'nativeConverterZIOSchemaExt/test' 'nuxtsvr/test'
+pnpm run scala:fast
 node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
 ```
+
+Check that Nuxt types the Scala routes. `nuxt prepare` writes Nitro's route types from the manifests:
+
+```sh
+pnpm --dir examples/nuxt exec nuxt prepare
+node scripts/check-route-types.mjs
+```
+
+The check type-checks `examples/nuxt/test/route-types.ts` and `app/utils/scala-api.ts` with `tsc`. Its `@ts-expect-error` lines fail if a route becomes untyped.
 
 Then start the example (development or production) and run the HTTP smoke checks against it:
 
@@ -150,8 +155,14 @@ After the review fixes on the same day and machine (with the native SQLite conne
 - `pnpm build` passed again. Against `node .output/server/index.mjs`, `kyo-smoke.mjs` passed with the default salutation and, after a restart with `NUXT_GREETING_SALUTATION=Hi`, with `H34S_EXPECTED_SALUTATION=Hi`. `H34S_SMOKE_SKIP_DATABASE=true node scripts/smoke.mjs` passed without PostgreSQL: invalid Notes input is now a 422 before any database work. `/api/test` carried `text/plain; charset=utf-8` and `X-Content-Type-Options: nosniff`.
 - The Scala CI command passed: `h3Ext` 36 tests, `kyoH3Ext` 79, `kyoNuxtHubExt` 15, `nativeConverterKyoSchemaExt` 25, `zioH3Ext` 81, `zioNuxtHubExt` 14, `nativeConverterZIOSchemaExt` 20, and `nuxtsvr` 6, plus the compile-only modules, `releaseCheck`, and `check-release.mjs --allow-snapshot`. The 47 tooling tests passed. `check-consumers.mjs` (now installing the pinned h3 fixture with `npm ci`) passed for the four consumers.
 
+For the generated routes (Scala routes with `.at`, no `server/api` files), on 2026-10-17 on the same machine:
+
+- `pnpm build` linked both applications, printed `[h34s] 5 routes`, and built Nuxt. Against `node .output/server/index.mjs`, `kyo-smoke.mjs` and `H34S_SMOKE_SKIP_DATABASE=true node scripts/smoke.mjs` passed; `/api/notes` without a database answered the opaque 500, and an unknown route Nitro's 404. Nitro loads each route lazily; Rollup puts the modules of one Scala.js output into one chunk, because they share Scala.js's internal module.
+- `check-route-types.mjs` passed after `nuxt prepare`, and failed as expected when a declaration was removed.
+- The Scala CI command passed: `h3Ext` 46 tests, `kyoH3Ext` 83, `kyoNuxtHubExt` 15, `nativeConverterKyoSchemaExt` 29, `nativeConverterZIOSchemaExt` 22, and the ZIO modules and `nuxtsvr` without failures. The 58 tooling tests passed with `TMPDIR` set to its real path; with macOS's default `/var/folders/...` temporary directory, a symlink to `/private/var`, five development-resolver tests in the unchanged `scripts/scala-dev-modules.test.mjs` compare the two spellings and fail. `check-npm-package.mjs` and `check-npm-nuxt.mjs` passed with the packed module, including a route mounted while `nuxt dev` ran.
+
 Not verified: the Notes routes against PostgreSQL. Docker was not running on the verification machine, so `smoke.mjs` stopped at its first database request, and the 201 and 422 Notes responses in section 2 come from the handler and schema test suites, not from a database run. A client disconnect inside a running Nitro server was not exercised either; the Kyo test suite aborts a real HTTP client against h3 in Node.
 
 Use direct HTTP for stream responses. In-process Nitro local fetches (`$fetch` during server rendering) were not tested with streamed Scala bodies.
 
-Scala-to-TypeScript generation, complete application packaging, and Nix support remain pending.
+TypeScript types for request bodies, complete application packaging, and Nix support remain pending.
