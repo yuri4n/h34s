@@ -14,4 +14,4 @@ You write ordinary Scala: a handler is a function from the request to the respon
 
 Start with [the getting-started tutorial](/guide/getting-started), choose an [adoption path](/guide/adoption), or read about [Kyo handlers](/guide/kyo) and [ZIO handlers](/guide/zio).
 
-This site describes the unreleased `0.2.0-SNAPSHOT` from the `feat/kyo-core` branch. The published `0.1.0-alpha.1` libraries and `@yuri4n/h34s-nuxt@0.1.0-alpha.1` have an older API; see the [migration guide](/reference/migration). Route generation, Nix and application packaging are planned; [status](/reference/status) records what works today.
+This site describes `0.2.0-alpha.1`. Install it after its tag workflows have published and verified the packages; follow the [release installation guide](https://github.com/yuri4n/h34s/blob/v0.2.0-alpha.1/docs/releases.md). The published `0.1.0-alpha.1` libraries and `@yuri4n/h34s-nuxt@0.1.0-alpha.1` have an older API; see the [migration guide](/reference/migration). Route generation, Nix and application packaging are planned; [status](/reference/status) records what works today.

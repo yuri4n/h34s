@@ -130,7 +130,8 @@ const guides = [
           </UButton>
         </div>
         <p class="hero-footnote">
-          This preview is not published yet. The repository demo is optional.
+          Release 0.2.0-alpha.1 is a private alpha. The repository demo is
+          optional.
         </p>
       </div>
 
@@ -268,8 +269,8 @@ const guides = [
       </div>
       <div class="status-description">
         <p>
-          The published alpha has the older API. This preview moves the core to
-          Kyo, adds a ZIO adapter, Scala configuration, shared resources and one
+          0.1.0-alpha.1 has the older API. 0.2.0-alpha.1 moves the core to Kyo,
+          adds a ZIO adapter, Scala configuration, shared resources and one
           schema per model. Route generation and packaging remain planned.
         </p>
         <NuxtLink class="text-link" to="/reference/status"

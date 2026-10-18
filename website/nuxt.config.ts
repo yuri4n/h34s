@@ -71,9 +71,10 @@ export default defineNuxtConfig({
       'h34s is a Scala.js toolbox for Nuxt/Nitro. Its core is written in Kyo; '
       + 'ZIO is a first-class adapter over that core. Kyo applications never '
       + 'depend on ZIO; ZIO applications get Kyo transitively.',
-      'This documentation describes the unreleased 0.2.0-SNAPSHOT '
-      + '(feat/kyo-core branch). The published 0.1.0-alpha.1 libraries and npm '
-      + 'tooling have an older API with independent runtimes.',
+      'This documentation describes h34s 0.2.0-alpha.1, whose Maven and npm '
+      + 'packages are private on GitHub Packages. The published 0.1.0-alpha.1 '
+      + 'libraries and npm tooling have an older API with independent '
+      + 'runtimes.',
       'A handler is a function from an immutable Request to the response body. '
       + 'Values are sent as {"data": ...}, errors as {"errors": [{"message"}]}, '
       + 'Unit as 204. Only SafeError data reaches clients.',
