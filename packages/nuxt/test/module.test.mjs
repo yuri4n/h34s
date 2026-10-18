@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 // The package uses Node's runner without additional test dependencies.
 // eslint-disable-next-line test/no-import-node-test
 import test from 'node:test'
@@ -20,16 +21,91 @@ async function setup(t, options, nuxtOptions = {}) {
     { project: 'kyo', output: 'server/.scala-kyo', entries: ['main.js'] }
   ] }`,
   )
-  let configure
+  const hooks = {}
   await h34sNuxt(options, {
     options: { rootDir: root, ...nuxtOptions },
     hook(name, callback) {
-      assert.equal(name, 'nitro:config')
-      configure = callback
+      assert.ok(['nitro:config', 'nitro:init'].includes(name), name)
+      hooks[name] = callback
     },
   })
-  return { root, configure }
+  return { root, configure: hooks['nitro:config'], init: hooks['nitro:init'] }
 }
+
+async function manifest(root, output, routes) {
+  await mkdir(join(root, output), { recursive: true })
+  await writeFile(join(root, output, 'h34s-routes.json'), JSON.stringify({ version: 1, routes, declarations: [] }))
+}
+
+test('mounts the routes of each output manifest as lazy Nitro handlers, after existing ones', async (t) => {
+  const { root, configure } = await setup(t)
+  await manifest(root, 'server/.scala', [
+    { module: 'notes-get.js', route: '/api/notes', method: 'get' },
+    { module: 'test.js', route: '/api/test' },
+  ])
+  await manifest(root, 'server/.scala-kyo', [{ module: 'greeting.js', route: '/api/kyo/greeting', method: 'post' }])
+  const existing = { route: '/api/own', handler: join(root, 'server/own.ts') }
+  const nitro = { dev: false, handlers: [existing] }
+  configure(nitro)
+  assert.deepEqual(nitro.handlers, [
+    existing,
+    { route: '/api/notes', method: 'get', lazy: true, handler: join(root, 'server/.scala/notes-get.js') },
+    { route: '/api/test', lazy: true, handler: join(root, 'server/.scala/test.js') },
+    { route: '/api/kyo/greeting', method: 'post', lazy: true, handler: join(root, 'server/.scala-kyo/greeting.js') },
+  ])
+})
+
+test('rejects a manifest whose module leaves the output directory', async (t) => {
+  const { root, configure } = await setup(t)
+  for (const module of ['../escape.js', '/tmp/x.js', 'nested/x.js', 'x.ts']) {
+    await manifest(root, 'server/.scala', [{ module, route: '/api/x' }])
+    assert.throws(() => configure({ dev: false }), /invalid module/, module)
+  }
+  await manifest(root, 'server/.scala', [{ module: 'x.js', route: 'api/x' }])
+  assert.throws(() => configure({ dev: false }), /must start with/)
+})
+
+test('development replaces its routes when a manifest changes, and keeps them while one is missing', async (t) => {
+  const { root, configure, init } = await setup(t)
+  await manifest(root, 'server/.scala', [{ module: 'a.js', route: '/api/a', method: 'get' }])
+  await manifest(root, 'server/.scala-kyo', [{ module: 'k.js', route: '/api/k' }])
+  const config = { dev: true }
+  configure(config)
+  const reloads = []
+  const closers = []
+  const nitro = {
+    options: { dev: true, handlers: config.handlers.map(handler => ({ ...handler })) },
+    hooks: {
+      hook(name, fn) {
+        assert.equal(name, 'close')
+        closers.push(fn)
+      },
+      async callHook(name) {
+        reloads.push(name)
+      },
+    },
+  }
+  init(nitro)
+  t.after(() => closers.forEach(close => close()))
+  const routes = () => nitro.options.handlers.map(handler => `${handler.method ?? '*'} ${handler.route}`).sort()
+  // The linker deletes the manifest while it links: no reload, the routes stay.
+  await rm(join(root, 'server/.scala/h34s-routes.json'))
+  await delay(1_500)
+  assert.deepEqual(reloads, [])
+  assert.deepEqual(routes(), ['* /api/k', 'get /api/a'])
+  // The same routes again: no reload.
+  await manifest(root, 'server/.scala', [{ module: 'a.js', route: '/api/a', method: 'get' }])
+  await delay(1_500)
+  assert.deepEqual(reloads, [])
+  // A new route: one reload with the new list.
+  await manifest(root, 'server/.scala', [
+    { module: 'a.js', route: '/api/a', method: 'get' },
+    { module: 'b.js', route: '/api/b', method: 'delete' },
+  ])
+  await delay(1_500)
+  assert.deepEqual(reloads, ['rollup:reload'])
+  assert.deepEqual(routes(), ['* /api/k', 'delete /api/b', 'get /api/a'])
+})
 
 test('registers maps, direct loading, output watches and diagnostics in development', async (t) => {
   const { root, configure } = await setup(t)
