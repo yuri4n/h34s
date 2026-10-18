@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.kyoh3
 
-import dev.yuri4n.exts.h3.internal.{H3, H3Event, Nitro}
+import dev.yuri4n.exts.h3.internal.{H3, H3Event, HandlerMetadata, Nitro}
 import dev.yuri4n.exts.kyoh3.internal.{Interop, Rendering, RequestLifecycle, StreamResponse, Supervised}
 import kyo.{Abort, Async, Fiber, Frame, Result, Scope, Sync, Var, `<`}
 
@@ -31,7 +31,7 @@ object KHandler:
         frame: Frame,
     ): EventHandler =
       val native: js.Function1[H3Event, js.Any] = event => RequestRuntime.run(event, options, program)
-      EventHandler.fromNative(H3.defineEventHandler(native))
+      EventHandler.fromNative(HandlerMetadata.describe(H3.defineEventHandler(native), options, body.shape))
 
     /** Fails with an approved status and message. */
     def failWith(status: Int, message: String)(using Frame): Nothing < Abort[HttpError] =
