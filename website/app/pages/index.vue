@@ -7,11 +7,13 @@ useSeoMeta({
 })
 
 const example = `@JSExportTopLevel("default", "kyo-greeting-post")
-val personalizedGreeting: EventHandler = AppHandler.define: request =>
-  for
-    input    <- request.body.json[GreetingRequest]
-    greeting <- Env.use[Greetings](_.greet(input.name))
-  yield greeting`
+val personalizedGreeting: EventHandler = AppHandler
+  .define: request =>
+    for
+      input    <- request.body.json[GreetingRequest]
+      greeting <- Env.use[Greetings](_.greet(input.name))
+    yield greeting
+  .at(Route.post("/api/kyo/greeting"))`
 const copied = ref(false)
 const copyError = ref('')
 
