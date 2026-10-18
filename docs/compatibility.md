@@ -75,6 +75,10 @@ Both tags point at `433ac9d`. The workflows ran on GitHub's Linux x86_64 runners
 - The [npm release workflow](https://github.com/yuri4n/h34s/actions/runs/39144809255) for `npm-v0.2.0-alpha.1`: package tests and the packed-archive check on Node 22.18.0 and 24, then the packed module in a Nuxt 4.3.1 project with development and production HTTP checks. It published `@yuri4n/h34s-nuxt@0.2.0-alpha.1`, downloaded it again with registry authentication, and required the download to be byte-identical to the tested archive before an offline install checked the CLI and the JavaScript entry points. The [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1) attaches that archive and `registry.json` with its registry location and integrity.
 - The [Maven release workflow](https://github.com/yuri4n/h34s/actions/runs/39145732257) for `v0.2.0-alpha.1`: the validation job (development integration, every Scala test suite, production linking, publication metadata, and the four fresh consumers from a staged repository), then publication of the nine artifacts to GitHub Packages. `node scripts/check-consumers.mjs --published` then resolved the Kyo, ZIO, Kyo Schema and ZIO Schema consumers from the authenticated registry, and each one served real h3 requests. The [prerelease](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1) was created only after that check passed.
 
+#### Downstream consumer
+
+The private `yurian.land` application consumes the published packages in its pull request [#15](https://github.com/yuri4n/yurian.land/pull/15). It resolves `kyo-h3-ext`, `kyo-nuxthub-ext` and `native-converter-kyo-schema-ext` `0.2.0-alpha.1` from GitHub Packages and installs `@yuri4n/h34s-nuxt@0.2.0-alpha.1` with Nuxt 4.4.2. Its [CI run](https://github.com/yuri4n/yurian.land/actions/runs/39147055600) for commit `0337ccb` passed on GitHub's Ubuntu 24.04 runner: Node and Scala tests, a production Nuxt build, and API checks against PostgreSQL 16 and Redis. This is evidence for one Kyo application, not for the ZIO modules or other Nuxt setups.
+
 ### Untested
 
 | Area | Status |
