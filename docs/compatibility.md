@@ -8,12 +8,13 @@ A compatibility profile is a set of versions that was tested together, on a stat
 
 Listing a library here does not make it a dependency of your application. Add only the modules you use.
 
-## Profile `alpha-0.2.0` (`0.2.0-alpha.1`)
+## Profile `alpha-0.2.0` (`0.2.0-alpha.1`, published)
 
-Version `0.2.0-alpha.1`, released from this source with the Kyo core and the ZIO adapter. This profile records the checks made before the release tag; it does not claim that publication has completed. Check the [releases](https://github.com/yuri4n/h34s/releases) and their workflows for publication evidence.
+Version `0.2.0-alpha.1`, with the Kyo core and the ZIO adapter. It was published on 2026-10-18 from commit `433ac9d`, the merge of [#14](https://github.com/yuri4n/h34s/pull/14): the [Maven prerelease](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1) and the [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1). The [release evidence](#release-workflows) below links the workflows that published and verified the packages.
 
 | Component | Version |
 | --- | --- |
+| Artifacts | nine `dev.yuri4n` modules, `0.2.0-alpha.1`, private GitHub Packages |
 | Scala (every module) | 3.9.0 |
 | Scala.js linker | 1.22.0 |
 | Build JDK | 25 (checked with Temurin 25.0.4.1+1) |
@@ -25,7 +26,7 @@ Version `0.2.0-alpha.1`, released from this source with the Kyo core and the ZIO
 | Skunk (demo only) | 1.0.0-M12 |
 | Node / pnpm | 24 (checked with 24.19.0) / 10.34.4 |
 | Nuxt (demo lockfile) | 4.3.1, with Nitro 2.13.1 |
-| npm tooling | `@yuri4n/h34s-nuxt@0.2.0-alpha.1` (the repository demo uses the workspace link) |
+| npm tooling | `@yuri4n/h34s-nuxt@0.2.0-alpha.1`, private GitHub Packages (the repository demo uses the workspace link) |
 
 ### Locally verified
 
@@ -65,7 +66,14 @@ Pull request CI for [#14](https://github.com/yuri4n/h34s/pull/14) passed on GitH
 - The [Nuxt build tooling workflow](https://github.com/yuri4n/h34s/actions/runs/39075718554): package tests and the packed-archive check on Node 22.18.0 and 24, and the Nuxt 4.3.1 development and production HTTP checks.
 - The [documentation website workflow](https://github.com/yuri4n/h34s/actions/runs/39075718873).
 
-The Scala.js and npm tag workflows repeat their checks for `0.2.0-alpha.1` and verify the published packages.
+The same workflows passed again on the merge commit `433ac9d` on `main`, with version `0.2.0-alpha.1`: [Scala.js libraries](https://github.com/yuri4n/h34s/actions/runs/39144782174), [Nuxt build tooling](https://github.com/yuri4n/h34s/actions/runs/39144782180) and the [documentation website](https://github.com/yuri4n/h34s/actions/runs/39144782493).
+
+#### Release workflows
+
+Both tags point at `433ac9d`. The workflows ran on GitHub's Linux x86_64 runners, and the npm release finished before the Maven release started.
+
+- The [npm release workflow](https://github.com/yuri4n/h34s/actions/runs/39144809255) for `npm-v0.2.0-alpha.1`: package tests and the packed-archive check on Node 22.18.0 and 24, then the packed module in a Nuxt 4.3.1 project with development and production HTTP checks. It published `@yuri4n/h34s-nuxt@0.2.0-alpha.1`, downloaded it again with registry authentication, and required the download to be byte-identical to the tested archive before an offline install checked the CLI and the JavaScript entry points. The [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1) attaches that archive and `registry.json` with its registry location and integrity.
+- The [Maven release workflow](https://github.com/yuri4n/h34s/actions/runs/39145732257) for `v0.2.0-alpha.1`: the validation job (development integration, every Scala test suite, production linking, publication metadata, and the four fresh consumers from a staged repository), then publication of the nine artifacts to GitHub Packages. `node scripts/check-consumers.mjs --published` then resolved the Kyo, ZIO, Kyo Schema and ZIO Schema consumers from the authenticated registry, and each one served real h3 requests. The [prerelease](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1) was created only after that check passed.
 
 ### Untested
 
