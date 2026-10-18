@@ -13,7 +13,15 @@ import scala.util.control.NoStackTrace
 final case class ErrorEntry(message: String, path: Option[String] = None)
 
 object ErrorEntry:
-    given NativeConverter[ErrorEntry]:
+    given NativeConverter[ErrorEntry] = Converter
+
+    /** The converter, with the TypeScript type it writes. */
+    private object Converter extends NativeConverter[ErrorEntry] with WireType.Described:
+        val wireType: WireType = WireType.ObjectOf(List(
+          WireField("message", WireType.StringValue),
+          WireField("path", WireType.StringValue, optional = true),
+        ))
+
         extension (entry: ErrorEntry)
             def toNative: js.Any =
               val native = js.Dynamic.literal(message = entry.message)

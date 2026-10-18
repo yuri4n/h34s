@@ -103,11 +103,18 @@ private[exts] final class NativeStorageSetOptions(val ttl: Double) extends js.Ob
 private[exts] object Symbols:
     val nitro: js.Symbol = js.Symbol.forKey("h34s.nitro")
     val rawBody: js.Symbol = js.Symbol.forKey("h3RawBody")
+    val handler: js.Symbol = js.Symbol.forKey("h34s.handler")
 
 @js.native
 private[exts] trait GlobalWithNitro extends js.Object:
     @JSName(Symbols.nitro)
     def h34sNitro: js.UndefOr[NitroGlobalContext] = js.native
+
+/** A native handler function with the h34s record of `HandlerMetadata`. */
+@js.native
+private[exts] trait WithHandlerMetadata extends js.Object:
+    @JSName(Symbols.handler)
+    def h34sHandler: js.UndefOr[js.Any] = js.native
 
 /** h3 caches a raw body Promise under `Symbol.for("h3RawBody")` on the Node request. */
 @js.native
