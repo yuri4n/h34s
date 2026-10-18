@@ -2,9 +2,9 @@
 
 `@yuri4n/h34s-nuxt` owns the reusable JavaScript build and development integration. Applications configure their Scala.js modules once, then use its `h34s-scala` CLI and Nuxt module. They do not copy build scripts, source-map loaders, or Nitro plugins.
 
-**[`@yuri4n/h34s-nuxt@0.1.0-alpha.1` is published](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1)** in the private GitHub npm registry. Its `npm-v0.1.0-alpha.1` tag is separate from the immutable Maven `v0.1.0-alpha.1` release.
+**[`@yuri4n/h34s-nuxt@0.2.0-alpha.1` is published](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1)** in the private GitHub npm registry. Its `npm-v0.2.0-alpha.1` tag is separate from the Maven [`v0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1) release; both tags point at the same commit. The older [`@yuri4n/h34s-nuxt@0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) stays published for the `0.1.0-alpha.1` libraries.
 
-**Use the package version that matches your Scala libraries.** This source builds the package as `0.2.0-alpha.1`, like the Scala libraries, with its own release tag, `npm-v0.2.0-alpha.1`. Check that release before installing from the registry. The Kyo core reads runtime config, storage and the close hook from the package's new Nitro plugin. The published `0.1.0-alpha.1` package only supplies the development flag, so with it `RuntimeConfig`, `KHubKv.mount` and their ZIO versions fail with `ConfigError("h34s Nitro plugin is not installed")`, and `Shared` resources are not released when Nitro closes.
+**Use the package version that matches your Scala libraries.** Install `@yuri4n/h34s-nuxt@0.2.0-alpha.1` with the `0.2.0-alpha.1` Scala libraries. The Kyo core reads runtime config, storage and the close hook from the package's new Nitro plugin. The `0.1.0-alpha.1` package only supplies the development flag, so with it `RuntimeConfig`, `KHubKv.mount` and their ZIO versions fail with `ConfigError("h34s Nitro plugin is not installed")`, and `Shared` resources are not released when Nitro closes.
 
 ## Install the tooling
 
@@ -28,7 +28,7 @@ pnpm add -D @yuri4n/h34s-nuxt@0.2.0-alpha.1
 pnpm add h3@1.15.4
 ```
 
-With the published `0.1.0-alpha.1` Scala libraries, install the matching published package instead: `pnpm add -D @yuri4n/h34s-nuxt@0.1.0-alpha.1`.
+With the older `0.1.0-alpha.1` Scala libraries, install the matching package instead: `pnpm add -D @yuri4n/h34s-nuxt@0.1.0-alpha.1`.
 
 For local source review, run this from the h34s checkout:
 
@@ -46,9 +46,9 @@ The repository example uses the local package. A packed-tarball check verifies t
 
 Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, and a production bundle that runs without the original generated files.
 
-The [successful npm release workflow](https://github.com/yuri4n/h34s/actions/runs/38937318206) downloaded the published archive with registry authentication, compared its bytes with the tested tarball, and installed that download offline in a clean consumer. It checked the CLI and all three JavaScript entry points without installing Nuxt as a peer. The release attaches the tarball and `registry.json`, which records its stable registry URL and integrity.
+For `0.2.0-alpha.1`, the [successful npm release workflow](https://github.com/yuri4n/h34s/actions/runs/39144809255) downloaded the published archive with registry authentication, compared its bytes with the tested tarball, and installed that download offline in a clean consumer. It checked the CLI and all three JavaScript entry points without installing Nuxt as a peer. The [release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1) attaches the tarball and `registry.json`, which records its stable registry URL and integrity. The [`0.1.0-alpha.1` workflow](https://github.com/yuri4n/h34s/actions/runs/38937318206) ran the same checks for that version.
 
-Nuxt 4.3.1 passes the packed-package development and production HTTP checks in CI. Nuxt 4.4.2 passes the same checks locally on Linux x86_64 with Node 24.19.0. Package-level tests also cover Node 22.18.0 and 24. These results establish those explicit profiles, not every Nuxt 4.x version or a Nix/NixOS build.
+Nuxt 4.3.1 passes the packed-package development and production HTTP checks in CI, including the `0.2.0-alpha.1` release workflow. Nuxt 4.4.2 passed the same checks locally on Linux x86_64 with Node 24.19.0 for `0.1.0-alpha.1`; h34s's own checks have not repeated that profile for `0.2.0-alpha.1`. Package-level tests also cover Node 22.18.0 and 24. These results establish those explicit profiles, not every Nuxt 4.x version or a Nix/NixOS build.
 
 ## Configure the Scala.js outputs
 

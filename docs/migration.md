@@ -2,7 +2,7 @@
 
 The Kyo core refactor changes the module graph, the handler shape and the wire format. This guide lists every removed or renamed API with its replacement. Work through it in order: toolchain, dependencies, handlers, clients.
 
-**Status.** The new API is `0.2.0-alpha.1`. Nothing here changes the published `0.1.0-alpha.1` artifacts.
+**Status.** The new API is [`0.2.0-alpha.1`, which is published](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1). The `0.1.0-alpha.1` artifacts stay published and unchanged, so you can upgrade when you are ready.
 
 ## 1. Update the toolchain
 
@@ -148,8 +148,8 @@ Keep `@yuri4n/h34s-nuxt` in `modules`. Its Nitro plugin is now `runtime/h34s.mjs
 
 The module also declares `runtimeConfig.h34s.debug: false`, so `NUXT_H34S_DEBUG=true` turns on diagnostics at runtime. Nuxt's own `debug` option does not turn them on. Keep debug mode off in production; see [debugging](debugging.md).
 
-Use the package version that matches your Scala libraries: `@yuri4n/h34s-nuxt@0.2.0-alpha.1`. The published `0.1.0-alpha.1` package lacks the new plugin records, and `RuntimeConfig` and `KHubKv.mount` then fail with `ConfigError`.
+Use the package version that matches your Scala libraries: `@yuri4n/h34s-nuxt@0.2.0-alpha.1`. The `0.1.0-alpha.1` package lacks the new plugin records, and `RuntimeConfig` and `KHubKv.mount` then fail with `ConfigError`.
 
 ## Roll back
 
-To stay on the old API, keep your dependencies at `0.1.0-alpha.1`, Scala 3.5.2 for ZIO code, and the published `@yuri4n/h34s-nuxt@0.1.0-alpha.1`. Do not mix modules from the two versions in one application: their `SafeError` types and module graphs differ.
+To stay on the old API, keep your dependencies at `0.1.0-alpha.1`, Scala 3.5.2 for ZIO code, and `@yuri4n/h34s-nuxt@0.1.0-alpha.1`. Both stay published. Do not mix modules from the two versions in one application: their `SafeError` types and module graphs differ.

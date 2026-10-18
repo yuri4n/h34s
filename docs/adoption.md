@@ -12,9 +12,9 @@ Every path ends with the same steps: [write a handler, mount it, run it](#write-
 
 ## Get the libraries
 
-**The API in these guides is `0.2.0-alpha.1`.** The published `0.1.0-alpha.1` has a different API; see the [migration guide](migration.md).
+**The API in these guides is `0.2.0-alpha.1`.** The older `0.1.0-alpha.1` has a different API; see the [migration guide](migration.md).
 
-Install `0.2.0-alpha.1` from the private GitHub Packages registry described in [releases.md](releases.md), after its release workflow has published and verified the packages.
+Install `0.2.0-alpha.1` from the private GitHub Packages registry described in [releases.md](releases.md). Its [release workflow](https://github.com/yuri4n/h34s/actions/runs/39145732257) published the packages and verified them through the registry.
 
 To build against h34s source changes that are not released, use one of these:
 
