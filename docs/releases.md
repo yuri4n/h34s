@@ -2,9 +2,9 @@
 
 **`dev.yuri4n` version `0.1.0-alpha.1` is published** in the private GitHub Packages Maven registry for `yuri4n/h34s`. The [prerelease](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1) and [successful release workflow](https://github.com/yuri4n/h34s/actions/runs/38779659501) record publication of all eleven artifacts and authenticated ZIO/Kyo/Schema consumer checks.
 
-The current source builds `0.2.0-SNAPSHOT`, which is not published. It changes the module set and the handler API: Kyo is the core runtime, the ZIO modules adapt it, and every module builds with Scala 3.9.0. The tables and commands below describe the current source. Where the published `0.1.0-alpha.1` differs, this guide says so; its [release notes](../.github/release-notes/0.1.0-alpha.1.md) list what that version contains.
+The current source releases **`0.2.0-alpha.1`**. This guide describes its installation and release configuration; it does not mean that the artifacts have been published. Check the repository's [releases](https://github.com/yuri4n/h34s/releases) and successful release workflows before using these coordinates. `0.2.0-alpha.1` changes the module set and the handler API: Kyo is the core runtime, the ZIO modules adapt it, and every module builds with Scala 3.9.0. Its [release notes](../.github/release-notes/0.2.0-alpha.1.md) summarize the changes. The tables and commands below describe `0.2.0-alpha.1`. Where the published `0.1.0-alpha.1` differs, this guide says so; its [release notes](../.github/release-notes/0.1.0-alpha.1.md) list what that version contains.
 
-The reusable JavaScript tooling is published separately as `@yuri4n/h34s-nuxt@0.1.0-alpha.1` in the [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The Maven tag above remains unchanged. See [npm-tooling.md](npm-tooling.md) for package installation, shared configuration, and local tarball review. The current source of that package (`0.2.0-SNAPSHOT`, the same version as `version.sbt`) registers a new Nitro plugin that the next Scala release needs for runtime config, storage mounts, and application-scoped resources. The published `0.1.0-alpha.1` package does not have it, so use both from the same source until they are released together. The next Scala release needs `@yuri4n/h34s-nuxt` at that release's version or later: release the npm package first.
+The reusable JavaScript tooling is published separately as `@yuri4n/h34s-nuxt@0.1.0-alpha.1` in the [npm release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). The Maven tag above remains unchanged. See [npm-tooling.md](npm-tooling.md) for package installation, shared configuration, and local tarball review. The current source of that package is `0.2.0-alpha.1`, the same version as `version.sbt`, and its release tag is `npm-v0.2.0-alpha.1`. It registers a new Nitro plugin that the `0.2.0-alpha.1` Scala libraries need for runtime config, storage mounts, and application-scoped resources. The published `0.1.0-alpha.1` package does not have it. Use `@yuri4n/h34s-nuxt` at the Scala libraries' version or later, and release the npm package first.
 
 ## Toolchain
 
@@ -71,16 +71,16 @@ import org.scalajs.linker.interface.ModuleKind
 lazy val server = project.in(file("scala-server"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
-    scalaVersion := "3.5.2", // 0.1.0-alpha.1; use "3.9.0" from the next release
+    scalaVersion := "3.9.0",
     libraryDependencies +=
-      "dev.yuri4n" %%% "zio-h3-ext" % "0.1.0-alpha.1",
+      "dev.yuri4n" %%% "zio-h3-ext" % "0.2.0-alpha.1",
     scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)),
   )
 ```
 
-For Kyo, use Scala `3.9.0` and replace `zio-h3-ext` with `kyo-h3-ext`. From the next release, both APIs use Scala `3.9.0`. Keep Java 25 selected when compiling. These dependencies bring their runtime and the shared native layer transitively.
+For Kyo, replace `zio-h3-ext` with `kyo-h3-ext`. Both APIs use Scala `3.9.0`; in `0.1.0-alpha.1` the ZIO API used Scala `3.5.2`. Keep Java 25 selected when compiling. These dependencies bring their runtime and the shared native layer transitively.
 
-The current `h3-ext` has hand-written, internal h3 and Nitro facades. Your handlers receive a `Request` value and return a body; they do not call facades. `0.1.0-alpha.1` instead packaged ScalablyTyped-generated facades under `dev.yuri4n.h34s.facades.h3` and `dev.yuri4n.h34s.facades.std`. The next release removes those packages.
+The current `h3-ext` has hand-written, internal h3 and Nitro facades. Your handlers receive a `Request` value and return a body; they do not call facades. `0.1.0-alpha.1` instead packaged ScalablyTyped-generated facades under `dev.yuri4n.h34s.facades.h3` and `dev.yuri4n.h34s.facades.std`. `0.2.0-alpha.1` removes those packages.
 
 Install h3 in the Nuxt application as a runtime dependency:
 
@@ -92,7 +92,7 @@ Maven dependencies supply Scala.js code, while pnpm supplies the JavaScript modu
 
 ## Independently consumable modules
 
-Every row uses organization `dev.yuri4n` and Scala.js coordinates selected by `%%%`. The current source builds these nine library modules as `0.2.0-SNAPSHOT`:
+Every row uses organization `dev.yuri4n` and Scala.js coordinates selected by `%%%`. The current source releases these nine library modules as `0.2.0-alpha.1`:
 
 | Artifact | Purpose | Brings |
 | --- | --- | --- |
@@ -106,7 +106,7 @@ Every row uses organization `dev.yuri4n` and Scala.js coordinates selected by `%
 | `native-converter-zio-json-ext` | NativeConverter support for ZIO JSON values | ZIO JSON, no Kyo |
 | `native-converter-zio-schema-ext` | Optional `derives NativeSchema` from a ZIO `Schema` | ZIO Schema, no Kyo |
 
-`0.1.0-alpha.1` published eleven artifacts. The next release removes three of them and adds one:
+`0.1.0-alpha.1` published eleven artifacts. `0.2.0-alpha.1` removes three of them and adds one:
 
 - `zio-js-ext` is removed. It no longer contained code.
 - `nuxthub-ext` is removed. The storage adapters open a Nitro mount by name (`KHubKv.mount("kv")`) through the h34s Nitro plugin, so your application does not supply a native KV object.
@@ -119,7 +119,7 @@ Schema support stays optional. Add `native-converter-zio-schema-ext` (with `"dev
 
 The root project, aggregates, applications, examples, and the experimental `zioMigrationsExt` are excluded from publication. Database services, configuration, models, and `AppHandler` composition stay in application modules. The reusable libraries do not require the example's Skunk database.
 
-Releases include binary and source jars. `build.sbt` still omits Scaladoc jars. In `0.1.0-alpha.1` the reason was that Scala 3.5's documentation generator failed on the generated inline h3 facades. Those facades are gone, but publishing Scaladoc again has not been tested. The [documentation website](https://github.com/yuri4n/h34s/tree/v0.1.0-alpha.1/website/content) and source jars remain the API guides.
+Releases include binary and source jars. `build.sbt` still omits Scaladoc jars. In `0.1.0-alpha.1` the reason was that Scala 3.5's documentation generator failed on the generated inline h3 facades. Those facades are gone, but publishing Scaladoc again has not been tested. The [documentation website](https://github.com/yuri4n/h34s/tree/v0.2.0-alpha.1/website/content) and source jars remain the API guides.
 
 ## Validate and publish a release
 
@@ -168,7 +168,7 @@ Each project compiles, links, checks its resolved dependencies, and serves real 
 
 `pnpm run scala:full` clears previous linked output before linking both application modules for production, then checks that their output exists. The normal `pnpm build` command runs this step before Nuxt's production build, so a failed link cannot package stale development code.
 
-The `v0.1.0-alpha.1` tag is already released and must not be moved. For a future release:
+Released tags, such as `v0.1.0-alpha.1`, must not be moved. For each release:
 
 1. Release the npm package with the same version first (see below), because the Scala libraries need its Nitro plugin.
 2. Update the Maven version in `version.sbt`.

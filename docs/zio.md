@@ -4,7 +4,7 @@ The ZIO API is a first-class, hand-written adapter over the Kyo core. You write 
 
 Your application depends on `zio-h3-ext`, which brings the Kyo core with it. You never write Kyo code in a ZIO application.
 
-**Status.** This guide describes `0.2.0-SNAPSHOT` on the `feat/kyo-core` branch. It is not published yet; the published `0.1.0-alpha.1` has a different ZIO API. The [migration guide](migration.md) maps every old call to its replacement.
+**Status.** This guide describes `0.2.0-alpha.1`. The published `0.1.0-alpha.1` has a different ZIO API. The [migration guide](migration.md) maps every old call to its replacement.
 
 ## Prerequisites
 

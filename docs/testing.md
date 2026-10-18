@@ -2,7 +2,7 @@
 
 A handler is a plain function from `Request` to a program. Test it like any other function: build a fake request, run the program with an empty response head, and check the body and the head. You need no h3, no Nitro and no server.
 
-**Status.** `Request.fake` and these patterns are part of `0.2.0-SNAPSHOT` (not published yet).
+**Status.** `Request.fake` and these patterns are new in `0.2.0-alpha.1`.
 
 ## Keep handlers as values
 

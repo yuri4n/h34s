@@ -9,7 +9,7 @@ Every resource has an owner and a lifetime. h34s gives you two scopes:
 
 Choose the shortest lifetime that works. Open request resources inside the handler; open application resources once.
 
-**Status.** `Shared` and `ZShared` are part of `0.2.0-SNAPSHOT` (not published yet).
+**Status.** `Shared` and `ZShared` are new in `0.2.0-alpha.1`.
 
 ## Request resources
 

@@ -2,7 +2,7 @@
 
 Return a stream as the response body, and h34s sends its elements as they are produced. The request scope stays open until the stream ends, so resources the stream needs stay alive. When the client goes away, h34s stops the stream and waits for its cleanup.
 
-**Status.** Kyo and ZIO stream bodies are part of `0.2.0-SNAPSHOT` (not published yet). They replace `ZHandler.sendStream` from `0.1.0-alpha.1`.
+**Status.** Kyo and ZIO stream bodies are new in `0.2.0-alpha.1`. They replace `ZHandler.sendStream` from `0.1.0-alpha.1`.
 
 ## Return a stream
 

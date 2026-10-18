@@ -12,14 +12,14 @@ Every path ends with the same steps: [write a handler, mount it, run it](#write-
 
 ## Get the libraries
 
-**The API in these guides is `0.2.0-SNAPSHOT` on the `feat/kyo-core` branch. It is not published yet.** The published `0.1.0-alpha.1` has a different API; see the [migration guide](migration.md).
+**The API in these guides is `0.2.0-alpha.1`.** The published `0.1.0-alpha.1` has a different API; see the [migration guide](migration.md).
 
-Until the next release, use one of these:
+Install `0.2.0-alpha.1` from the private GitHub Packages registry described in [releases.md](releases.md), after its release workflow has published and verified the packages.
 
-- Publish the branch to your local Ivy repository: run `sbt releasePublishLocal` in an h34s checkout of the branch (JDK 25), then depend on `0.2.0-SNAPSHOT`. sbt resolves the local Ivy repository by default. This path has not been exercised on this branch; the repository's own consumer check publishes to a temporary Maven directory instead.
+To build against h34s source changes that are not released, use one of these:
+
+- Publish an h34s checkout to your local Ivy repository: run `sbt releasePublishLocal` in it (JDK 25), then depend on the version in its `version.sbt`. sbt resolves the local Ivy repository by default, before the registry, so remove that local copy before you depend on a registry release with the same version. This path has not been exercised by hand; the repository's own consumer check publishes to a temporary Maven directory instead.
 - Reference the h34s source projects from your sbt build.
-
-After a release, use the private GitHub Packages registry described in [releases.md](releases.md).
 
 Pick the modules for your runtime. Kyo applications never need ZIO; ZIO applications get Kyo through the ZIO adapter:
 
@@ -92,7 +92,7 @@ lazy val server = project.in(file("scala-server"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     scalaVersion := "3.9.0",
-    libraryDependencies += "dev.yuri4n" %%% "kyo-h3-ext" % "0.2.0-SNAPSHOT",
+    libraryDependencies += "dev.yuri4n" %%% "kyo-h3-ext" % "0.2.0-alpha.1",
     scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)
       .withOutputPatterns(OutputPatterns.fromJSFile("%s.js"))),
     Compile / fastLinkJS / scalaJSLinkerConfig ~= (_.withSourceMap(true)),

@@ -2,7 +2,7 @@
 
 h34s is a toolbox for running Scala.js server code in your Nuxt/Nitro application. You add the modules you need, write your models and services, and mount your handlers as Nuxt routes. The repository also holds a runnable demo in `examples/nuxt/` and the documentation site in `website/`. Neither is part of the toolbox.
 
-**Status.** This page describes the `feat/kyo-core` design, version `0.2.0-SNAPSHOT`. It is not published yet. The published `0.1.0-alpha.1` release has a different module graph with two independent runtimes; the [migration guide](migration.md) lists every change.
+**Status.** This page describes the design of `0.2.0-alpha.1`. The published `0.1.0-alpha.1` release has a different module graph with two independent runtimes; the [migration guide](migration.md) lists every change.
 
 ## Layers
 

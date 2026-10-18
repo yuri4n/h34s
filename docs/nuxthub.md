@@ -2,7 +2,7 @@
 
 Use key-value storage from Scala without JavaScript. `KHubKv.mount(base)` (Kyo) and `ZHubKv.mount(base)` (ZIO) open a Nitro storage mount: the same storage that Nitro's `useStorage(base)` returns. You do not import `@nuxthub/kv` or pass a native object.
 
-**Status.** `mount` is part of `0.2.0-SNAPSHOT` (not published yet). It replaces the `KHubKv(native)` and `ZHubKv(native)` constructors of `0.1.0-alpha.1`; see the [migration guide](migration.md).
+**Status.** `mount` is new in `0.2.0-alpha.1`. It replaces the `KHubKv(native)` and `ZHubKv(native)` constructors of `0.1.0-alpha.1`; see the [migration guide](migration.md).
 
 | Module | API | Depends on |
 | --- | --- | --- |

@@ -8,9 +8,9 @@ A compatibility profile is a set of versions that was tested together, on a stat
 
 Listing a library here does not make it a dependency of your application. Add only the modules you use.
 
-## Profile `kyo-core-dev` (this branch, unreleased)
+## Profile `alpha-0.2.0` (`0.2.0-alpha.1`)
 
-The `feat/kyo-core` branch, version `0.2.0-SNAPSHOT`. Nothing in this profile is published.
+Version `0.2.0-alpha.1`, released from this source with the Kyo core and the ZIO adapter. This profile records the checks made before the release tag; it does not claim that publication has completed. Check the [releases](https://github.com/yuri4n/h34s/releases) and their workflows for publication evidence.
 
 | Component | Version |
 | --- | --- |
@@ -25,7 +25,7 @@ The `feat/kyo-core` branch, version `0.2.0-SNAPSHOT`. Nothing in this profile is
 | Skunk (demo only) | 1.0.0-M12 |
 | Node / pnpm | 24 (checked with 24.19.0) / 10.34.4 |
 | Nuxt (demo lockfile) | 4.3.1, with Nitro 2.13.1 |
-| npm tooling | `@yuri4n/h34s-nuxt@0.2.0-SNAPSHOT` from this branch (workspace link or packed tarball; not published) |
+| npm tooling | `@yuri4n/h34s-nuxt@0.2.0-alpha.1` (the repository demo uses the workspace link) |
 
 ### Locally verified
 
@@ -59,7 +59,13 @@ The Scala tests use real h3 1.15.4 events with mocked Node responses. They do no
 
 ### CI-validated
 
-None yet. The branch has not been pushed, so no workflow has run on it. The workflows in `.github/workflows/` describe what CI will run.
+Pull request CI for [#14](https://github.com/yuri4n/h34s/pull/14) passed on GitHub's `ubuntu-24.04` runners (Linux x86_64) for commit `8f9e222`, with version `0.2.0-SNAPSHOT`:
+
+- The [Scala.js libraries workflow](https://github.com/yuri4n/h34s/actions/runs/39075718558): the Node tests, every Scala test suite, production linking of both demo applications, `releaseCheck`, `check-release.mjs --allow-snapshot`, and the four fresh Maven consumers.
+- The [Nuxt build tooling workflow](https://github.com/yuri4n/h34s/actions/runs/39075718554): package tests and the packed-archive check on Node 22.18.0 and 24, and the Nuxt 4.3.1 development and production HTTP checks.
+- The [documentation website workflow](https://github.com/yuri4n/h34s/actions/runs/39075718873).
+
+The Scala.js and npm tag workflows repeat their checks for `0.2.0-alpha.1` and verify the published packages.
 
 ### Untested
 
@@ -71,7 +77,7 @@ None yet. The branch has not been pushed, so no workflow has run on it. The work
 | kyo-sql / kyo-sql-postgres at runtime, inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) code compiles only |
 | NuxtHub KV as a Nitro storage mount | Not verified; storage tests use Unstorage 1.17.3's memory driver |
 | Nitro presets other than Node (serverless, edge, Workers) | Not tested; streaming needs a Node HTTP response |
-| Linux, Windows | Not run on this branch |
+| Linux beyond the CI checks above, Windows | Not run |
 | Nix / NixOS | No Nix profile exists yet |
 | Other Scala, Kyo, ZIO or h3 versions | Not supported; Kyo 1.0.0-RC7 needs Scala 3.9.0 and JDK 25 |
 

@@ -18,7 +18,7 @@ Create the schema with your own migration tool or scripts. Handlers should never
 
 ## Kyo: kyo-sql and kyo-sql-postgres
 
-**Status: compiles, never run.** The code below compiles against kyo-sql-postgres 1.0.0-RC7 and this branch's h34s API (checked with a temporary test file). It has not been run against a database or inside Nitro, and nothing in this repository uses kyo-sql yet. Treat it as a starting point.
+**Status: compiles, never run.** The code below compiles against kyo-sql-postgres 1.0.0-RC7 and the h34s `0.2.0-alpha.1` API (checked with a temporary test file). It has not been run against a database or inside Nitro, and nothing in this repository uses kyo-sql yet. Treat it as a starting point.
 
 Add the client to your application:
 

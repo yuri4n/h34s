@@ -2,7 +2,7 @@
 
 Shared Scala.js build CLI and Nuxt development integration for h34s. It supplies build ordering, output checks, development loading, source maps, and the Nuxt-controlled error diagnostics plugin. Applications keep their sbt builds, route mounts, models, services, and database migrations.
 
-The npm package has its own [`npm-v0.1.0-alpha.1` release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1). Check that release before installing from the registry; an unpublished source checkout can be reviewed as a packed tarball. Maven `v*` releases publish the Scala libraries separately.
+The npm package has its own `npm-v<version>` releases. This version, `0.2.0-alpha.1`, has the release tag [`npm-v0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1) and matches the `0.2.0-alpha.1` Scala libraries; the [`npm-v0.1.0-alpha.1` release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) matches `0.1.0-alpha.1`. Check the release before installing from the registry; an unpublished source checkout can be reviewed as a packed tarball. Maven `v*` releases publish the Scala libraries separately.
 
 Requires Node >=22.18, Nuxt 4.3.1 or 4.4.2, and sbt/Java on the build machine. These Nuxt versions are explicit compatibility profiles. Runtime Scala dependencies are installed through Maven; installing this package does not add ZIO, Kyo, or Schema to the Scala classpath.
 
