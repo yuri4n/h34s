@@ -78,13 +78,16 @@ lazy val commonJsTests = Seq(
 )
 
 /** Node resolves npm fixtures from these test-js directories (override with -Dh34s.<name>.nodePath). */
-def testJsEnv(fixtures: (String, File)*) =
+def testJsEnv(fixtures: (String, File)*) = testJsEnvWith(Map.empty, fixtures*)
+
+// claude 2026-10-19: created: testJsEnv with extra environment variables (the kyo-h3 Nitro local-fetch tests need the workspace root)
+def testJsEnvWith(extra: Map[String, String], fixtures: (String, File)*) =
   new org.scalajs.jsenv.nodejs.NodeJSEnv(
     org.scalajs.jsenv.nodejs.NodeJSEnv.Config().withEnv(Map(
       "NODE_PATH" -> fixtures.map { case (name, moduleDirectory) =>
         sys.props.getOrElse(s"h34s.$name.nodePath", (moduleDirectory / "test-js" / "node_modules").getAbsolutePath)
       }.mkString(java.io.File.pathSeparator),
-    )),
+    ) ++ extra),
   )
 
 lazy val root = (project in file("."))
@@ -144,7 +147,11 @@ lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
       "org.scalameta" %%% "munit"            % munitVersion % Test,
     ),
     commonJsTests,
-    Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
+    // claude 2026-10-19: changed: H34S_WORKSPACE lets NitroLocal resolve nitropack 2.13.1's own h3, node-mock-http and ofetch from the pnpm workspace (run pnpm install first)
+    Test / jsEnv := testJsEnvWith(
+      Map("H34S_WORKSPACE" -> (ThisBuild / baseDirectory).value.getAbsolutePath),
+      "h3" -> (h3Ext / baseDirectory).value,
+    ),
   )
   // Tests reuse the native h3 event and Node response fixtures of h3-ext.
   .dependsOn(h3Ext % "compile->compile;test->test")

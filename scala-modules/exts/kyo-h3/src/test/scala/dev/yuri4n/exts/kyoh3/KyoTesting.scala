@@ -55,10 +55,10 @@ private[exts] object KyoTesting:
       import AllowUnsafe.embrace.danger
       Fiber.Unsafe.init(Abort.run[Throwable](program)).toFuture()
 
-    // claude 2026-10-19: created: runs a handler program without h3: a detached transport
+    // claude 2026-10-19: created: runs a handler program without h3: a detached transport and no $fetch
     /** Provides what `KHandler.define` provides per request, for calling a handler function directly. */
     def detached[A](program: A < HandlerEffects)(using Frame): A < (Async & Scope & Abort[Throwable] & Var[ResponseHead]) =
-      Env.run(HandlerTransport.detached)(program)
+      Env.run(Fetch.unavailable)(Env.run(HandlerTransport.detached)(program))
 
     def nextTurn: Future[Unit] =
       val completed = Promise[Unit]()
