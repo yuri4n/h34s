@@ -2,7 +2,7 @@ import type { NuxtModule } from 'nuxt/schema'
 
 export interface H34sNuxtOptions {
   configFile?: string
-  // claude 2026-10-19: changed: the scalaPrerender option (issue #30), and the build error when a prerendered page reaches the stub (review F1)
+  // claude 2026-10-19: created: the scalaPrerender option (issue #30), and the build error when a prerendered page reaches the stub (review F1)
   /**
    * How Nitro's prerender bundle gets the linked Scala.js in production builds.
    * `'bundle'` (the default) bundles it, as the server build does. `'stub'` replaces every

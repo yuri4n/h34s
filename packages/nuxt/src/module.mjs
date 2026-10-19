@@ -11,7 +11,7 @@ export default async function h34sNuxt(options, nuxt) {
   const root = nuxt.options.rootDir
   const config = await loadConfig({ root, configFile: options?.configFile })
   const outputs = config.modules.map(module => module.output)
-  // claude 2026-10-19: changed: 'stub' replaces the linked Scala.js in Nitro's prerender bundle only, in production builds, and reports the requests that reached the stub (review F1)
+  // claude 2026-10-19: created: 'stub' replaces the linked Scala.js in Nitro's prerender bundle only, in production builds, and reports the requests that reached the stub (review F1)
   if (scalaPrerender === 'stub' && !nuxt.options.dev) {
     nuxt.hook('nitro:init', (nitro) => {
       nitro.hooks.hook('prerender:init', (prerenderer) => {
@@ -22,7 +22,7 @@ export default async function h34sNuxt(options, nuxt) {
           rollupConfig.plugins.unshift(scalaPrerenderStub(root, outputs))
         })
       })
-      nitro.hooks.hook('prerender:done', result => reportStubCalls(nitro, result)) // claude 2026-10-19: changed: passes Nitro's result (review F1)
+      nitro.hooks.hook('prerender:done', result => reportStubCalls(nitro, result)) // claude 2026-10-19: created: passes Nitro's result (review F1)
     })
   }
   nuxt.hook('nitro:config', (nitro) => {
@@ -74,7 +74,7 @@ function scalaPrerenderOption(value = 'bundle') {
 // A page that catches the stub's 501, as useFetch does, still prerenders with status 200, so
 // Nitro's own check of failed routes does not see it. Nuxt turns on `prerender.failOnError`; with
 // it, the build stops here, before Nitro builds the server output.
-// claude 2026-10-19: changed: lets Nitro stop the build when it fails on its own (review F1)
+// claude 2026-10-19: created: lets Nitro stop the build when it fails on its own (review F1)
 // Nitro 2.13.1 calls `prerender:done` before its own check. When that check is about to stop the
 // build (`failOnError` and at least one failed route), a throw here would hide Nitro's summary of
 // the failed routes, so h34s logs its report as an error and lets Nitro throw.

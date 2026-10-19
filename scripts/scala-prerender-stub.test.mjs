@@ -110,7 +110,7 @@ test('with scalaPrerenderStub, the bundle holds the stub instead of the linked S
   const server = createServer(h3.toNodeListener(app))
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
-  // claude 2026-10-19: changed: real h3 events give the stub's record the method, path and prerendered page (review F1)
+  // claude 2026-10-19: created: real h3 events give the stub's record the method, path and prerendered page (review F1)
   recordStubCalls()
   t.after(takeStubCalls)
   const url = path => `http://127.0.0.1:${server.address().port}${path}`

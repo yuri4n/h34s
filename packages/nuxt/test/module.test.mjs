@@ -34,7 +34,7 @@ async function setup(t, options, nuxtOptions = {}, allowed = ['nitro:config']) {
   return { root, configure: hooks.get('nitro:config'), hooks }
 }
 
-// claude 2026-10-19: changed: a Nitro instance whose hooks only record their callbacks, with prerender options and a recording logger (review F1)
+// claude 2026-10-19: created: a Nitro instance whose hooks only record their callbacks, with prerender options and a recording logger (review F1)
 function recordingNitro(prerender = { failOnError: true }) {
   const hooks = new Map()
   const warnings = []
@@ -45,7 +45,7 @@ function recordingNitro(prerender = { failOnError: true }) {
     errors, // claude 2026-10-19: created: the logger's error lines
     nitro: {
       options: { prerender },
-      logger: { warn: message => warnings.push(message), error: message => errors.push(message) }, // claude 2026-10-19: changed: also records errors
+      logger: { warn: message => warnings.push(message), error: message => errors.push(message) }, // claude 2026-10-19: created: also records errors
       hooks: {
         hook(name, callback) {
           assert.ok(!hooks.has(name), `Nitro hook ${name} registered twice`)
@@ -174,7 +174,7 @@ test('registers the prerender hook only for scalaPrerender: \'stub\' in producti
   }
 })
 
-// claude 2026-10-19: changed: 'stub' puts the stub plugin first in the prerender Rollup build only; the main Nitro also gets prerender:done (review F1)
+// claude 2026-10-19: created: 'stub' puts the stub plugin first in the prerender Rollup build only; the main Nitro also gets prerender:done (review F1)
 test('scalaPrerender: \'stub\' puts the stub plugin first in the prerender Rollup build and leaves the server build alone', async (t) => {
   const { root, configure, main, renderer } = await prerenderHooks(t)
   t.after(takeStubCalls)
@@ -277,7 +277,7 @@ test('scalaPrerender: \'stub\' reports requests that reached the stub after prer
   lenientFailed.main.hooks.get('prerender:done')({ prerenderedRoutes: [], failedRoutes: [{ route: '/api/notes' }] })
   assert.equal(lenientFailed.main.warnings.length, 1)
   assert.deepEqual(lenientFailed.main.errors, [])
-  assert.equal(warnings.length, 5, 'the stub logged each request') // claude 2026-10-19: changed: three more requests above
+  assert.equal(warnings.length, 5, 'the stub logged each request') // claude 2026-10-19: created: three more requests above
 })
 
 // claude 2026-10-19: created: an unknown scalaPrerender value fails before any hook is registered

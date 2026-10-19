@@ -113,7 +113,7 @@ async function loadStub(f) {
   return import(pathToFileURL(await f.put('stub.mjs', loaded.code)).href)
 }
 
-// claude 2026-10-19: changed: the stub also logs the request it answers (review F1)
+// claude 2026-10-19: created: the stub also logs the request it answers (review F1)
 test('loads a stub whose exports are h3 event handlers that answer 501 and name the option', async (t) => {
   const f = await fixture(t)
   const warnings = captureWarnings(t)
