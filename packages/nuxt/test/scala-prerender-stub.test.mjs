@@ -176,6 +176,26 @@ test('a call without an h3 event throws a message that names no route, and is re
   assert.deepEqual(stubCallReport([outside]).split('\n')[1], '  Scala.js code called without an h3 event, not as a route handler')
 })
 
+// claude 2026-10-19: created: query strings can hold tokens, so the record and the log keep the path only (Codex review on #55)
+test('records and logs the path without its query string or fragment', async (t) => {
+  const f = await fixture(t)
+  const warnings = captureWarnings(t)
+  const stub = await loadStub(f)
+  t.after(takeStubCalls)
+  recordStubCalls()
+  const request = {
+    method: 'GET',
+    originalUrl: '/api/report?token=secret-value#part',
+    url: '/report?token=secret-value',
+    headers: { 'x-nitro-prerender': '/reports?session=secret-page' },
+  }
+  assert.throws(() => stub.default({ method: 'GET', path: '/report?token=secret-value', node: { req: request } }), { statusCode: 501 })
+  const calls = takeStubCalls()
+  assert.deepEqual(calls, [{ method: 'GET', path: '/api/report?…', page: '/reports?…' }])
+  for (const text of [...warnings, stubCallReport(calls)])
+    assert.doesNotMatch(text, /secret/)
+})
+
 // claude 2026-10-19: created: the stub records each request while the Nuxt module collects them (review F1)
 test('records each request that reaches the stub while a record is open, and logs it', async (t) => {
   const f = await fixture(t)

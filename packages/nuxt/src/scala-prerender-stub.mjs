@@ -24,12 +24,18 @@ const callsKey = 'h34s.scalaPrerenderStub.calls'
 // neither h3 nor Nitro logs it as unhandled. Nitro's error response then keeps the message instead
 // of "Server Error". The stub throws instead of returning a response because every named import
 // resolves to it, so code may also call it as an ordinary function, for example at startup.
-// claude 2026-10-19: created: a call without an h3 event names no route (review F5)
+// A query string or fragment can hold tokens, so the record and the warning keep the path only.
+// claude 2026-10-19: created: the stub module: a handled 501, calls without an h3 event (review F5), paths without their query (Codex review on #55)
 const stubSource = `const statusMessage = ${JSON.stringify(statusMessage)}
 const message = ${JSON.stringify(message)}
 const outsideCall = ${JSON.stringify(outsideCall)}
 const outsideMessage = ${JSON.stringify(outsideMessage)}
 const calls = Symbol.for(${JSON.stringify(callsKey)})
+function withoutQuery(value) {
+  const text = String(value)
+  const end = text.search(/[?#]/)
+  return end < 0 ? text : text.slice(0, end) + '?…'
+}
 class ScalaPrerenderStubError extends Error {
   static __h3_error__ = true
   name = 'ScalaPrerenderStubError'
@@ -45,8 +51,8 @@ function scalaPrerenderStub(event) {
   const call = isEvent
     ? {
         method: String(event?.method ?? request?.method ?? 'GET'),
-        path: String(request?.originalUrl ?? event?.path ?? request?.url ?? '(unknown path)'),
-        page: typeof page === 'string' ? page : undefined,
+        path: withoutQuery(request?.originalUrl ?? event?.path ?? request?.url ?? '(unknown path)'),
+        page: typeof page === 'string' ? withoutQuery(page) : undefined,
       }
     : { method: undefined, path: undefined, page: undefined }
   const recorded = globalThis[calls]
