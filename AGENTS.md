@@ -4,11 +4,11 @@ These notes record the user's intended direction. They are not a description of 
 
 ## Project identity
 
-- The user has chosen **h34s** as the project name.
+- **nuxt4s** is the umbrella project (maintainer decision, 2026-10-19). **h34s** is the library inside it: the Scala.js modules over h3, and the npm tooling that links them into Nuxt. The library keeps its name. <!-- claude 2026-10-19: changed: the project name replaced by the nuxt4s umbrella and the h34s library (#21) -->
 - h34s is a toolbox for running Scala.js server code in Nuxt/Nitro. Keep the effect-free native layer, the Kyo core API, the ZIO adapter, optional adapters, and npm tooling usable in the user's own project. Application models, services, databases, and deployment choices belong to that project.
-- Keep the repository root for reusable libraries and shared build/test tooling. Put the runnable integration demo, including its Scala application code, under `examples/nuxt/`. The documentation site is a separate Nuxt application under `website/`. Label these roles explicitly; neither application is the h34s product or a required scaffold for consumers.
-- The user authorized the private GitHub repository **yuri4n/h34s**, with remote `https://github.com/yuri4n/h34s.git`. Keep it private unless explicitly asked to change visibility. The user approved private GitHub Packages Maven publication under `dev.yuri4n`, starting with `0.1.0-alpha.1`, including a matching Git tag and GitHub release. Keep both repository and packages private.
-- Do not rename the existing workspace directory, Scala packages, or build artifacts as a side effect of recording the name.
+- Keep the repository root for reusable libraries and shared build/test tooling. Put the runnable integration demo, including its Scala application code, under `examples/nuxt/`. The documentation site is a separate Nuxt application, today under `website/`; it moves to `docs/`, with the guides under `docs/content/` and the maintainer documents outside the content collection (#25). The Scala modules live under `scala-modules/<module>` once the `exts` level is removed (#23), and `zio-migrations` moves under `examples/` (#24). Label these roles explicitly; neither application is the h34s product or a required scaffold for consumers. <!-- claude 2026-10-19: changed: the site's move to docs/ and the planned Scala module layout (#23, #24, #25) -->
+- The user authorized the private GitHub repository **yuri4n/h34s**, with remote `https://github.com/yuri4n/h34s.git`. Keep it private unless explicitly asked to change visibility. The user approved private GitHub Packages Maven publication under `dev.yuri4n`, starting with `0.1.0-alpha.1`, including a matching Git tag and GitHub release. Keep both repository and packages private. The Maven group moves to a nuxt4s namespace and the repository will be renamed `nuxt4s`; the exact group id, and whether h34s gets its own directory or its own repository, are open in #21. <!-- claude 2026-10-19: changed: appended the planned Maven group and repository rename (#21) -->
+- A deliberate rename of the public coordinates is decided (#22): artifact ids `h34s-*`, Scala packages `h34s.*`, project ids to match, and no deprecated forwarders. Until that pull request lands, the current names stay; do not rename anything as a side effect of other work. <!-- claude 2026-10-19: changed: the no-rename rule replaced by the decided coordinate rename (#22) -->
 
 ## Highest priority: developer experience
 
@@ -32,7 +32,7 @@ These notes record the user's intended direction. They are not a description of 
 - `AppHandler` belongs to the example/application, not the reusable toolbox. It should be a thin composition over a library entry point such as `KHandler.define` or `ZHandler.define`, supplying application-specific services, resources, and policy.
 - `AppHandler` is an optional name for code the application author writes, not an h34s export or generated object. Users may call `KHandler.define` or `ZHandler.define` directly when they do not need an application wrapper.
 - The user chose the first-class Kyo API for the `yurian.land` application. Its handlers and service composition should use Kyo; the ZIO Notes example does not select the runtime for that downstream application.
-- Offer ZIO users an API that is as ergonomic and idiomatic as the Kyo API. The user has also called the Kyo API “KIO”; confirm public naming before finalizing it.
+- Offer ZIO users an API that is as ergonomic and idiomatic as the Kyo API. The Kyo API keeps its public names: `KHandler`, `Response`, `RuntimeConfig`, `Shared`, `KHubKv` (maintainer decision, 2026-10-19, #28). <!-- claude 2026-10-19: changed: the Kyo API naming question replaced by the decision (#28) -->
 
 ## HTTP model
 
@@ -42,6 +42,8 @@ These notes record the user's intended direction. They are not a description of 
 - `HandlerOptions` sets the wire format per handler: `{ "data": ... }` for values (or the raw value, with an explicit content type: text for strings, JSON otherwise), `{ "errors": [{ "message", "path"? }] }` for errors (or one `{ "error": ... }` for a single entry), 204 for `Unit`, streams of strings without an envelope. It also sets response defaults, the body limit, and whether JSON reads require a content type.
 - `SafeError` (with `HttpError`, `InvalidInput`, and ZIO `ErrorResponse`) is the only error data a client may see. Every other `Throwable` is an opaque 500. A `SafeError` thrown by a decoder, converter or stored-value read is a defect, never an approved error. Diagnostics appear only in Nuxt development mode or debug mode (`NUXT_H34S_DEBUG=true`, or `runtimeConfig.h34s.debug: true` in `nuxt.config`; never derived from Nuxt's own `debug` option). A request can never enable them.
 - **Client disconnects** (user decision, 2026-10-17). When the client disconnects, h34s interrupts the handler in both runtimes, waits for every request-scope and stream finalizer (asynchronous ones too, and the cleanup of work forked with structured combinators), writes nothing, and only then settles the request. Keep this order; do not settle first and clean up in the background. Guides must explain that interrupted work can roll back, and must show a tested way to make a step finish: `KHandler.uninterruptible(step)` for Kyo (Kyo's `Async.uninterruptible` alone does not delay the settle), `ZIO.uninterruptible` for ZIO. The disconnect tests in `HttpHandlerSuite` (Kyo) and `HandlerBoundarySpec` (ZIO) prove this rule.
+- **Finalizer failures** (maintainer decision, 2026-10-19, #40): a finalizer that fails after the program produced a response is logged and does not change that response, in Kyo and in ZIO alike. A streamed body keeps its current behavior. <!-- claude 2026-10-19: created: the finalizer-failure decision (#40) -->
+- **JSON content type** (maintainer decision, 2026-10-19, #41): from `0.3.0-alpha.1`, `request.body.json` requires a JSON content type by default; `HandlerOptions.requireJsonContentType` can turn it off per handler. <!-- claude 2026-10-19: created: the JSON content-type default decision (#41) -->
 
 ## Environment composition and lifecycle
 
@@ -74,13 +76,14 @@ These notes record the user's intended direction. They are not a description of 
 - Application services, database configuration, and example DTOs belong in examples, not mandatory core dependencies.
 - The `0.1.0-alpha.1` release published eleven independently consumable modules (native, ZIO, Kyo, optional ZIO Schema, optional NuxtHub KV) with independent runtimes. The `0.2.0-alpha.1` release (published 2026-10-18 to the same private registry, with matching `v0.2.0-alpha.1` and `npm-v0.2.0-alpha.1` tags and prereleases) replaced that graph with nine modules on the Kyo core and the ZIO adapter; `docs/migration.md` lists every change. `version.sbt` controls the shared release version; `docs/releases.md` records coordinates and the tag/publish verification workflow. Future compatibility guarantees and broader module additions remain design decisions.
 - Maintain an explicit compatibility matrix for the native layer, the Kyo core, the ZIO adapter, and the optional schema and storage integrations. Distinguish locally verified development combinations, CI/release validation, and untested combinations; list the evidence and platform constraints rather than implying broad support from one pinned build.
+- CI runs a PostgreSQL 16 job for the Kyo example's `KyoSqlPostgresSuite` and the database part of `scripts/smoke.mjs` (maintainer decision, 2026-10-19, #29, PR #45). <!-- claude 2026-10-19: created: the PostgreSQL CI job decision (#29) -->
 - Tie compatibility entries to tested build profiles: record the Nix lock/toolchain reference when available, OS/architecture, the shared sbt/pnpm pipeline, and CI evidence. Track Nix/NixOS support as pending until that profile is implemented and tested; a local non-Nix run does not establish Nix compatibility.
 
 ## Previously requested capabilities
 
 - An unpublished `examples` module demonstrating a Nuxt frontend consuming Scala.js server handlers, a displayed stream, generated TypeScript types, and database writes.
 - The database example runs inside Scala.js/Nitro using **Skunk**. The user reconfirmed Skunk after discussing Doobie: Doobie/JDBC would require a JVM backend. Models, database configuration, service layers, and AppHandler environment composition belong in the application modules. For Kyo applications, guide users to kyo-sql/kyo-sql-postgres used directly.
-- Scala-to-TypeScript generation using **scala-ts**. Distinguish this from ScalablyTyped, which generates Scala facades from TypeScript.
+- Scala-to-TypeScript generation uses the converter-driven generator of PR #15 (`WireShape`, declarations written next to the linked modules), because scala-ts describes Scala types, not what a `NativeConverter` writes (maintainer decision, 2026-10-19, #27). Distinguish this from ScalablyTyped, which generates Scala facades from TypeScript. <!-- claude 2026-10-19: changed: scala-ts replaced by the converter-driven generator of PR #15 (#27) -->
 - Improved code generation and Nuxt imports, potentially through an sbt plugin and Nuxt integration, without making endpoint authors manage the plumbing.
 - Distinct public-safe errors and an unsafe `Throwable` channel. Only explicitly approved safe error data may be displayed; internal exceptions, causes, and defects must not leak to clients.
 - The user explicitly wants development diagnostics tied to Nuxt development mode. In that mode, responses may include original errors, causes, and traces for debugging. Production remains opaque unless the operator turns on debug mode (`NUXT_H34S_DEBUG=true`, or `runtimeConfig.h34s.debug: true` in `nuxt.config`), which exposes the same diagnostics and must stay off in production. Compose Scala.js and Nitro source maps so Node debugging can locate the original Scala source.
@@ -151,6 +154,7 @@ A previous broad MVP implementation was rolled back at the user's request. Do no
 - Before pushing or opening a PR, verify the intended remote, repository, base branch, and authentication. If these are missing or ambiguous, ask the user; do not invent a remote, publish to an arbitrary repository, or claim a PR exists when it does not.
 - PR descriptions should state the purpose and scope, API/behavior changes, validation actually performed, remaining limitations, and migration or rollback considerations where relevant. Include UI verification and screenshots when applicable, without claiming checks that were not run.
 - Do not merge PRs, force-push, rewrite shared history, or delete branches without explicit authorization. Keep independent work isolated until reviewed and integrated deliberately.
+- No deprecated aliases before a non-alpha release (maintainer decision, 2026-10-19): a rename deletes the old name and lists it with its replacement in `docs/migration.md`. The `CommonEvHandler` alias is deleted with the coordinate rename. <!-- claude 2026-10-19: created: the no-deprecation policy (#22) -->
 
 ## Agent sessions
 
@@ -162,3 +166,52 @@ These rules apply to every agent session: on the maintainer's Mac (8 CPUs, 16 GB
 - Run one workflow at a time. Before a run of more than 10 agents, tell the user how many agents will run and what they do.
 - Make each agent write its report file when it starts, and add each finding as soon as it is verified. Keep durable notes in the repository (through a pull request) or in the tracking issue. Session scratch space can disappear.
 - Create release tags and use the Vercel CLI only on the maintainer's Mac, and only with the user's explicit approval.
+
+### Models, shapes and briefs
+
+#### Models
+
+<!-- claude 2026-10-19: created: the maintainer's rules on models, verbatim -->
+
+- The session model (Fable) orchestrates. It writes the briefs, reads the reports, records the decisions and talks to the user. It does not read diffs, run builds or write code.
+- Every delegable agent runs on Opus: the implementer, the reviewer, the fixer, the finalizer, a search, a log reader, a carry or a format commit.
+- Fable takes a seat only for: a design or plan panel, a gate review, and the skeptic of concurrency, resource-release or terminal-restore code. When in doubt, use Opus.
+- In a workflow script: `model: 'opus'` on every agent except the skeptic, which omits `model` and inherits the session model.
+
+#### Shapes (cheap cadence)
+
+<!-- claude 2026-10-19: created: the maintainer's rules on phase shapes, verbatim -->
+
+- Feature or refactor phase: three agents, in sequence. (1) Implementer: commits on the branch, does not push. (2) One review seat: a reviewer with a numbered checklist, or the skeptic for concurrency and restore code. Never both. (3) Fixer: applies the findings, runs the one full verification, runs the integration kit once, pushes.
+- Mechanical phase (a move of callers, sinks, test-kit internals): one agent that implements, verifies and pushes. No review seat.
+- The cut is the review seat, never the verification.
+- One sbt (or build) process at a time. A phase owns the working tree from its first commit to its push. The orchestrator does not edit, commit or push while a phase runs, also when a stop hook asks for it.
+- Each phase ends with a push and a report. The orchestrator then: starts CI on the branch, records the phase in the notes, and starts the next phase.
+
+#### Briefs
+
+<!-- claude 2026-10-19: created: the maintainer's rules on briefs, verbatim -->
+
+- One context block, reused in every brief of a phase: repository, branch, HEAD, what is already done, the toolchain commands, the rule files, where the research notes and the sources are, the user's annotation and style rules, the commit trailers, the "never" list.
+- Then the scope, numbered. For a refactor: the exact sites (a grep that lists them) and the reason each comment gives. For a feature: an audit step first (what the library defines, what the code does today), then the features with their semantics, then the tests, then the examples and docs.
+- A return schema (StructuredOutput) with: commits, counts that must be zero, the design in two or three fields, test names, deviations, open issues. The orchestrator reads only this; it never reads the agent's transcript.
+- The reviewer brief: the diff command, the report of the implementer, a checklist where every item is a question answered with evidence from the code, and "do not fix anything; do not run the build".
+- The fixer brief: the findings, the order of the verification steps, the push command with retries, and "a failure is a root cause, never a flake; never skip, disable or loosen a test".
+- Tell the fixer to start the full check early: an agent can be cut off by its turn budget. When that happens, start a one-agent finalizer that reads the check log, runs the kit and pushes; do not redo the implementation.
+
+#### Safety nets of a rewrite
+
+<!-- claude 2026-10-19: created: the maintainer's rules on safety nets, verbatim -->
+
+- Before a pure function changes, copy the old code into the test sources as an oracle (verbatim, with the source commit in its header) and write a property that the new function equals the oracle on random inputs (explicit generators, 200 samples). A failing property means the new code is wrong, not the oracle.
+- An incremental path has a law against its full path (step A to B equals a full frame of B). A performance change keeps the law and proves it.
+- A bug fix starts with a negative control: a test that fails on the old code, with its failure text in the report.
+- Lint the purity: one scalafix rule set, edge files with a two-line header for each foreign API, and a comment with a phase or KEEP on every other impure line. A script in CI checks the headers and the comments.
+
+#### Docs and decisions
+
+<!-- claude 2026-10-19: created: the maintainer's rules on docs and decisions, verbatim except the marked bullet -->
+
+- Documentation is example-first: a feature ships with a README section whose code block is the text of an example region, compiled by a suite; Scaladoc with an example; an example app; its headless test leaves.
+- Decisions are recorded as comments on the sub-issues of #17 and, when they change the design, in `docs/design/kyo-core.md`. Upstream issues are drafts in a notes directory; the user posts them. <!-- claude 2026-10-19: changed: the decision-log sentence replaced by sub-issue comments and the design record -->
+- Annotate created or changed code at the smallest unit: `// claude <date>: created|changed: <what>`. One mark on a rewritten function; never a whole file; no stacked old marks: the history goes in the commit message.
