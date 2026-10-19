@@ -64,7 +64,8 @@ const created = await $fetch('/api/notes', { method: 'POST', body: { text: 'Hell
 // created.data: { id: number; text: string }
 ```
 
-The type includes the handler's envelope from `HandlerOptions`: `{ data: T }` by default, `T` with `SuccessEnvelope.Raw`. A `Unit` body has no content, and a stream is text (`string`).
+<!-- claude 2026-10-19: changed: a Raw value that converts to null is typed as undefined -->
+The type includes the handler's envelope from `HandlerOptions`: `{ data: T }` by default, `T` with `SuccessEnvelope.Raw`. A `Unit` body has no content, and a stream is text (`string`). With `Raw`, a value that converts to `null` is sent as 204 without a body, so `$fetch` returns `undefined`: an `Option[Int]` is typed `number | undefined`, not `number | null`.
 
 Errors do not take part in Nitro's types. Each declaration exports the error body as `ErrorBody`, in the handler's `ErrorEnvelope`:
 

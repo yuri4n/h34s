@@ -17,6 +17,7 @@ private[exts] enum BodyShape:
 
 /** The TypeScript response types of one handler definition. */
 private[exts] object RouteTypes:
+    // claude 2026-10-19: changed: a Raw value that converts to null is typed as undefined, what $fetch returns for 204
     /** The body of a successful response, in the handler's success envelope. */
     def success(envelope: SuccessEnvelope, body: BodyShape): String = body match
         case BodyShape.Empty           => "undefined"
@@ -24,7 +25,19 @@ private[exts] object RouteTypes:
         case BodyShape.Value(wireType) =>
           envelope match
               case SuccessEnvelope.Data => s"{ data: ${wireType().render} }"
-              case SuccessEnvelope.Raw  => wireType().render
+              case SuccessEnvelope.Raw  => raw(wireType())
+
+    // claude 2026-10-19: created: replaces a top-level null with undefined for Raw bodies
+    /** `Raw` sends a value that converts to `null` as 204 without a body, like `Unit`, and `$fetch`
+      * returns `undefined` for it. Only the top level changes: JSON text keeps a nested `null`.
+      */
+    private def raw(wire: WireType): String =
+      def members(wire: WireType): List[WireType] = wire match
+          case WireType.OneOf(nested) => nested.flatMap(members)
+          case other                  => List(other)
+      val all = members(wire)
+      if !all.contains(WireType.NullValue) || all.contains(WireType.Unknown) then wire.render
+      else (all.filterNot(_ == WireType.NullValue).distinct.map(_.render) :+ "undefined").mkString(" | ")
 
     /** One error entry as `Rendering` writes it; `debug` appears only in development or debug mode. */
     val entry: String = "{ message: string; path?: string; debug?: { cause: string } }"

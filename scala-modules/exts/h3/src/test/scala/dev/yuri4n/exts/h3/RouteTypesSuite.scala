@@ -84,6 +84,23 @@ class RouteTypesSuite extends FunSuite:
       assertEquals(types.success.asInstanceOf[String], "{ data: string }")
     }
 
+    // claude 2026-10-19: created: Raw sends a value that converts to null as 204 without a body; $fetch then returns undefined
+    test("Raw: a value that converts to null is no content, so its type is undefined, not null") {
+      def success(options: HandlerOptions, wire: WireType): String =
+        val described = HandlerMetadata.describe(handler(_ => "ok").toNative, options, internal.BodyShape.Value(() => wire))
+        HandlerMetadata.read(described).get.types.asInstanceOf[js.Function0[js.Dynamic]]().success.asInstanceOf[String]
+      val raw = HandlerOptions(success = SuccessEnvelope.Raw)
+      assertEquals(success(raw, shape[Option[Int]]), "number | undefined")
+      assertEquals(success(raw, WireType.NullValue), "undefined")
+      assertEquals(success(raw, shape[Option[Option[String]]]), "string | undefined")
+      assertEquals(success(raw, WireType.OneOf(List(WireType.NullValue, WireType.Unknown))), "unknown")
+      // Only the top level is no content: JSON text keeps a null inside an array or an object.
+      assertEquals(success(raw, shape[List[Option[Int]]]), "Array<number | null>")
+      assertEquals(success(raw, shape[String]), "string")
+      // The data envelope always has a body, so null stays null there.
+      assertEquals(success(HandlerOptions.default, shape[Option[Int]]), "{ data: number | null }")
+    }
+
     // ---- WireType ----
 
     test("renders TypeScript: quoted keys, optional fields, arrays, records, unions") {
