@@ -160,7 +160,7 @@ KYO_NET_BACKEND=node node .output/server/index.mjs
    H34S_POSTGRES_URL="postgres://h34s:$(cat ~/.h34s-db-password)@127.0.0.1:5432/h34s" sbt -batch kyoExample/test
    ```
 
-Expected result: `Passed: Total 4, Failed 0, Errors 0, Passed 4`. The suite runs in Node through sbt, not inside Nitro.
+Expected result: `Passed: Total 4, Failed 0, Errors 0, Passed 4`. The suite runs in Node through sbt, not inside Nitro. Set `H34S_POSTGRES_REQUIRED=true` to make the tests fail instead of skip when the URL is missing; the `postgres` CI job does this. <!-- claude 2026-10-19: created: the required flag -->
 
 ## ZIO: Skunk in a `ZShared` layer
 

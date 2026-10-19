@@ -44,15 +44,21 @@ object NotesLive:
 
 /** Runs the kyo-sql code of docs/database.md against a real PostgreSQL. Opt-in: the tests run only
   * when `H34S_POSTGRES_URL` holds a kyo-sql URL, for example
-  * `postgres://h34s:<password>@127.0.0.1:5432/h34s`. Without it, munit reports them as skipped.
+  * `postgres://h34s:<password>@127.0.0.1:5432/h34s`. Without it, munit reports them as skipped,
+  * unless `H34S_POSTGRES_REQUIRED=true`: then they fail, so that CI cannot pass by skipping them.
   * The suite creates the guide's `notes` table if it does not exist and adds rows with unique text.
   */
 // claude 2026-10-19: created: opt-in integration suite for the kyo-sql guide code (issue #29)
 class KyoSqlPostgresSuite extends FunSuite:
     given ExecutionContext = ExecutionContext.global
 
-    private val url: Option[String] =
-      js.Dynamic.global.process.env.H34S_POSTGRES_URL.asInstanceOf[js.UndefOr[String]].toOption.filter(_.nonEmpty)
+    private def environment(name: String): Option[String] =
+      js.Dynamic.global.process.env.selectDynamic(name).asInstanceOf[js.UndefOr[String]].toOption.filter(_.nonEmpty)
+
+    private val url: Option[String] = environment("H34S_POSTGRES_URL")
+
+    // claude 2026-10-19: created: CI sets this so that a missing URL fails instead of skipping
+    private val required: Boolean = environment("H34S_POSTGRES_REQUIRED").contains("true")
 
     /** The guide's table. The guide shows the same statement. */
     private val createTable =
@@ -77,6 +83,7 @@ class KyoSqlPostgresSuite extends FunSuite:
 
     private def pgTest(name: String)(body: PostgresClient => Unit < (Async & Abort[Throwable]))(using munit.Location): Unit =
       test(name) {
+        if required && url.isEmpty then fail("H34S_POSTGRES_REQUIRED=true, but H34S_POSTGRES_URL is not set")
         assume(url.isDefined, "set H34S_POSTGRES_URL to run the PostgreSQL integration tests")
         withClient(body)
       }

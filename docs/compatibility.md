@@ -117,7 +117,7 @@ The private `yurian.land` application consumes the published packages in its pul
 | Relinking the real Scala.js demo under `nuxt dev`, and breakpoint stepping | Not checked (the relink reload was checked on a synthetic project) |
 | The Nitro close hook when `nuxt dev` replaces its worker | Not checked; `SIGTERM` in production was |
 | kyo-sql / kyo-sql-postgres inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) service code ran against PostgreSQL 16 in Node through sbt (see above), not in a Nitro bundle <!-- claude 2026-10-19: changed: kyo-sql ran in Node --> |
-| PostgreSQL in CI | No CI job starts PostgreSQL. The kyo-sql suite and `smoke.mjs` need one <!-- claude 2026-10-19: created: CI gap --> |
+| PostgreSQL in CI | The `postgres` job of the Scala.js libraries workflow runs PostgreSQL 16 with SCRAM, the kyo-sql suite (`H34S_POSTGRES_REQUIRED=true`, so it cannot skip), the demo's production build, `smoke.mjs` and the `SIGTERM` session check. Added in [#45](https://github.com/yuri4n/h34s/pull/45); no run on `main` yet <!-- claude 2026-10-19: changed: CI job added --> |
 | NuxtHub KV as a Nitro storage mount | Not verified; storage tests use Unstorage 1.17.3's memory driver |
 | Nitro presets other than Node (serverless, edge, Workers) | Not tested; streaming needs a Node HTTP response |
 | Linux beyond the CI checks above, Windows | Not run |
