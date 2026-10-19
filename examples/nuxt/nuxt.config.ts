@@ -1,7 +1,9 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: [
-    '@yuri4n/h34s-nuxt',
+    // claude 2026-10-19: changed: scalaPrerender: 'stub' keeps the linked Scala.js out of Nitro's prerender bundle (issue #30).
+    // The one prerendered route, Nuxt Content's /__nuxt_content/focuses/sql_dump.txt, calls no Scala.js route.
+    ['@yuri4n/h34s-nuxt', { scalaPrerender: 'stub' }],
     '@nuxt/content',
     '@nuxt/eslint',
     '@nuxt/fonts',
