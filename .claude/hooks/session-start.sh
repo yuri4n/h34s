@@ -29,17 +29,23 @@ fi
 # `npm ci` always reinstalls. An install failure is reported in the context line below and
 # does not hide the toolchain. Install output goes to stderr; stdout is context for Claude.
 eval "$env_lines"
-packages_note="and the npm packages (workspace and test fixtures) are installed"
+failed=""
 if ! pnpm install --frozen-lockfile --ignore-scripts >&2; then
-  packages_note="but 'pnpm install --frozen-lockfile --ignore-scripts' failed: run it to see why"
+  failed="pnpm install --frozen-lockfile --ignore-scripts"
 fi
 for fixture in scala-modules/exts/*/test-js; do
-  if [ "$fixture/node_modules/.package-lock.json" -nt "$fixture/package-lock.json" ]; then
+  # Without a match, the glob stays literal; a fixture whose marker is newer than its lockfile is current.
+  if [ ! -d "$fixture" ] || [ "$fixture/node_modules/.package-lock.json" -nt "$fixture/package-lock.json" ]; then
     continue
   fi
   if ! npm ci --prefix "$fixture" --ignore-scripts >&2; then
-    packages_note="but 'npm ci --prefix $fixture --ignore-scripts' failed: run it to see why"
+    failed="${failed:+$failed; }npm ci --prefix $fixture --ignore-scripts"
   fi
 done
+if [ -z "$failed" ]; then
+  packages_note="and the npm packages (workspace and test fixtures) are installed"
+else
+  packages_note="but these installs failed (run each one to see why): $failed"
+fi
 
 echo "h34s cloud toolchain ready (scripts/cloud-setup.sh): Java, sbt, Node and pnpm are on PATH through CLAUDE_ENV_FILE, $packages_note. sbt and scalafix read Maven Central through Google's mirror. If a Bash command still cannot find sbt (seen once, when this hook first ran at a compaction), prefix the command with: eval \"\$(bash scripts/cloud-setup.sh --print-env)\" && ... Run one sbt process at a time, and run builds longer than a few minutes in the background. See docs/maintainers/cloud.md."
