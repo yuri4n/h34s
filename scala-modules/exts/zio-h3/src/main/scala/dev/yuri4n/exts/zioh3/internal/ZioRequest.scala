@@ -10,8 +10,8 @@ import zio.{Exit, Runtime, UIO, Unsafe, ZEnvironment, ZIO}
   *
   * The program runs on one ZIO fiber with its own request `Scope` and `ZState[ResponseHead]`:
   *
-  *   - value and Unit bodies: the fiber closes the request scope itself, so a dying finalizer turns
-  *     the response into a 500 (it surfaces in the Exit);
+  *   - value and Unit bodies: the fiber closes the request scope itself; a dying finalizer is
+  *     logged and does not change the program's Exit, as in Kyo (claude 2026-10-19: changed, issue #40);
   *   - stream bodies: the scope stays open while the core sends the stream; a Kyo request finalizer
   *     closes it after the stream ended or was cancelled (the Kyo side creates and always closes
   *     the scope, whatever the fiber's Exit says);
@@ -59,8 +59,12 @@ private[exts] object ZioRequest:
           case Exit.Success((exit, head)) if streamed && exit.isSuccess =>
             // The scope stays open while the core sends the stream; the Kyo finalizer closes it.
             afterProgram.as(Completed(head, exit))
+          // claude 2026-10-19: changed: a failing finalizer is logged and keeps the program's Exit (issue #40)
           case Exit.Success((exit, head))                               =>
-            scope.close(exit).exit.map(closed => Completed(head, afterClose(exit, closed)))
+            scope.close(exit).exit.map { closed =>
+              closed.causeOption.foreach(ZioCall.logFinalizerFailure)
+              Completed(head, exit)
+            }
           case Exit.Failure(cause)                                      =>
             scope.close(Exit.failCause(cause)).as(Completed(ResponseHead.empty, Exit.failCause(cause)))
         }
@@ -74,11 +78,4 @@ private[exts] object ZioRequest:
         // A program that throws while it is built is a defect, never an approved error.
         ZIO.suspendSucceed(program).exit.zip(ZIO.getState[ResponseHead]),
       ).provideEnvironment(ZEnvironment[zio.Scope](scope))
-
-    /** A finalizer that dies makes the request fail, also after a success or a safe failure. */
-    private def afterClose[B](exit: Exit[Throwable, B], closed: Exit[Nothing, Unit]): Exit[Throwable, B] =
-      (exit, closed) match
-          case (_, Exit.Success(_))                         => exit
-          case (Exit.Success(_), Exit.Failure(closeCause))  => Exit.failCause(closeCause)
-          case (Exit.Failure(cause), Exit.Failure(closeCause)) => Exit.failCause(cause ++ closeCause)
 end ZioRequest

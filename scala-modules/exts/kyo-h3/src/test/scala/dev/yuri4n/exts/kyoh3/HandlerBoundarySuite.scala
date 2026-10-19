@@ -167,6 +167,32 @@ class HandlerBoundarySuite extends FunSuite:
       yield assertEquals(releases, 3)
     }
 
+    // claude 2026-10-19: created: Kyo side of issue #40 (a failing finalizer keeps the computed response)
+    test("a failing request-scope finalizer keeps the computed response: value, Unit and safe failure") {
+      def withFailingFinalizer[B](outcome: => B < HandlerEffects): B < HandlerEffects =
+        for
+          _ <- Scope.ensure(Sync.defer(throw new Exception("kyo cleanup failure")))
+          _ <- Response.status(Status.Created)
+          _ <- Response.header("X-Kept", "yes")
+          result <- outcome
+        yield result
+      val value = Call()
+      val empty = Call()
+      val rejected = Call()
+      for
+        valueBody <- value.invoke(KHandler.define(_ => withFailingFinalizer(Greeting("ok"))))
+        _ <- empty.invoke(KHandler.define(_ => withFailingFinalizer(())))
+        rejectedBody <- rejected.invoke(KHandler.define[String](_ => withFailingFinalizer(Abort.fail(Rejected("Invalid name")))))
+      yield
+        assertEquals(value.response.status, 201)
+        assertEquals(json(valueBody), "{\"data\":{\"message\":\"ok\"}}")
+        assertEquals(value.response.header("x-kept"), Some("yes"))
+        assertEquals(empty.response.status, 201, "a Unit body keeps the status the program set")
+        assertEquals(empty.response.header("x-kept"), Some("yes"))
+        assertEquals(rejected.response.status, 422)
+        assertEquals(json(rejectedBody), KyoTesting.errors("Invalid name"))
+    }
+
     // K10
     test("a throwing native converter produces an opaque response after request cleanup") {
       final case class Broken(value: String)

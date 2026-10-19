@@ -62,10 +62,17 @@ private[exts] object ZioCall:
       Sync.Unsafe.defer {
         val close = new ZioCall(runtime, scope.close(exit))
         close.start()
+        // claude 2026-10-19: changed: logs through logFinalizerFailure (issue #40)
         close.join.map {
-          case Exit.Failure(cause) if !cause.isInterruptedOnly =>
-            Sync.defer(js.Dynamic.global.console.error("h34s: a ZIO finalizer failed", cause.prettyPrint)).unit
-          case _                                               => Kyo.unit
+          case Exit.Failure(cause) => Sync.defer(logFinalizerFailure(cause))
+          case _                   => Kyo.unit
         }
       }
+
+    // claude 2026-10-19: created: one log line for every failing ZIO request-scope finalizer (issue #40)
+    /** Logs a failed scope close on the server, like Kyo logs a failing `Scope` finalizer. An
+      * interruption alone is not a failure.
+      */
+    def logFinalizerFailure(cause: Cause[Any]): Unit =
+      if !cause.isInterruptedOnly then js.Dynamic.global.console.error("h34s: a ZIO finalizer failed", cause.prettyPrint)
 end ZioCall

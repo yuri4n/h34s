@@ -15,6 +15,20 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
 
     private def status(call: Call): Int = call.response.status
 
+    // claude 2026-10-19: created: captures console.error lines (the adapter's logging seam) while `program` runs
+    private def consoleErrors[R, E, A](program: ZIO[R, E, A]): ZIO[R, E, (A, List[String])] =
+      ZIO.acquireReleaseWith(ZIO.succeed {
+        val console  = js.Dynamic.global.console
+        val original = console.error
+        val lines    = scala.collection.mutable.ListBuffer.empty[String]
+        val capture: js.Function2[js.Any, js.Any, Unit] =
+          (first, second) => lines += List(first, second).filterNot(js.isUndefined).map(String.valueOf).mkString(" ")
+        console.error = capture
+        (original, lines)
+      })((original, _) => ZIO.succeed(js.Dynamic.global.console.error = original))((_, lines) =>
+        program.map(result => (result, lines.toList)),
+      )
+
     def spec = suite("ZHandler.define")(
       // Z1, C2
       test("converts a model and passes the request snapshot to the handler function") {
@@ -143,7 +157,8 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
         )
       },
       // Z9
-      test("a finalizer defect wins over a safe failure and over a success") {
+      // claude 2026-10-19: changed: a finalizer defect no longer wins; it is logged, also in development mode (issue #40)
+      test("a finalizer defect keeps a safe failure and a success, in development and production") {
         def handler(outcome: IO[Rejected, String]) = ZHandler.define[String](_ =>
           ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("cleanup defect"))) *> outcome,
         )
@@ -155,9 +170,35 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
           productionBody <- production.invoke(handler(ZIO.fail(Rejected("Invalid name"))))
           succeededBody <- succeeded.invoke(handler(ZIO.succeed("ok")))
         yield assertTrue(
-          status(development) == 500, cause(developmentBody).contains("cleanup defect"),
-          status(production) == 500, wire(productionBody) == opaque,
-          status(succeeded) == 500, wire(succeededBody) == opaque,
+          status(development) == 422, wire(developmentBody) == errors("Invalid name"),
+          status(production) == 422, wire(productionBody) == errors("Invalid name"),
+          status(succeeded) == 200, wire(succeededBody) == "{\"data\":\"ok\"}",
+        )
+      },
+      // claude 2026-10-19: created: negative control for issue #40 (ZIO follows Kyo on finalizer failures)
+      test("a dying request-scope finalizer is logged and keeps the computed response: value, Unit and safe failure") {
+        def handler[B: ZResponseBody](outcome: ZIO[HandlerEnv, Throwable, B]) = ZHandler.define[B](_ =>
+          ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("logged cleanup defect"))) *>
+            Response.status(Status.Created) *> Response.header("x-kept", "yes") *> outcome,
+        )
+        val value = Call()
+        val empty = Call()
+        val rejected = Call()
+        for
+          captured <- consoleErrors(
+            for
+              valueBody <- value.invoke(handler(ZIO.succeed(Greeting("ok"))))
+              _ <- empty.invoke(handler(ZIO.unit))
+              rejectedBody <- rejected.invoke(handler[String](ZIO.fail(Rejected("Invalid name"))))
+            yield (valueBody, rejectedBody),
+          )
+          ((valueBody, rejectedBody), logged) = captured
+        yield assertTrue(
+          status(value) == 201, wire(valueBody) == "{\"data\":{\"message\":\"ok\"}}",
+          value.response.header("x-kept").contains("yes"),
+          status(empty) == 201, empty.response.header("x-kept").contains("yes"),
+          status(rejected) == 422, wire(rejectedBody) == errors("Invalid name"),
+          logged.count(line => line.contains("h34s: a ZIO finalizer failed") && line.contains("logged cleanup defect")) == 3,
         )
       },
       // Z10, K9
