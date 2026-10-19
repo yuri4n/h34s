@@ -4,14 +4,14 @@ The Kyo core refactor changes the module graph, the handler shape and the wire f
 
 **Status.** The new API is [`0.2.0-alpha.1`, which is published](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1). The `0.1.0-alpha.1` artifacts stay published and unchanged, so you can upgrade when you are ready.
 
-<!-- claude 2026-10-19: created: upgrade section for the next release (issue #40) -->
+<!-- claude 2026-10-19: created: upgrade section for the next release (issue #40); changed: the streaming-before-return case (review) -->
 ## Upgrade from 0.2.0-alpha.1 to 0.3.0-alpha.1
 
 **Status.** `0.3.0-alpha.1` is not released yet. This section collects its changes while they land on `main`.
 
 ### A dying ZIO finalizer keeps the response
 
-In `0.2.0-alpha.1`, a ZIO finalizer that died after a value or `Unit` program turned the response into an opaque 500, and after a safe failure it replaced the approved error with the opaque 500. Now the ZIO adapter behaves like Kyo: it logs `h34s: a ZIO finalizer failed` with `Cause.prettyPrint` on the server, and the client gets the response that your program produced. Streamed bodies already behaved this way.
+In `0.2.0-alpha.1`, a ZIO finalizer that died after a value or `Unit` program turned the response into an opaque 500, and after a safe failure it replaced the approved error with the opaque 500. Now the ZIO adapter behaves like Kyo: it logs `h34s: a ZIO finalizer failed` with `Cause.prettyPrint` on the server, and the client gets the response that your program produced. This also applies to a streaming handler that fails before it returns its stream. Streamed bodies already behaved this way.
 
 You do not need to change code that compiles. Check your handlers if you relied on the old 500:
 

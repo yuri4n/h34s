@@ -99,7 +99,7 @@ The private `yurian.land` application consumes the published packages in its pul
 
 - **ZIO YAML on Scala.js.** zio-json-yaml is published for the JVM only (no `_sjs1_3` artifact on Maven Central), so a ZIO model has no YAML codec in Nitro. Kyo models get YAML from kyo-schema-yaml.
 - **ZIO Schema shapes.** The ZIO bridge supports strings, booleans, `Int`, `Double`, records, options, sequences, lazy and transformed schemas. Enums, sealed traits and maps are not supported yet. See [schemas](schema.md).
-- **Finalizer failures** are logged and do not change the response, in Kyo and in ZIO. Before `0.3.0-alpha.1`, a dying ZIO finalizer turned a value response into a 500. See [lifetimes](lifetimes.md).
+- **Finalizer failures** are logged and do not change the response, in Kyo and in ZIO. Before the next release (provisionally `0.3.0-alpha.1`), a dying ZIO finalizer turned a value response into a 500. See [lifetimes](lifetimes.md).
 - **Build memory.** The demo links both a Kyo and a ZIO application; its `nuxt build` needed `NODE_OPTIONS=--max-old-space-size=8192`. A single-runtime application links less code, but check your own build.
 
 ## Profile `alpha-0.1.0` (published)

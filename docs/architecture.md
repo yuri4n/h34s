@@ -71,7 +71,7 @@ The functional-design layers map to code like this:
 A handler is an error boundary. Only a `SafeError` that your program fails with through the typed channel reaches the client, with its status and entries. Everything else becomes an opaque 500. Diagnostics appear only in Nuxt development mode or in debug mode. See [Kyo handlers](kyo.md#fail-safely), [ZIO handlers](zio.md#fail-safely) and [debugging](debugging.md).
 
 <!-- claude 2026-10-19: changed: both runtimes now treat a failing finalizer the same (issue #40) -->
-A finalizer that fails behaves the same in both runtimes: h34s or Kyo logs the failure on the server, and the response that the program computed does not change. Kyo 1.0.0-RC7 logs a failing `Scope` finalizer. The ZIO adapter logs a dying finalizer as `h34s: a ZIO finalizer failed`, with `Cause.prettyPrint`, for value, `Unit` and streamed bodies alike. Since `0.3.0-alpha.1`, a dying ZIO finalizer no longer turns a value or `Unit` response into a 500.
+A finalizer that fails behaves the same in both runtimes: the failure is logged on the server, and the response that the program computed does not change. The log messages differ. Kyo 1.0.0-RC7 logs `Scope finalizer failed` through its `Log`. The ZIO adapter writes `h34s: a ZIO finalizer failed`, with `Cause.prettyPrint`, through `console.error`, for value, `Unit` and streamed bodies and on a client disconnect. Since the next release (provisionally `0.3.0-alpha.1`), a dying ZIO finalizer no longer turns a value or `Unit` response into a 500.
 
 ## What h34s does not do
 
