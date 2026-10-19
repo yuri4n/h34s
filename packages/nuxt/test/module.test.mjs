@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import h34sNuxt from '../src/module.mjs'
+import { takeStubCalls } from '../src/scala-prerender-stub.mjs' // claude 2026-10-19: created: closes the stub's request record (review F1)
 import './nitro-runtime-stub.mjs'
 
 // claude 2026-10-19: changed: records every Nuxt hook; only the names in `allowed` may be registered, once each
@@ -33,12 +34,16 @@ async function setup(t, options, nuxtOptions = {}, allowed = ['nitro:config']) {
   return { root, configure: hooks.get('nitro:config'), hooks }
 }
 
-// claude 2026-10-19: created: a Nitro instance whose hooks only record their callbacks
-function recordingNitro() {
+// claude 2026-10-19: changed: a Nitro instance whose hooks only record their callbacks, with prerender options and a recording logger (review F1)
+function recordingNitro(prerender = { failOnError: true }) {
   const hooks = new Map()
+  const warnings = []
   return {
     hooks,
+    warnings,
     nitro: {
+      options: { prerender },
+      logger: { warn: message => warnings.push(message) },
       hooks: {
         hook(name, callback) {
           assert.ok(!hooks.has(name), `Nitro hook ${name} registered twice`)
@@ -47,6 +52,20 @@ function recordingNitro() {
       },
     },
   }
+}
+
+// claude 2026-10-19: created: runs the module's prerender hooks on recording Nitro instances
+async function prerenderHooks(t, prerender) {
+  const { root, configure, hooks } = await setup(
+    t,
+    { scalaPrerender: 'stub' },
+    {},
+    ['nitro:config', 'nitro:init'],
+  )
+  const main = recordingNitro(prerender)
+  hooks.get('nitro:init')(main.nitro)
+  const renderer = recordingNitro()
+  return { root, configure, main, renderer }
 }
 
 test('registers maps, direct loading, output watches and diagnostics in development', async (t) => {
@@ -153,22 +172,15 @@ test('registers the prerender hook only for scalaPrerender: \'stub\' in producti
   }
 })
 
-// claude 2026-10-19: created: 'stub' puts the stub plugin first in the prerender Rollup build only
+// claude 2026-10-19: changed: 'stub' puts the stub plugin first in the prerender Rollup build only; the main Nitro also gets prerender:done (review F1)
 test('scalaPrerender: \'stub\' puts the stub plugin first in the prerender Rollup build and leaves the server build alone', async (t) => {
-  const { root, configure, hooks } = await setup(
-    t,
-    { scalaPrerender: 'stub' },
-    {},
-    ['nitro:config', 'nitro:init'],
-  )
+  const { root, configure, main, renderer } = await prerenderHooks(t)
+  t.after(takeStubCalls)
   const server = { dev: false }
   configure(server)
   assert.equal(server.rollupConfig, undefined, 'the node-server build gets no Rollup plugin')
 
-  const main = recordingNitro()
-  hooks.get('nitro:init')(main.nitro)
-  assert.deepEqual([...main.hooks.keys()], ['prerender:init'])
-  const renderer = recordingNitro()
+  assert.deepEqual([...main.hooks.keys()], ['prerender:init', 'prerender:done'])
   main.hooks.get('prerender:init')(renderer.nitro)
   assert.deepEqual([...renderer.hooks.keys()], ['rollup:before'])
   const rollupBefore = renderer.hooks.get('rollup:before')
@@ -199,6 +211,53 @@ test('scalaPrerender: \'stub\' puts the stub plugin first in the prerender Rollu
       ['h34s-scala-prerender-stub', ...(plugins ? ['nitro-resolver'] : [])],
     )
   }
+})
+
+// claude 2026-10-19: created: prerender:done stops the build, or warns, when a request reached the stub (review F1)
+test('scalaPrerender: \'stub\' reports requests that reached the stub after prerendering', async (t) => {
+  const warnings = []
+  const warn = console.warn
+  console.warn = (...args) => warnings.push(args.join(' '))
+  t.after(() => {
+    console.warn = warn
+    takeStubCalls()
+  })
+  const event = { method: 'GET', path: '/api/notes', node: { req: { headers: { 'x-nitro-prerender': '/notes' } } } }
+
+  async function prerender(options) {
+    const { root, main, renderer } = await prerenderHooks(t, options)
+    main.hooks.get('prerender:init')(renderer.nitro)
+    const rollupConfig = { plugins: [] }
+    renderer.hooks.get('rollup:before')(renderer.nitro, rollupConfig)
+    const [stub] = rollupConfig.plugins
+    await mkdir(join(root, 'server/.scala'), { recursive: true })
+    await writeFile(join(root, 'server/.scala/main.js'), 'export default 1\n')
+    const loaded = stub.load(await stub.resolveId.handler('../.scala/main.js', join(root, 'server/api/route.ts')))
+    await writeFile(join(root, 'stub.mjs'), loaded.code)
+    const { default: handler } = await import(pathToFileURL(join(root, 'stub.mjs')).href)
+    return { main, handler }
+  }
+
+  const quiet = await prerender({ failOnError: true })
+  quiet.main.hooks.get('prerender:done')({ prerenderedRoutes: [], failedRoutes: [] })
+  assert.deepEqual(quiet.main.warnings, [], 'no request, no report')
+
+  const failing = await prerender({ failOnError: true })
+  assert.throws(() => failing.handler(event), { statusCode: 501 })
+  assert.throws(
+    () => failing.main.hooks.get('prerender:done')({ prerenderedRoutes: [], failedRoutes: [] }),
+    { message: /scalaPrerender is 'stub'[\s\S]*\n {2}GET \/api\/notes, while Nuxt prerendered \/notes\n/ },
+  )
+  assert.deepEqual(failing.main.warnings, [])
+
+  const lenient = await prerender({ failOnError: false })
+  assert.throws(() => lenient.handler(event), { statusCode: 501 })
+  lenient.main.hooks.get('prerender:done')({ prerenderedRoutes: [], failedRoutes: [] })
+  assert.equal(lenient.main.warnings.length, 1)
+  assert.match(lenient.main.warnings[0], /\n {2}GET \/api\/notes, while Nuxt prerendered \/notes\n/)
+  lenient.main.hooks.get('prerender:done')({ prerenderedRoutes: [], failedRoutes: [] })
+  assert.equal(lenient.main.warnings.length, 1, 'each prerender run reports its own requests once')
+  assert.equal(warnings.length, 2, 'the stub logged each request')
 })
 
 // claude 2026-10-19: created: an unknown scalaPrerender value fails before any hook is registered

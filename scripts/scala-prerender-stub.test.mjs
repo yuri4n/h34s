@@ -10,6 +10,8 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { scalaPrerenderStub } from '@yuri4n/h34s-nuxt/rollup'
+// claude 2026-10-19: created: the request record that the Nuxt module opens for one prerender run (review F1)
+import { recordStubCalls, takeStubCalls } from '../packages/nuxt/src/scala-prerender-stub.mjs'
 
 // The Rollup and h3 installations that this application's Nitro uses.
 const nuxtRequire = createRequire(import.meta.resolve('nuxt'))
@@ -92,13 +94,24 @@ test('with scalaPrerenderStub, the bundle holds the stub instead of the linked S
   const server = createServer(h3.toNodeListener(app))
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
-  for (const path of ['/notes', '/kyo']) {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`)
+  // claude 2026-10-19: changed: real h3 events give the stub's record the method, path and prerendered page (review F1)
+  recordStubCalls()
+  t.after(takeStubCalls)
+  for (const [path, headers] of [['/notes', { 'x-nitro-prerender': '/notes-page' }], ['/kyo', {}]]) {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`, { headers })
     assert.equal(response.status, 501, path)
     assert.match(response.statusText, /scalaPrerender: 'stub'/, path)
     const body = await response.text()
     assert.ok(!linkedMarkers.some(marker => body.includes(marker)), body)
   }
   assert.deepEqual(warnings.filter(warning => warning.includes('[h3]')), [], 'h3 recognizes the stub as an event handler')
+  assert.deepEqual(takeStubCalls(), [
+    { method: 'GET', path: '/notes', page: '/notes-page' },
+    { method: 'GET', path: '/kyo', page: undefined },
+  ])
+  assert.deepEqual(warnings.filter(warning => warning.startsWith('[h34s]')), [
+    '[h34s] GET /notes answered 501 while Nuxt prerendered /notes-page: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
+    '[h34s] GET /kyo answered 501: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
+  ])
   assert.ok(!(await readFile(join(f.root, 'out/entry.js'), 'utf8')).includes('.scala'))
 })

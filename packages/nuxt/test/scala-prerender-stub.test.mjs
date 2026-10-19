@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { scalaPrerenderStub } from '../src/rollup.mjs'
+import { recordStubCalls, stubCallReport, takeStubCalls } from '../src/scala-prerender-stub.mjs' // claude 2026-10-19: created: the request record (review F1)
 
 async function fixture(t, outputDirectories) {
   const root = await mkdtemp(join(tmpdir(), 'h34s-prerender-stub-'))
@@ -94,8 +95,28 @@ test('uses the configured output directories and rejects directories outside the
   }
 })
 
+// claude 2026-10-19: created: replaces console.warn for one test and returns the lines it got
+function captureWarnings(t) {
+  const warnings = []
+  const warn = console.warn
+  console.warn = (...args) => warnings.push(args.join(' '))
+  t.after(() => {
+    console.warn = warn
+  })
+  return warnings
+}
+
+// claude 2026-10-19: created: imports the stub module that the plugin loads
+async function loadStub(f) {
+  const id = await f.resolveId(await f.put('server/.scala/main.js'))
+  const loaded = f.plugin.load(id)
+  return import(pathToFileURL(await f.put('stub.mjs', loaded.code)).href)
+}
+
+// claude 2026-10-19: changed: the stub also logs the request it answers (review F1)
 test('loads a stub whose exports are h3 event handlers that answer 501 and name the option', async (t) => {
   const f = await fixture(t)
+  const warnings = captureWarnings(t)
   const id = await f.resolveId(await f.put('server/.scala/main.js'))
   const loaded = f.plugin.load(id)
   assert.equal(typeof loaded.code, 'string')
@@ -119,4 +140,66 @@ test('loads a stub whose exports are h3 event handlers that answer 501 and name 
     assert.match(error.message, /scalaPrerender/)
     return true
   })
+  assert.deepEqual(warnings, [
+    '[h34s] GET (unknown path) answered 501: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
+  ])
+})
+
+// claude 2026-10-19: created: the stub records each request while the Nuxt module collects them (review F1)
+test('records each request that reaches the stub while a record is open, and logs it', async (t) => {
+  const f = await fixture(t)
+  const warnings = captureWarnings(t)
+  const stub = await loadStub(f)
+  t.after(takeStubCalls)
+  const event = (method, path, page) => ({
+    method,
+    path,
+    node: { req: { method, url: path, headers: page ? { 'x-nitro-prerender': page } : {} } },
+  })
+
+  assert.throws(() => stub.default(event('GET', '/api/before')), { statusCode: 501 })
+  assert.deepEqual(takeStubCalls(), [], 'nothing is recorded without an open record')
+
+  recordStubCalls()
+  assert.throws(() => stub.default(event('POST', '/api/notes', '/notes')), { statusCode: 501 })
+  assert.throws(() => stub.default({ node: { req: { method: 'GET', url: '/api/raw' } } }), { statusCode: 501 })
+  assert.deepEqual(takeStubCalls(), [
+    { method: 'POST', path: '/api/notes', page: '/notes' },
+    { method: 'GET', path: '/api/raw', page: undefined },
+  ])
+  assert.deepEqual(takeStubCalls(), [], 'taking the record closes it')
+  assert.throws(() => stub.default(event('GET', '/api/after')), { statusCode: 501 })
+  assert.deepEqual(takeStubCalls(), [])
+  assert.deepEqual(warnings, [
+    '[h34s] GET /api/before answered 501: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
+    '[h34s] POST /api/notes answered 501 while Nuxt prerendered /notes: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
+    '[h34s] GET /api/raw answered 501: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
+    '[h34s] GET /api/after answered 501: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
+  ])
+})
+
+// claude 2026-10-19: created: the build message lists each request once, sorted, and names the remedy (review F1)
+test('reports the recorded requests once each, sorted, with the option and the remedy', () => {
+  const report = stubCallReport([
+    { method: 'GET', path: '/api/b', page: '/' },
+    { method: 'GET', path: '/api/a', page: '/about' },
+    { method: 'GET', path: '/api/b', page: '/' },
+    { method: 'POST', path: '/api/c' },
+  ])
+  const lines = report.split('\n')
+  assert.match(lines[0], /^@yuri4n\/h34s-nuxt: scalaPrerender is 'stub'/)
+  assert.deepEqual(lines.slice(1, 4), [
+    '  GET /api/a, while Nuxt prerendered /about',
+    '  GET /api/b, while Nuxt prerendered /',
+    '  POST /api/c',
+  ])
+  assert.match(lines[4], /as useFetch does/)
+  assert.match(lines[4], /remove scalaPrerender: 'stub'/)
+  assert.equal(lines.length, 5)
+
+  const many = Array.from({ length: 23 }, (_, i) => ({ method: 'GET', path: `/api/${String(i).padStart(2, '0')}` }))
+  const limited = stubCallReport(many).split('\n')
+  assert.equal(limited.length, 1 + 20 + 1 + 1)
+  assert.equal(limited[20], '  GET /api/19')
+  assert.equal(limited[21], '  and 3 more')
 })
