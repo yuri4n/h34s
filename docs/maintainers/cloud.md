@@ -41,6 +41,19 @@ GitHub does not need an entry. Git and `gh` reach GitHub through a separate GitH
 
 On a fresh VM, the hook takes about 15 seconds. When every tool is present, it takes less than half a second and changes no file. If the setup fails, the hook still exits with status 0 and writes no variables, so the session starts without the toolchain. Its JSON output carries a warning for you, `h34s cloud setup failed`, and a note that tells Claude to rerun the script.
 
+### Run the checks
+
+The hook installs tools, not the repository's npm packages. Before the Scala test suites, install the pinned test fixtures; before the Node checks, install the workspace packages. [development.md](../development.md) describes both.
+
+```sh
+for fixture in scala-modules/exts/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
+pnpm install --frozen-lockfile --ignore-scripts
+sbt -batch h3Ext/test kyoH3Ext/test
+node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
+```
+
+Run the sbt command in the background; see [Work within the session's limits](#work-within-the-sessions-limits). Without the fixtures, the Scala.js test runner compiles and links, then fails in Node with `Error: Cannot find module 'h3'`.
+
 ### Add the optional setup script
 
 A cloud environment can also run a setup script before Claude Code starts. Anthropic caches the VM's files after a successful setup script, so later sessions start with the tools on disk and the hook has nothing to install. This saves about 15 seconds for each new session.
@@ -73,7 +86,7 @@ java -version
 
 Expected result: `java` is in `/usr/lib/jvm/java-25-openjdk-amd64/bin`, and `sbt`, `node`, and `pnpm` are in `/opt/h34s-tools`. If they are not, the hook did not run or failed. A session with several repositories runs no repository hooks; there, start each command with `eval "$(bash scripts/cloud-setup.sh --print-env)" &&`.
 
-One more case is known. In the session that wrote this guide, the hook ran for the first time at a compaction, because the session had started before the hook existed. The hook wrote its four lines to `CLAUDE_ENV_FILE` (Claude Code keeps that file under `~/.claude/session-env/<session>/`), but the Bash commands after the compaction did not receive them: `sbt` was not found, and `java` was still version 21. The same `eval` prefix fixes it, and the hook's own message names it. Whether a session that starts with the hook in place receives the variables has not been observed yet.
+One more case is known. In the session that wrote this guide, the hook ran for the first time at a compaction, because the session had started before the hook existed. The hook wrote its four lines to `CLAUDE_ENV_FILE` (Claude Code keeps that file under `~/.claude/session-env/<session>/`), but the Bash commands after the compaction did not receive them: `sbt` was not found, and `java` was still version 21. The same `eval` prefix fixes it, and the hook's own message names it. A session that started with the hook in place did receive the variables; see the [verification record](#verification-record).
 
 Otherwise, run the hook directly with the variables that Claude Code supplies:
 
@@ -244,5 +257,6 @@ On 2026-10-19, in a cloud session with **Full** network access (Ubuntu 24.04.5, 
 - `bash scripts/cloud-setup.sh --services` started PostgreSQL 16.15 and Redis, also when its output went through a pipe. The example role, database, and schema commands above worked.
 - After the review fixes, with `COURSIER_REPOSITORIES` set and an empty coursier cache: `sbt -batch h3Ext/test kyoH3Ext/test` passed again (36 and 79 tests); `sbt 'h3Ext/scalafix --check'` fetched scalafix-cli from the mirror only and then stopped with `NoRulesError`, because `.scalafix.conf` enables no rule; and `node scripts/check-consumers.mjs` passed for all four consumers. coursier's cache held only the mirror host.
 - At a later `/compact` in the same session, Claude Code ran the hook for the first time by itself (the session had started before the hook existed). The hook wrote the four lines to `CLAUDE_ENV_FILE`, but the Bash commands that followed did not receive them; the `eval` prefix from [Debug the hook](#debug-the-hook) restored the tools.
+- At 03:10 UTC, a new cloud session created from this branch at `a3a19dd` tested the startup path. The hook ran by itself (`SessionStart:startup`), its message appeared in the session's context, and `~/.claude/session-env/<session>/sessionstart-hook-0.sh` held the four lines. With no `eval` prefix, `command -v java sbt node pnpm` resolved to `/usr/lib/jvm/java-25-openjdk-amd64/bin/java` and the three tools in `/opt/h34s-tools`, and `JAVA_HOME` and `COURSIER_REPOSITORIES` were set. `sbt -batch h3Ext/test` then resolved through the mirror, compiled, and linked in 32 seconds, and failed in Node with `Cannot find module 'h3'`, because that session had not installed the test fixtures (see [Run the checks](#run-the-checks)).
 
-Not verified: the hook firing by itself when a session starts (this session began before the hook existed, so it ran with the variables that Claude Code documents), the Trusted access level, the cached setup script, a non-root user, arm64, private GitHub Packages, the example's Nuxt build, Docker Compose, and Nix.
+Not verified: the Trusted access level, the cached setup script, a non-root user, arm64, private GitHub Packages, the example's Nuxt build, Docker Compose, and Nix.
