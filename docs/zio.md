@@ -104,7 +104,8 @@ An invalid header name or value, cookie name, or redirect status makes the effec
 
 `ZHandler.failWith` fails with `ErrorResponse(errors, status)`, as in `0.1.0-alpha.1`. `ErrorResponse` is not a `SafeError` (its `errors` field is a `NonEmptyList[String]`), so `catchSome { case e: SafeError => ... }` does not catch it; h34s approves both at the boundary. A `SafeError` or `ErrorResponse` stays approved even when sibling fibers were interrupted with it (for example in `zipPar`). Any other `Throwable` in the error channel is not approved: catching an exception and failing with it does not make it public. Map it to your own `SafeError` instead.
 
-A ZIO finalizer that dies turns a value or `Unit` response into a 500, even after the program succeeded. In development or debug mode, the diagnostics show ZIO's full `Cause.prettyPrint`, with ZIO traces and Scala source lines.
+<!-- claude 2026-10-19: changed: a dying finalizer is logged and keeps the response, as in Kyo (issue #40) -->
+A ZIO finalizer that dies does not change the response, as in Kyo: h34s logs `h34s: a ZIO finalizer failed` with ZIO's `Cause.prettyPrint` on the server, and the client gets the value, the `Unit` response or the safe error that your program produced. Do work that must affect the response in the program, not in a finalizer. In development or debug mode, the diagnostics of a failed program show ZIO's full `Cause.prettyPrint`, with ZIO traces and Scala source lines.
 
 ## Choose the wire format
 
