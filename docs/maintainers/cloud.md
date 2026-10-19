@@ -71,7 +71,11 @@ command -v java sbt node pnpm
 java -version
 ```
 
-Expected result: `java` is in `/usr/lib/jvm/java-25-openjdk-amd64/bin`, and `sbt`, `node`, and `pnpm` are in `/opt/h34s-tools`. If they are not, the hook did not run or failed. A session with several repositories runs no repository hooks; there, start each command with `eval "$(bash scripts/cloud-setup.sh --print-env)" &&`. Otherwise, run the hook directly with the variables that Claude Code supplies:
+Expected result: `java` is in `/usr/lib/jvm/java-25-openjdk-amd64/bin`, and `sbt`, `node`, and `pnpm` are in `/opt/h34s-tools`. If they are not, the hook did not run or failed. A session with several repositories runs no repository hooks; there, start each command with `eval "$(bash scripts/cloud-setup.sh --print-env)" &&`.
+
+One more case is known. In the session that wrote this guide, the hook ran for the first time at a compaction, because the session had started before the hook existed. The hook wrote its four lines to `CLAUDE_ENV_FILE` (Claude Code keeps that file under `~/.claude/session-env/<session>/`), but the Bash commands after the compaction did not receive them: `sbt` was not found, and `java` was still version 21. The same `eval` prefix fixes it, and the hook's own message names it. Whether a session that starts with the hook in place receives the variables has not been observed yet.
+
+Otherwise, run the hook directly with the variables that Claude Code supplies:
 
 ```sh
 CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR="$PWD" CLAUDE_ENV_FILE=/tmp/h34s-env \
@@ -239,5 +243,6 @@ On 2026-10-19, in a cloud session with **Full** network access (Ubuntu 24.04.5, 
 - Right after that, every step of the Scala CI job in `.github/workflows/scala.yml` passed, in order, in about 6 minutes: the ten sbt test and compile tasks (154 seconds; the ZIO suites reported no failures), `pnpm run scala:full` (37 seconds), `sbt -batch releaseCheck`, `node scripts/check-release.mjs --allow-snapshot`, `sbt -batch releasePublishLocal`, and `node scripts/check-consumers.mjs` (132 seconds; the zio, kyo, zio-schema, and kyo-schema consumers served real h3 requests through their explicit Maven Central resolver, rewritten to the mirror).
 - `bash scripts/cloud-setup.sh --services` started PostgreSQL 16.15 and Redis, also when its output went through a pipe. The example role, database, and schema commands above worked.
 - After the review fixes, with `COURSIER_REPOSITORIES` set and an empty coursier cache: `sbt -batch h3Ext/test kyoH3Ext/test` passed again (36 and 79 tests); `sbt 'h3Ext/scalafix --check'` fetched scalafix-cli from the mirror only and then stopped with `NoRulesError`, because `.scalafix.conf` enables no rule; and `node scripts/check-consumers.mjs` passed for all four consumers. coursier's cache held only the mirror host.
+- At a later `/compact` in the same session, Claude Code ran the hook for the first time by itself (the session had started before the hook existed). The hook wrote the four lines to `CLAUDE_ENV_FILE`, but the Bash commands that followed did not receive them; the `eval` prefix from [Debug the hook](#debug-the-hook) restored the tools.
 
 Not verified: the hook firing by itself when a session starts (this session began before the hook existed, so it ran with the variables that Claude Code documents), the Trusted access level, the cached setup script, a non-root user, arm64, private GitHub Packages, the example's Nuxt build, Docker Compose, and Nix.
