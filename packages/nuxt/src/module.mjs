@@ -1,14 +1,27 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadConfig } from './build.mjs'
-import { scalaDevModules, scalaSourceMaps } from './rollup.mjs'
+import { scalaDevModules, scalaPrerenderStub, scalaSourceMaps } from './rollup.mjs' // claude 2026-10-19: changed: imports scalaPrerenderStub
 
 // A standard Nuxt module function. No runtime dependency on an effect library,
 // Nuxt kit, or a particular project's generated handlers.
 export default async function h34sNuxt(options, nuxt) {
+  const scalaPrerender = scalaPrerenderOption(options?.scalaPrerender) // claude 2026-10-19: created: validated before any other work
   const root = nuxt.options.rootDir
   const config = await loadConfig({ root, configFile: options?.configFile })
   const outputs = config.modules.map(module => module.output)
+  // claude 2026-10-19: created: 'stub' replaces the linked Scala.js in Nitro's prerender bundle only, in production builds
+  if (scalaPrerender === 'stub' && !nuxt.options.dev) {
+    nuxt.hook('nitro:init', (nitro) => {
+      nitro.hooks.hook('prerender:init', (prerenderer) => {
+        prerenderer.hooks.hook('rollup:before', (_nitro, rollupConfig) => {
+          const plugins = rollupConfig.plugins
+          rollupConfig.plugins = Array.isArray(plugins) ? plugins : plugins ? [plugins] : []
+          rollupConfig.plugins.unshift(scalaPrerenderStub(root, outputs))
+        })
+      })
+    })
+  }
   nuxt.hook('nitro:config', (nitro) => {
     declareDebugFlag(nitro)
     const runtime = fileURLToPath(new URL('./runtime/', import.meta.url))
@@ -42,6 +55,16 @@ export default async function h34sNuxt(options, nuxt) {
       sourcemapExcludeSources: false,
     }
   })
+}
+
+// claude 2026-10-19: created: 'bundle' (the default) or 'stub'; anything else is a TypeError
+function scalaPrerenderOption(value = 'bundle') {
+  if (value === 'bundle' || value === 'stub')
+    return value
+  const shown = typeof value === 'string' ? `'${value}'` : typeof value
+  throw new TypeError(
+    `@yuri4n/h34s-nuxt: scalaPrerender must be 'bundle' or 'stub', got ${shown}`,
+  )
 }
 
 // Declares `runtimeConfig.h34s.debug: false` (private: never sent to the browser). Declared keys

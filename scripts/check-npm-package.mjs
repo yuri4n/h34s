@@ -136,11 +136,17 @@ writeFileSync('sbt-args.json', JSON.stringify(process.argv.slice(2)))
     `import assert from 'node:assert/strict'
 import h34sNuxt from '@yuri4n/h34s-nuxt'
 import { loadConfig } from '@yuri4n/h34s-nuxt/build'
-import { scalaDevModules, scalaSourceMaps } from '@yuri4n/h34s-nuxt/rollup'
+import { scalaDevModules, scalaPrerenderStub, scalaSourceMaps } from '@yuri4n/h34s-nuxt/rollup'
 assert.equal((await loadConfig()).modules.length, 1)
 assert.equal(typeof scalaSourceMaps, 'function')
 const resolved = await scalaDevModules(process.cwd()).resolveId.handler(process.cwd() + '/server/.scala/hello.js')
 assert.equal((await import(resolved.id)).hello, 42)
+// claude 2026-10-19: created: the packed prerender stub resolves an output file, and 'stub' adds the nitro:init hook
+const stub = scalaPrerenderStub(process.cwd())
+assert.match(stub.load(await stub.resolveId.handler(process.cwd() + '/server/.scala/hello.js')).code, /scalaPrerender: 'stub'/)
+const stubHooks = []
+await h34sNuxt({ scalaPrerender: 'stub' }, { options: { rootDir: process.cwd() }, hook(name) { stubHooks.push(name) } })
+assert.deepEqual(stubHooks.sort(), ['nitro:config', 'nitro:init'])
 let configure
 await h34sNuxt({}, { options: { rootDir: process.cwd() }, hook(name, fn) { assert.equal(name, 'nitro:config'); configure = fn } })
 const dev = { dev: true }
