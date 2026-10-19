@@ -225,6 +225,8 @@ test('reports the recorded requests once each, sorted, with the option and the r
     '  POST /api/c',
   ])
   assert.match(lines[4], /as useFetch does/)
+  // claude 2026-10-19: created: Nuxt shares prerendered data between pages, so one request can affect several pages (review F3)
+  assert.match(lines[4], /Other pages that use the same data, for example through a shared layout or component, may hold the same error; check every prerendered page that renders a listed call\./)
   assert.match(lines[4], /remove scalaPrerender: 'stub'/)
   assert.equal(lines.length, 5)
 

@@ -119,6 +119,7 @@ export function stubCallReport(calls, limit = 20) {
     // claude 2026-10-19: created: names calls, because a call without an h3 event is not a request (review F5)
     `@yuri4n/h34s-nuxt: scalaPrerender is 'stub', so Nitro's prerender bundle has no Scala.js. These calls reached Scala.js code while Nuxt prerendered, and each one got a 501 error instead of running your Scala.js code:`,
     ...shown,
-    'A page that catches the error, as useFetch does, would be saved with that error state. Stop prerendering the pages that call Scala.js routes, or remove scalaPrerender: \'stub\' to bundle Scala.js for prerendering.',
+    // claude 2026-10-19: created: Nuxt 4 shares useFetch and useAsyncData results between prerendered pages, failed ones too (review F3)
+    'A page that catches the error, as useFetch does, would be saved with that error state. Other pages that use the same data, for example through a shared layout or component, may hold the same error; check every prerendered page that renders a listed call. Stop prerendering the pages that call Scala.js routes, or remove scalaPrerender: \'stub\' to bundle Scala.js for prerendering.',
   ].join('\n')
 }
