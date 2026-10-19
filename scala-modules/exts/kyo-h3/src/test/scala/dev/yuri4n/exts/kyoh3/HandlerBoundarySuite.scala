@@ -533,7 +533,8 @@ class HandlerBoundarySuite extends FunSuite:
       def handlerOf(read: Request => String < HandlerEffects) = KHandler.define(options)(read)
       def result(read: Request => String < HandlerEffects): Future[(Int, String)] =
         // Request.fake carries the same default limit that the snapshot of `options` carries.
-        run(Scope.run(Var.run(ResponseHead.empty)(Abort.run[HttpError | InvalidInput](read(Request.fake(method = "POST", body = large, bodyLimit = options.bodyLimit))))))
+        // claude 2026-10-19: changed: detached provides the handler's Env (transport and $fetch)
+        run(Scope.run(Var.run(ResponseHead.empty)(Abort.run[HttpError | InvalidInput](detached(read(Request.fake(method = "POST", body = large, bodyLimit = options.bodyLimit)))))))
           .map(_.getOrThrow.fold(value => 200 -> value, error => error.status -> error.message, error => throw error))
       val small = Call()
       small.invoke(handlerOf(_.body.text())).flatMap { smallBody =>
@@ -561,7 +562,8 @@ class HandlerBoundarySuite extends FunSuite:
           _ <- Response.status(Status.Created)
         yield Greeting(s"${first.name} $again")
       val request = Request.fake(method = "POST", body = Some("{\"name\":\"Scala\"}"))
-      run(Scope.run(Var.runTuple(ResponseHead.empty)(handler(request)))).map { result =>
+      // claude 2026-10-19: changed: detached provides the handler's Env (transport and $fetch)
+      run(Scope.run(Var.runTuple(ResponseHead.empty)(detached(handler(request))))).map { result =>
         val (head, greeting) = result.getOrThrow
         assertEquals(head.status, Some(Status.Created))
         assertEquals(greeting, Greeting("Scala {\"name\":\"Scala\"}"))

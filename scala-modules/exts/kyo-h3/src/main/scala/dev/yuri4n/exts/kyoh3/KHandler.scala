@@ -2,20 +2,22 @@ package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.{H3, H3Event, Nitro}
 import dev.yuri4n.exts.kyoh3.internal.{Interop, Rendering, RequestLifecycle, StreamResponse, Supervised}
-import kyo.{Abort, Async, Fiber, Frame, Result, Scope, Sync, Var, `<`}
+import kyo.{Abort, Async, Env, Fiber, Frame, Result, Scope, Sync, Var, `<`}
 
 import scala.scalajs.js
 import scala.util.control.NonFatal
 
+// claude 2026-10-19: changed: streams are sent with Response.sendStream
 /** Defines h3 handlers from Kyo programs.
   *
   * A handler is a function from the request snapshot to the response body: a Kleisli arrow
   * `Request => B < HandlerEffects`. The core runs it once per request, owns its scope and
   * cancellation, and writes the response head and body once, after the program and its finalizers
-  * finish.
+  * finish. A handler that streams sends the head and the stream itself with `Response.sendStream`
+  * and returns its `Sent`.
   *
   * Wire format with the default options: a value body is `{"data": ...}`, a `Unit` body is a 204
-  * without a body, a stream of strings is sent as UTF-8 text, and errors are
+  * without a body, a sent stream of strings is UTF-8 text, and errors are
   * `{"errors": [{"message": ...}]}`.
   */
 object KHandler:
@@ -63,7 +65,6 @@ private[kyoh3] object RequestRuntime:
         case Empty(head: ResponseHead)
         case Failed(head: ResponseHead, error: Result.Error[Throwable])
         case Sent
-        case Abandoned
 
     def run[B](event: H3Event, options: HandlerOptions, program: Request => B < HandlerEffects)(using
         body: ResponseBody[B],
@@ -76,69 +77,68 @@ private[kyoh3] object RequestRuntime:
           js.Promise.resolve[js.Any](lifecycle.claim())
       else
           new js.Promise[js.Any]((resolve, _) =>
-            val supervised = new Supervised[Completion](work(event, options, program))
+            // claude 2026-10-19: changed: one HandlerTransport per request; a socketless stream settles the h3 promise early
+            val transport  = new HandlerTransport(event, options, () => resolve(js.undefined))
+            val supervised = new Supervised[Completion](work(transport, program))
             lifecycle.setInterrupt(() => supervised.interrupt())
             supervised.onComplete { result =>
               lifecycle.unlisten()
               val response =
                 try
-                    if lifecycle.disconnected then lifecycle.claim()
+                    // The transport owns a sent response: write nothing more, but log a failure
+                    // that happened after it (for example a second sendStream).
+                    if transport.sent then
+                        afterSent(result)
+                        lifecycle.claim()
+                    else if lifecycle.disconnected then lifecycle.claim()
                     else render(event, lifecycle, options, result)
                 catch
                     case NonFatal(error) =>
                       if lifecycle.disconnected then lifecycle.claim() else defect(event, options, ResponseHead.empty, error)
+              transport.markFinished()
               resolve(response)
             },
           )
     end run
 
+    // claude 2026-10-19: changed: provides Env[HandlerTransport]; a Sent body ends the request; a returned stream (ZIO adapter only) goes through the same send
     /** The worker program. Var runs outside Abort so a failure still sees the response head. */
-    private def work[B](event: H3Event, options: HandlerOptions, program: Request => B < HandlerEffects)(using
+    private def work[B](transport: HandlerTransport, program: Request => B < HandlerEffects)(using
         body: ResponseBody[B],
         frame: Frame,
     ): Completion < (Async & Abort[Throwable] & Scope) =
+      val event   = transport.event
+      val options = transport.options
       Sync.defer(Request.fromEvent(event, options.bodyLimit, options.requireJsonContentType)).map { request =>
         Var.runTuple(ResponseHead.empty)(
-          Abort.run[Any](Sync.defer(program(request)).map(value => body.encode(value))),
+          Abort.run[Any](Env.run(transport)(Sync.defer(program(request))).map(value => body.encode(value))),
         ).map { (head, result) =>
           Interop.typed(result).foldError(
             {
               case ResponseBody.Outgoing.Value(native)    => Completion.Value(head, native)
               case ResponseBody.Outgoing.Empty            => Completion.Empty(head)
+              case ResponseBody.Outgoing.Sent(sent)       =>
+                if sent.owner eq transport then Completion.Sent
+                else Completion.Failed(head, Result.Panic(IllegalStateException("The handler returned a Sent value of another request")))
               case ResponseBody.Outgoing.Streamed(chunks) =>
-                val committed = ResponseHead.forSuccess(options.defaults, head)
-                val streamHead = Rendering.withDefaultContentType(event, committed, Rendering.textContentType)
-                var applied    = false
-                val commit     = () =>
-                  applied = true
-                  Rendering.writeHead(event, streamHead)
-                Abort.run[Any](StreamResponse.send(event, chunks, commit)).map(result => Interop.typed(result).foldError(
-                  _ => Completion.Sent,
-                  failure =>
-                    if headersSent(event) then
-                        Sync.defer {
-                          // The client already has a status and part of the body: end the
-                          // connection so the response cannot look complete.
-                          event.node.res.destroy()
-                          Rendering.logDefect(Rendering.describe(failure.failureOrPanic))
-                          Completion.Abandoned
-                        }
-                    else
-                        Sync.defer {
-                          // The head may be applied already (before the first chunk) but not sent:
-                          // the failure response must not carry success-only headers or cookies.
-                          if applied then Rendering.clearHead(event, streamHead)
-                          Completion.Failed(head, failure)
-                        },
-                ))
+                Abort.run[Any](StreamResponse.send(transport, head, chunks)).map(result =>
+                  Interop.typed(result).foldError(_ => Completion.Sent, failure => Completion.Failed(head, failure)),
+                )
             },
             failure => Completion.Failed(head, failure),
           )
         }
       }
 
-    private def headersSent(event: H3Event): Boolean =
-      Nitro.isTrue(event.node.res.asInstanceOf[js.Dynamic].headersSent)
+    // claude 2026-10-19: created: a failure after the response was sent cannot reach the client; log it
+    private def afterSent(result: Result[Throwable, Completion]): Unit =
+      result.foldError(
+        {
+          case Completion.Failed(_, error) => Rendering.logDefect(Rendering.describe(error.failureOrPanic))
+          case _                           => ()
+        },
+        error => Rendering.logDefect(Rendering.describe(error.failureOrPanic)),
+      )
 
     private def render(
         event: H3Event,
@@ -157,7 +157,6 @@ private[kyoh3] object RequestRuntime:
             success(event, options, complete.copy(status = complete.status.orElse(Some(Status.NoContent))), Rendering.noContent)
           case Completion.Failed(head, error) => failure(event, options, head, error)
           case Completion.Sent                => lifecycle.claim()
-          case Completion.Abandoned           => lifecycle.claim()
         },
         error => failure(event, options, ResponseHead.empty, error),
       )
