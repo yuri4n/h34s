@@ -10,14 +10,7 @@ The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestrati
 
 Use Node 24, pnpm 10.34.4, Java 25, sbt 1.11.7, and Docker with Compose for the optional database example. The build selects Scala.js 1.22.0 and Scala 3.9.0 for every module, with Kyo 1.0.0-RC7 and ZIO 2.1.26. Kyo's macros need Java 25, and the ZIO modules build on the Kyo core, so Java 21 is no longer enough for any task. `project/build.properties` pins sbt; `.jvmopts` supplies the stack and heap sizes needed by the linked dependencies. The recovered Nuxt dependency set uses pnpm 10's build allowlist.
 
-In the prepared cloud environment, first run:
-
-```sh
-cd /workspace/h34s
-source /workspace/tooling/activate-kyo.sh
-```
-
-The activation script puts the prepared `sbt` launcher on `PATH`, so the npm CLI can invoke it. `/workspace/tooling/h34s-sbt` is also available for direct Scala commands. It keeps caches writable outside the checkout. On a normal development machine, use the installed `sbt` launcher.
+In a Claude Code cloud session, the repository's SessionStart hook installs these tools and puts them on `PATH`, so the commands below work as written. [maintainers/cloud.md](maintainers/cloud.md) explains that setup, the Maven Central mirror that sbt uses there, and the session's limits. On a normal development machine, use the installed `sbt` launcher.
 
 ## 1. Start from this repository
 
@@ -29,19 +22,13 @@ pnpm run scala:fast
 pnpm dev
 ```
 
-In the prepared cloud environment the linking command is:
-
-```sh
-/workspace/tooling/h34s-sbt 'nuxtsvr/fastLinkJS' 'kyoExample/fastLinkJS'
-```
-
 Development loads the linked Scala.js ES modules directly in Node. Nitro watches both output directories and replaces its worker after relinking, keeping Node’s module cache fresh. This avoids the large Rollup graphs that exhausted an 8 GB heap during bundled watch rebuilds. The current `pnpm dev` script enables Node source maps automatically and needs no heap override. The application pins `h3` as a direct runtime dependency for the linked modules.
 
 Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. It streams its body, and streamed bodies are sent as they are. Value bodies use the default envelope instead: `/api/kyo/greeting` answers `{"data":{"message":"Hello, Kyo!"}}`. Scala source changes need another `nuxtsvr/fastLinkJS`; Nuxt watches the linked JavaScript. For continuous Scala linking, use `pnpm run scala:watch` in another terminal. The root scripts pass `examples/nuxt/h34s.build.config.mjs` to the CLI. That wrapper uses the demo's `h34s.config.mjs` and resolves its output paths from the repository root.
 
 Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
 
-The cloud instance uses an ignored `examples/nuxt/.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings address this environment's SQLite addon startup and network limitations. They do not affect the Scala database layer.
+An earlier cloud environment used an ignored `examples/nuxt/.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings addressed that environment's SQLite addon startup and network limitations. They do not affect the Scala database layer. The example's Nuxt build has not been tested in Claude Code cloud sessions yet.
 
 The independent [Kyo example](kyo.md) adds GET and POST `/api/kyo/greeting`. Its compiled output lives in `examples/nuxt/server/.scala-kyo`; link both applications before starting this combined Nuxt demonstration. In your own Kyo-only application, depend on `kyo-h3-ext`; you do not need the ZIO example or its database integration.
 
