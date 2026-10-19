@@ -22,4 +22,4 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   done <<< "$env_lines"
 fi
 
-echo "h34s cloud toolchain ready (scripts/cloud-setup.sh): Java, sbt, Node and pnpm are on PATH, and sbt reads Maven Central through Google's mirror. Run one sbt process at a time, and run builds longer than a few minutes in the background. See docs/maintainers/cloud.md."
+echo "h34s cloud toolchain ready (scripts/cloud-setup.sh): Java, sbt, Node and pnpm are on PATH, and sbt and scalafix read Maven Central through Google's mirror. Run one sbt process at a time, and run builds longer than a few minutes in the background. See docs/maintainers/cloud.md."

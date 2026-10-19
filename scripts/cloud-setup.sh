@@ -10,13 +10,13 @@
 #
 # Set H34S_TOOLS_DIR to change the install directory. The default is /opt/h34s-tools for
 # root and ~/.local/share/h34s-tools for other users.
-set -euo pipefail
+set -Eeuo pipefail
 
 readonly java_major=25
 readonly sbt_version=1.11.7
-# Maven Central publishes only a SHA-1 for the launcher and no checksum for the runner
-# script, so the SHA-256 values are pinned here. docs/maintainers/cloud.md says how to
-# check and update them.
+# Maven Central publishes SHA-1 and MD5 checksums and a PGP signature for the launcher, but
+# no SHA-256, and the runner script has no checksum at all. So the SHA-256 values are
+# pinned here. docs/maintainers/cloud.md says how to check and update them.
 readonly sbt_launcher_sha256=f92a2095ac75008764fe3b2b793ffe624c4fbef5bfd9b0022e4bc2daf668c651
 readonly sbt_runner_sha256=d70f61cbc9fd3b4ff01d810de89dfaedfa62ecbb4b242911181cc14e6937b8e6
 readonly node_version=24.22.0
@@ -33,6 +33,8 @@ die() {
   log "error: $*"
   exit 1
 }
+# A command that fails without die (apt-get, tar, corepack, ...) also ends with an error line.
+trap 'log "error: \"$BASH_COMMAND\" failed with exit status $?"' ERR
 
 usage() {
   sed -n '7,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -108,15 +110,17 @@ ensure_sbt() {
     mv "$staging" "$sbt_home"
   fi
 
-  # The runner reads conf/sbtopts next to itself when no /etc/sbt/sbtopts or
+  # The runner reads conf/sbtopts next to itself when no $SBT_ETC_FILE, /etc/sbt/sbtopts or
   # ~/.config/sbt/sbtopts exists, so every call of this sbt gets the mirror settings.
   # The repositories file covers the launcher. The global settings rewrite Maven Central to
   # the mirror in every build, without replacing the build's own resolvers, which
   # sbt.override.build.repos would do.
-  local mirror_config=$tools_dir/sbt-mirror
-  if [ -f /etc/sbt/sbtopts ] || [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/sbt/sbtopts" ]; then
-    die "a machine-wide sbtopts file exists, so sbt would ignore $sbt_home/conf/sbtopts"
-  fi
+  local mirror_config=$tools_dir/sbt-mirror file
+  for file in "${SBT_ETC_FILE:-}" /etc/sbt/sbtopts "${XDG_CONFIG_HOME:-$HOME/.config}/sbt/sbtopts"; do
+    if [ -n "$file" ] && [ -f "$file" ]; then
+      log "warning: $file exists, so sbt ignores $sbt_home/conf/sbtopts and does not use the Maven Central mirror; remove $file"
+    fi
+  done
   write_if_changed "$sbt_home/conf/sbtopts" "# Written by scripts/cloud-setup.sh; see docs/maintainers/cloud.md.
 -Dsbt.repository.config=$mirror_config/repositories
 -Dsbt.global.base=$mirror_config/global"
@@ -135,7 +139,8 @@ def h34sViaMirror(resolvers: Seq[Resolver]): Seq[Resolver] = {
 
 csrResolvers ~= h34sViaMirror
 csrSbtResolvers ~= h34sViaMirror
-// sbt recomputes the resolvers for compiler bridges in this scope, adding plugin resolvers.
+// sbt defines csrResolvers again for compiler bridges, from the unchanged fullResolvers. In the
+// project/ meta-build, a plugin build, that list includes Maven Central through sbtResolvers.
 scalaCompilerBridgeScope / csrResolvers ~= h34sViaMirror"
 }
 
@@ -155,7 +160,8 @@ ensure_node() {
   fetch "https://nodejs.org/dist/v$node_version/$archive" "$work/$archive"
   (cd "$work" && grep " $archive\$" SHASUMS256.txt | sha256sum -c --quiet -) \
     || die "SHA-256 mismatch for $archive"
-  tar -xJf "$work/$archive" -C "$work"
+  # The archive records uid 1001; root must own the node binary that it puts first in PATH.
+  tar --no-same-owner -xJf "$work/$archive" -C "$work"
   rm -rf "$node_home"
   mv "$work/node-v$node_version-linux-$arch" "$node_home"
 }
@@ -179,8 +185,10 @@ ensure_pnpm() {
 start_services() {
   command -v pg_isready > /dev/null 2>&1 || die "PostgreSQL is not installed"
   command -v redis-cli > /dev/null 2>&1 || die "Redis is not installed"
-  as_root service postgresql start
-  as_root service redis-server start
+  # The daemons must not inherit the saved stdout (fd 3), or a caller that reads this
+  # script's output through a pipe waits for as long as they run.
+  as_root service postgresql start < /dev/null 3>&-
+  as_root service redis-server start < /dev/null 3>&-
   for _ in $(seq 20); do
     pg_isready -q && break
     sleep 0.5
@@ -191,19 +199,13 @@ start_services() {
 }
 
 print_env() {
-  # Literal values, without the earlier copies of these directories in PATH.
-  local path_value=$java_home/bin:$node_home/bin:$sbt_home/bin entry
-  local IFS=:
-  for entry in $PATH; do
-    [ -n "$entry" ] || continue
-    case ":$path_value:" in
-      *":$entry:"*) ;;
-      *) path_value=$path_value:$entry ;;
-    esac
-  done
   printf "export JAVA_HOME='%s'\n" "$java_home"
-  printf "export PATH='%s'\n" "$path_value"
+  # Prepend to the PATH of each command, so that PATH entries from other hooks stay.
+  printf "export PATH='%s':\"\$PATH\"\n" "$java_home/bin:$node_home/bin:$sbt_home/bin"
   printf "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0\n"
+  # sbt-scalafix fetches scalafix-cli with coursier-interface, which ignores sbt's resolvers
+  # and COURSIER_MIRRORS, but reads COURSIER_REPOSITORIES (default: ivy2Local|central).
+  printf "export COURSIER_REPOSITORIES='ivy2Local|%s'\n" "$maven_central_mirror"
 }
 
 services=false
@@ -228,6 +230,10 @@ if [ "$(id -u)" -eq 0 ]; then
 else
   tools_dir=${H34S_TOOLS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/h34s-tools}
 fi
+# The sbt runner word-splits and evaluates the paths that conf/sbtopts holds.
+case $tools_dir in
+  *[!A-Za-z0-9._/+-]*) die "the install directory '$tools_dir' may contain only letters, digits and . _ / + -; set H34S_TOOLS_DIR" ;;
+esac
 mkdir -p "$tools_dir"
 work=$tools_dir/.partial
 rm -rf "$work"
