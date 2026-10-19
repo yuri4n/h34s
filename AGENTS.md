@@ -63,7 +63,7 @@ These notes record the user's intended direction. They are not a description of 
 - Prefer `NativeConverter` and direct Scala.js/native-value conversion. Avoid JSON string round trips merely to move data between Scala and JavaScript; HTTP wire serialization is a separate concern.
 - Keep conversions and runtime machinery out of endpoint business logic.
 - Conversion integrations must compose predictably. Avoid duplicate defaults and ambiguous instances when users install multiple optional modules.
-- Generated TypeScript must describe actual wire representations, including custom conversions. Do not assume arbitrary converter implementations can be inferred automatically by scala-ts.
+- Generated TypeScript must describe actual wire representations, including custom conversions. The generator describes what each `NativeConverter` writes (PR #15); a converter it cannot describe is typed `unknown`, never guessed. <!-- claude 2026-10-19: changed: scala-ts sentence replaced by the converter-driven generator rule (#27) -->
 - Preserve streaming, cancellation, and resource lifecycle semantics across effect boundaries. Do not trade correctness for a superficially simple API or claim zero-cost interop without evidence.
 
 ## Modules and integrations
@@ -161,7 +161,7 @@ A previous broad MVP implementation was rolled back at the user's request. Do no
 These rules apply to every agent session: on the maintainer's Mac (8 CPUs, 16 GB of memory) and in Claude Code cloud VMs (about 4 vCPUs, 16 GB).
 
 - Read `docs/design/kyo-core.md` before you change the Kyo core, the ZIO adapter or a bridge. It records the user's decisions, the design and why the code differs from the first plan. When you change one of them, update it in the same pull request.
-- Start from the tracking issue [#17](https://github.com/yuri4n/h34s/issues/17), "Roadmap and current state after 0.2.0-alpha.1". When work lands, tick its item and add a comment with the pull request and the evidence. In a cloud session, read it with `gh api repos/yuri4n/h34s/issues/17` and `gh api repos/yuri4n/h34s/issues/17/comments`, because `gh issue` uses GraphQL, which is blocked there.
+- Start from the tracking issue [#17](https://github.com/yuri4n/h34s/issues/17), "Roadmap and current state after 0.2.0-alpha.1". Every remaining item is a sub-issue of #17. When work lands, close its sub-issue and add a comment there with the pull request and the evidence. In a cloud session, read it with `gh api repos/yuri4n/h34s/issues/17`, `gh api repos/yuri4n/h34s/issues/17/comments` and `gh api repos/yuri4n/h34s/issues/17/sub_issues`, because `gh issue` uses GraphQL, which is blocked there. <!-- claude 2026-10-19: changed: sub-issues of #17 replace the checklist items -->
 - Run at most 4 agents in parallel, and at most 2 that compile, link, build, install packages or run tests. Run one sbt process at a time: a second one competes for memory and for the same `target/` directories.
 - Run one workflow at a time. Before a run of more than 10 agents, tell the user how many agents will run and what they do.
 - Make each agent write its report file when it starts, and add each finding as soon as it is verified. Keep durable notes in the repository (through a pull request) or in the tracking issue. Session scratch space can disappear.
