@@ -173,8 +173,9 @@ try {
   // Only Nuxt is reused from the installed toolchain. h34s must be real packed
   // files under node_modules, where Nitro's externalization behavior differs.
   symlinkSync(nuxtPackage, join(app, 'node_modules/nuxt'), 'dir')
-  // claude 2026-10-19: changed: scalaPrerender: 'stub' with one prerendered route; H34S_CHECK_PRERENDER_SCALA adds a route that calls Scala.js
-  write(join(app, 'nuxt.config.mjs'), `export default {
+  // claude 2026-10-19: changed: scalaPrerender: 'stub' with one prerendered route; H34S_CHECK_PRERENDER_SCALA adds a route that calls Scala.js, and 'direct' also prerenders the Scala.js route itself (review F1, F2)
+  write(join(app, 'nuxt.config.mjs'), `const scalaRoutes = { true: ['/calls-scala.txt'], direct: ['/calls-scala.txt', '/api/greeting'] }
+export default {
   modules: [['@yuri4n/h34s-nuxt', { scalaPrerender: 'stub' }]],
   devtools: { enabled: false },
   telemetry: false,
@@ -182,7 +183,7 @@ try {
   nitro: {
     preset: 'node-server',
     prerender: {
-      routes: ['/prerendered.txt', ...(process.env.H34S_CHECK_PRERENDER_SCALA === 'true' ? ['/calls-scala.txt'] : [])]
+      routes: ['/prerendered.txt', ...(scalaRoutes[process.env.H34S_CHECK_PRERENDER_SCALA] ?? [])]
     }
   }
 }\n`)
@@ -255,6 +256,16 @@ export default defineEventHandler(async (event) => {
   assert.ok(failing.result && Number.isInteger(failing.result.code) && failing.result.code !== 0, `A prerendered page that calls a Scala.js route must stop the build with scalaPrerender: 'stub': ${JSON.stringify(failing.result)}\n${failing.build.log}`)
   assert.match(failing.build.log, /\[h34s\] GET \/api\/greeting answered 501 while Nuxt prerendered \/calls-scala\.txt/, failing.build.log)
   assert.match(failing.build.log, /scalaPrerender is 'stub'[\s\S]*GET \/api\/greeting, while Nuxt prerendered \/calls-scala\.txt/, failing.build.log)
+  // claude 2026-10-19: created: h3 and Nitro handle the stub's 501, so the build log has no unhandled-error block (review F2)
+  assert.doesNotMatch(failing.build.log, /\[request error\]|\[unhandled\]/, failing.build.log)
+
+  // claude 2026-10-19: created: a directly prerendered Scala.js route fails in Nitro; h34s logs its list and lets Nitro stop the build with its own summary (review F1, F2)
+  const direct = await nuxtBuild(nuxt, { H34S_CHECK_PRERENDER_SCALA: 'direct' })
+  assert.ok(direct.result && Number.isInteger(direct.result.code) && direct.result.code !== 0, `A directly prerendered Scala.js route must fail with scalaPrerender: 'stub': ${JSON.stringify(direct.result)}\n${direct.build.log}`)
+  assert.match(direct.build.log, /\[h34s\] GET \/api\/greeting answered 501 while Nuxt prerendered \/api\/greeting:/, direct.build.log)
+  assert.match(direct.build.log, /scalaPrerender is 'stub'[\s\S]*GET \/api\/greeting, while Nuxt prerendered \/api\/greeting\n[\s\S]*GET \/api\/greeting, while Nuxt prerendered \/calls-scala\.txt/, direct.build.log)
+  assert.match(direct.build.log, /Errors prerendering:[\s\S]*\/api\/greeting[\s\S]*Exiting due to prerender errors/, direct.build.log)
+  assert.doesNotMatch(direct.build.log, /\[request error\]|\[unhandled\]/, direct.build.log)
 
   // claude 2026-10-19: changed: the production build prerenders /prerendered.txt with scalaPrerender: 'stub' (review F2)
   for (const directory of prerenderBundles())
@@ -296,7 +307,7 @@ export default defineEventHandler(async (event) => {
   const debugged = await response(`http://127.0.0.1:${debugPort}/api/probe`, debugging, 'second')
   assert.equal(debugged.development, false, 'The debug flag does not switch on development mode')
   assertRecords(debugged, { debug: true })
-  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, scalaPrerender: 'stub' (prerender bundle, server output, build error), production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`) // claude 2026-10-19: changed: names the scalaPrerender checks
+  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, scalaPrerender: 'stub' (prerender bundle, server output, build error, Nitro's own prerender error), production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`) // claude 2026-10-19: changed: names the scalaPrerender checks, including Nitro's own prerender error
 }
 finally {
   await Promise.allSettled([...children].map(stop))

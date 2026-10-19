@@ -132,17 +132,48 @@ test('loads a stub whose exports are h3 event handlers that answer 501 and name 
   assert.equal(fallback.then, undefined, 'the fallback is not a thenable')
   assert.equal(fallback[Symbol.toPrimitive], undefined)
   assert.deepEqual(Object.keys(fallback), [])
-  assert.throws(() => stub.default({}), (error) => {
+  // claude 2026-10-19: created: an h3 1.x event always has `node.req` (review F5)
+  assert.throws(() => stub.default({ node: { req: {} } }), (error) => {
     assert.equal(error.statusCode, 501)
     assert.match(error.statusMessage, /scalaPrerender: 'stub'/)
     // h3 sanitizes status messages to visible ASCII and tabs.
     assert.match(error.statusMessage, /^[\t\x20-\x7E]+$/)
     assert.match(error.message, /scalaPrerender/)
+    // claude 2026-10-19: created: h3 1.x handles an error whose class has this marker: no "[unhandled]" log, and Nitro keeps its message (review F2)
+    assert.ok(error instanceof Error)
+    assert.equal(error.constructor.__h3_error__, true)
+    assert.equal(error.unhandled, false)
+    assert.equal(error.fatal, false)
     return true
   })
   assert.deepEqual(warnings, [
     '[h34s] GET (unknown path) answered 501: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
   ])
+})
+
+// claude 2026-10-19: created: a call without an h3 event, as from a Nitro plugin at startup, names no route (review F5)
+test('a call without an h3 event throws a message that names no route, and is recorded', async (t) => {
+  const f = await fixture(t)
+  const warnings = captureWarnings(t)
+  const stub = await loadStub(f)
+  t.after(takeStubCalls)
+  recordStubCalls()
+  for (const args of [[], [{}], [42, 'text']]) {
+    assert.throws(() => stub.default(...args), (error) => {
+      assert.equal(error.statusCode, 501)
+      assert.equal(error.constructor.__h3_error__, true)
+      assert.equal(error.unhandled, false)
+      assert.match(error.message, /^Scala\.js code was called without an h3 event while Nuxt prerendered, for example by a Nitro plugin at startup\./)
+      assert.doesNotMatch(error.message, /This route/)
+      assert.match(error.message, /scalaPrerender is 'stub'/)
+      return true
+    }, JSON.stringify(args))
+  }
+  const outside = { method: undefined, path: undefined, page: undefined }
+  assert.deepEqual(takeStubCalls(), [outside, outside, outside])
+  const line = '[h34s] Scala.js code was called without an h3 event while Nuxt prerendered, for example by a Nitro plugin at startup: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').'
+  assert.deepEqual(warnings, [line, line, line])
+  assert.deepEqual(stubCallReport([outside]).split('\n')[1], '  Scala.js code called without an h3 event, not as a route handler')
 })
 
 // claude 2026-10-19: created: the stub records each request while the Nuxt module collects them (review F1)

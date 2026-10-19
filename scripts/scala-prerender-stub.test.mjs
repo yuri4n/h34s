@@ -18,6 +18,10 @@ const nuxtRequire = createRequire(import.meta.resolve('nuxt'))
 const nitroRequire = createRequire(nuxtRequire.resolve('nitropack/package.json'))
 const { rollup } = await import(pathToFileURL(nitroRequire.resolve('rollup')).href)
 const h3 = await import(pathToFileURL(nitroRequire.resolve('h3')).href)
+// claude 2026-10-19: created: Nitro's production error handler and the ofetch that Nuxt's useFetch uses (review F2)
+const nitroDirectory = dirname(nuxtRequire.resolve('nitropack/package.json'))
+const { default: nitroErrorHandler } = await import(pathToFileURL(join(nitroDirectory, 'dist/runtime/internal/error/prod.mjs')).href)
+const { ofetch } = await import(pathToFileURL(nitroRequire.resolve('ofetch')).href)
 
 const linkedMarkers = ['h34s linked ZIO marker', 'h34s linked internal marker', 'h34s linked Kyo marker']
 
@@ -85,10 +89,22 @@ test('with scalaPrerenderStub, the bundle holds the stub instead of the linked S
   const warnings = []
   const warn = console.warn
   console.warn = (...args) => warnings.push(args.join(' '))
+  // claude 2026-10-19: created: h3 and Nitro log an unhandled error with console.error (review F2)
+  const consoleErrors = []
+  const error = console.error
+  console.error = (...args) => consoleErrors.push(args.map(String).join(' '))
   t.after(() => {
     console.warn = warn
+    console.error = error // claude 2026-10-19: created
   })
-  const app = h3.createApp()
+  // claude 2026-10-19: created: h3 passes errors to Nitro's production error handler, as a Nitro app does (review F2)
+  const errors = []
+  const app = h3.createApp({
+    onError: (error, event) => {
+      errors.push(error)
+      return nitroErrorHandler(error, event)
+    },
+  })
   app.use('/notes', (await handlers.notes()).default)
   app.use('/kyo', (await handlers.kyo()).default)
   const server = createServer(h3.toNodeListener(app))
@@ -97,21 +113,39 @@ test('with scalaPrerenderStub, the bundle holds the stub instead of the linked S
   // claude 2026-10-19: changed: real h3 events give the stub's record the method, path and prerendered page (review F1)
   recordStubCalls()
   t.after(takeStubCalls)
+  const url = path => `http://127.0.0.1:${server.address().port}${path}`
   for (const [path, headers] of [['/notes', { 'x-nitro-prerender': '/notes-page' }], ['/kyo', {}]]) {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`, { headers })
+    const response = await fetch(url(path), { headers })
     assert.equal(response.status, 501, path)
     assert.match(response.statusText, /scalaPrerender: 'stub'/, path)
     const body = await response.text()
     assert.ok(!linkedMarkers.some(marker => body.includes(marker)), body)
+    // claude 2026-10-19: created: Nitro answers with the stub's own message, not the "Server Error" of an unhandled error (review F2)
+    const json = JSON.parse(body)
+    assert.equal(json.statusCode, 501, body)
+    assert.match(json.statusMessage, /scalaPrerender: 'stub'/, body)
+    assert.match(json.message, /leaves Scala\.js out of Nitro's prerender bundle/, body)
   }
+  // claude 2026-10-19: created: ofetch, which useFetch uses, still rejects with the 501 (review F2)
+  await assert.rejects(ofetch(url('/notes'), { headers: { 'x-nitro-prerender': '/other-page' } }), { statusCode: 501 })
   assert.deepEqual(warnings.filter(warning => warning.includes('[h3]')), [], 'h3 recognizes the stub as an event handler')
+  // claude 2026-10-19: created: h3 and Nitro treat the stub's 501 as a handled error, so neither logs it as unhandled (review F2)
+  assert.equal(errors.length, 3)
+  for (const handled of errors) {
+    assert.equal(handled.statusCode, 501)
+    assert.equal(handled.unhandled, false, 'h3 does not mark the stub error as unhandled')
+    assert.equal(handled.fatal, false)
+  }
+  assert.deepEqual(consoleErrors, [], 'neither h3 nor Nitro logs an unhandled error')
   assert.deepEqual(takeStubCalls(), [
     { method: 'GET', path: '/notes', page: '/notes-page' },
     { method: 'GET', path: '/kyo', page: undefined },
+    { method: 'GET', path: '/notes', page: '/other-page' }, // claude 2026-10-19: created: the ofetch request
   ])
   assert.deepEqual(warnings.filter(warning => warning.startsWith('[h34s]')), [
     '[h34s] GET /notes answered 501 while Nuxt prerendered /notes-page: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
     '[h34s] GET /kyo answered 501: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').',
+    '[h34s] GET /notes answered 501 while Nuxt prerendered /other-page: Scala.js is not bundled for prerendering (h34s scalaPrerender: \'stub\').', // claude 2026-10-19: created: the ofetch request
   ])
   assert.ok(!(await readFile(join(f.root, 'out/entry.js'), 'utf8')).includes('.scala'))
 })
