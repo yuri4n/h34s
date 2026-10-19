@@ -167,7 +167,7 @@ class HandlerBoundarySuite extends FunSuite:
       yield assertEquals(releases, 3)
     }
 
-    // claude 2026-10-19: created: Kyo side of issue #40 (a failing finalizer keeps the computed response)
+    // claude 2026-10-19: created: Kyo side of issue #40 (a failing finalizer keeps the computed response); changed: 204, discarded header and development cases (review)
     test("a failing request-scope finalizer keeps the computed response: value, Unit and safe failure") {
       def withFailingFinalizer[B](outcome: => B < HandlerEffects): B < HandlerEffects =
         for
@@ -179,10 +179,17 @@ class HandlerBoundarySuite extends FunSuite:
       val value = Call()
       val empty = Call()
       val rejected = Call()
+      val developmentRejected = Call(development = true)
+      val noContent = Call()
+      def rejecting = KHandler.define[String](_ => withFailingFinalizer(Abort.fail(Rejected("Invalid name"))))
       for
         valueBody <- value.invoke(KHandler.define(_ => withFailingFinalizer(Greeting("ok"))))
         _ <- empty.invoke(KHandler.define(_ => withFailingFinalizer(())))
-        rejectedBody <- rejected.invoke(KHandler.define[String](_ => withFailingFinalizer(Abort.fail(Rejected("Invalid name")))))
+        rejectedBody <- rejected.invoke(rejecting)
+        developmentBody <- developmentRejected.invoke(rejecting)
+        noContentBody <- noContent.invoke(KHandler.define(_ =>
+          Scope.ensure(Sync.defer(throw new Exception("kyo cleanup failure"))),
+        ))
       yield
         assertEquals(value.response.status, 201)
         assertEquals(json(valueBody), "{\"data\":{\"message\":\"ok\"}}")
@@ -191,6 +198,11 @@ class HandlerBoundarySuite extends FunSuite:
         assertEquals(empty.response.header("x-kept"), Some("yes"))
         assertEquals(rejected.response.status, 422)
         assertEquals(json(rejectedBody), KyoTesting.errors("Invalid name"))
+        assertEquals(rejected.response.header("x-kept"), None)
+        assertEquals(developmentRejected.response.status, 422)
+        assertEquals(json(developmentBody), KyoTesting.errors("Invalid name"), "no diagnostics on a safe failure")
+        assertEquals(noContent.response.status, 204)
+        assert(noContentBody == null, s"expected no body, got $noContentBody")
     }
 
     // K10

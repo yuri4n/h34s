@@ -4,6 +4,7 @@ import kyo.{AllowUnsafe, Async, Fiber, Frame, Kyo, Maybe, Result, Sync, `<`}
 import zio.{Cause, Exit, FiberId, Runtime, Unsafe, ZIO}
 
 import scala.scalajs.js
+import scala.util.control.NonFatal
 
 /** One ZIO effect, forked on a ZIO `Runtime` and awaited from Kyo.
   *
@@ -69,10 +70,16 @@ private[exts] object ZioCall:
         }
       }
 
-    // claude 2026-10-19: created: one log line for every failing ZIO request-scope finalizer (issue #40)
-    /** Logs a failed scope close on the server, like Kyo logs a failing `Scope` finalizer. An
-      * interruption alone is not a failure.
+    // claude 2026-10-19: created: one log line per failed close of a ZIO request scope (issue #40); changed: total, and interruptions on request (review)
+    /** Logs a failed scope close on the server, like Kyo logs a failing `Scope` finalizer. One
+      * close can combine several failing finalizers into one cause, so this is one line per close.
+      *
+      * An interruption alone is skipped unless `includeInterrupts` is set: after `stop` the scope
+      * close can be interrupted by the stop itself. Never throws, also when the cause cannot be
+      * rendered.
       */
-    def logFinalizerFailure(cause: Cause[Any]): Unit =
-      if !cause.isInterruptedOnly then js.Dynamic.global.console.error("h34s: a ZIO finalizer failed", cause.prettyPrint)
+    def logFinalizerFailure(cause: Cause[Any], includeInterrupts: Boolean = false): Unit =
+      if includeInterrupts || !cause.isInterruptedOnly then
+          val text = try cause.prettyPrint catch case NonFatal(error) => s"<cause could not be rendered: ${error.getClass.getName}>"
+          try js.Dynamic.global.console.error("h34s: a ZIO finalizer failed", text) catch case NonFatal(_) => ()
 end ZioCall
