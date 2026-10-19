@@ -108,6 +108,9 @@ jobs:
 
   # claude 2026-10-19: created: the demo and the database guide's kyo-sql code against PostgreSQL 16 (issue #29)
   postgres:
+    # Release tags validate the libraries only (maintainer decision, 2026-10-19). In a workflow that
+    # release.yml calls, github.ref is the tag.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:

@@ -125,7 +125,7 @@ Releases include binary and source jars. `build.sbt` still omits Scaladoc jars. 
 
 ## Validate and publish a release
 
-The Scala workflow checks the development integration, ZIO/Kyo handlers, optional schema and NuxtHub KV adapters, application tests, production linking, and reusable-library POMs. It stages library packages locally and verifies independent Maven consumers before a release can proceed. Its `postgres` job also runs on a release tag: it builds the demo for production and runs the Notes routes and the kyo-sql suite against PostgreSQL 16, so a failure there stops the release. <!-- claude 2026-10-19: changed: the postgres job gates releases --> Local staging does not publish to GitHub Packages.
+The Scala workflow checks the development integration, ZIO/Kyo handlers, optional schema and NuxtHub KV adapters, application tests, production linking, and reusable-library POMs. It stages library packages locally and verifies independent Maven consumers before a release can proceed. Its `postgres` job, which builds the demo for production and runs the Notes routes and the kyo-sql suite against PostgreSQL 16, runs on pull requests and on `main`, not on release tags: a release validates the libraries only. <!-- claude 2026-10-19: changed: the postgres job does not gate releases --> Local staging does not publish to GitHub Packages.
 
 Run the same core checks from a clean checkout with the toolchain above:
 

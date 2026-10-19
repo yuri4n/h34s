@@ -10,7 +10,7 @@ h34s `NEXT_VERSION`. This placeholder collects notes for the next release while 
 
 ## Changes
 
-- **PostgreSQL in CI.** A new `postgres` job in the Scala.js libraries workflow runs PostgreSQL 16 with SCRAM, the kyo-sql suite, the demo's production build, `smoke.mjs` and a `SIGTERM` session check. It runs on pull requests and pushes to `main` that touch the libraries or the example, and on release tags. Its first run failed on a wrong session count; the [corrected job](https://github.com/yuri4n/h34s/actions/runs/39277276171/job/118144813255) passed on pull request #45.
+- **PostgreSQL in CI.** A new `postgres` job in the Scala.js libraries workflow runs PostgreSQL 16 with SCRAM, the kyo-sql suite, the demo's production build, `smoke.mjs` and a `SIGTERM` session check. It runs on pull requests and pushes to `main` that touch the libraries or the example; it does not run on release tags. Its first run failed on a wrong session count; the [corrected job](https://github.com/yuri4n/h34s/actions/runs/39277276171/job/118144813255) passed on pull request #45.
 
 ## Alpha limits
 
