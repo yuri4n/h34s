@@ -8,7 +8,7 @@ For local development on your own machine, use [development.md](../development.m
 
 Cloud sessions run in a cloud environment that you configure on claude.ai. Its **network access** level decides which hosts the session can reach.
 
-- **Full** access works. All the commands in this guide were verified with it.
+- **Full** access works. The toolchain, sbt, Node, and service commands in this guide were verified with it; the [verification record](#verification-record) lists what was not.
 - **Trusted**, the default level, should also work, but it is not verified. Every host that the setup uses is in the [Trusted default list](https://code.claude.com/docs/en/cloud-environments#default-allowed-domains):
 
 | Host | Used for |
@@ -25,7 +25,7 @@ GitHub does not need an entry. Git and `gh` reach GitHub through a separate GitH
 
 ## What happens when a session starts
 
-[`.claude/settings.json`](../../.claude/settings.json) registers one SessionStart hook, [`.claude/hooks/session-start.sh`](../../.claude/hooks/session-start.sh). Claude Code runs it when a session starts, resumes, clears, or compacts.
+[`.claude/settings.json`](../../.claude/settings.json) registers one SessionStart hook, [`.claude/hooks/session-start.sh`](../../.claude/hooks/session-start.sh). Claude Code runs it when a session starts, resumes, clears, or compacts. In a session with several repositories, Claude Code loads no repository's hooks, so this hook does not run; see [Debug the hook](#debug-the-hook).
 
 1. The hook checks `CLAUDE_CODE_REMOTE`. Claude Code sets it to `true` only in cloud sessions. On any other value, the hook exits at once and changes nothing, so a session on your Mac is not affected.
 2. The hook runs [`scripts/cloud-setup.sh`](../../scripts/cloud-setup.sh). The script installs each missing tool and leaves present tools alone:
@@ -35,9 +35,9 @@ GitHub does not need an entry. Git and `gh` reach GitHub through a separate GitH
    - pnpm 10.34.4 through Node's Corepack, which checks the package against the npm registry's signing keys.
    - Three small sbt configuration files, described in [Maven Central and the mirror](#maven-central-and-the-mirror).
 
-   As root, the script installs into `/opt/h34s-tools`. As another user, it installs into `~/.local/share/h34s-tools` and uses `sudo -n` for `apt-get`. Set `H34S_TOOLS_DIR` to choose another directory.
-3. The hook appends three lines to the file in `CLAUDE_ENV_FILE`: `JAVA_HOME`, a `PATH` that starts with the Java 25, Node 24, and sbt directories, and `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`. Claude Code runs that file before every Bash command, so `java`, `sbt`, `node`, and `pnpm` resolve to the right versions. The hook skips lines that the file already has.
-4. The hook prints one line of context for Claude: the toolchain is ready, and sbt reads Maven Central through a mirror.
+   As root, the script installs into `/opt/h34s-tools`. As another user, it installs into `~/.local/share/h34s-tools` and uses `sudo -n` for `apt-get`. Set `H34S_TOOLS_DIR` to choose another directory. Its path may contain only letters, digits, and `. _ / + -`, because the sbt runner evaluates it.
+3. The hook appends four lines to the file in `CLAUDE_ENV_FILE`: `JAVA_HOME`; a `PATH` line that puts the Java 25, Node 24, and sbt directories in front of the session's `PATH`; `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`; and `COURSIER_REPOSITORIES` for scalafix (see [What the setup changes](#what-the-setup-changes)). Claude Code runs that file before every Bash command, so `java`, `sbt`, `node`, and `pnpm` resolve to the right versions. The hook skips lines that the file already has.
+4. The hook prints one line of context for Claude: the toolchain is ready, and sbt and scalafix read Maven Central through a mirror.
 
 On a fresh VM, the hook takes about 15 seconds. When every tool is present, it takes less than half a second and changes no file. If the setup fails, the hook still exits with status 0 and writes no variables, so the session starts without the toolchain. Its JSON output carries a warning for you, `h34s cloud setup failed`, and a note that tells Claude to rerun the script.
 
@@ -58,7 +58,7 @@ This setup-script path is not verified. In particular, it is not known whether t
 
 ### Debug the hook
 
-Run the setup script yourself. It prints each step to stderr and ends with a `ready:` line or an `error:` line:
+Run the setup script yourself. It prints each step to stderr. It ends with a `ready:` line, or with an `error:` line that names the check or the command that failed:
 
 ```sh
 bash scripts/cloud-setup.sh
@@ -71,7 +71,7 @@ command -v java sbt node pnpm
 java -version
 ```
 
-Expected result: `java` is in `/usr/lib/jvm/java-25-openjdk-amd64/bin`, and `sbt`, `node`, and `pnpm` are in `/opt/h34s-tools`. If they are not, the hook did not run or failed. Start Claude Code with `claude --debug` to see the hook's output, or run the hook directly with the variables that Claude Code supplies:
+Expected result: `java` is in `/usr/lib/jvm/java-25-openjdk-amd64/bin`, and `sbt`, `node`, and `pnpm` are in `/opt/h34s-tools`. If they are not, the hook did not run or failed. A session with several repositories runs no repository hooks; there, start each command with `eval "$(bash scripts/cloud-setup.sh --print-env)" &&`. Otherwise, run the hook directly with the variables that Claude Code supplies:
 
 ```sh
 CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR="$PWD" CLAUDE_ENV_FILE=/tmp/h34s-env \
@@ -83,7 +83,7 @@ cat /tmp/h34s-env
 
 ### Why sbt needs a mirror here
 
-All outbound HTTPS traffic from a cloud session goes through a local agent proxy. Claude Code sets `JAVA_TOOL_OPTIONS` so that every JVM uses it: `-Dhttps.proxyHost=127.0.0.1`, the proxy's port, and a trust store that holds the proxy's certificate. That is why each JVM prints `Picked up JAVA_TOOL_OPTIONS` on startup. Do not change that variable. The proxy needs no credentials from Java, so older workarounds that run your own forwarding proxy for the JVM ([claude-code#16222](https://github.com/anthropics/claude-code/issues/16222)) are not needed in this environment.
+Most outbound HTTPS traffic from a cloud session, including every Maven download, goes through a local agent proxy. Claude Code sets `JAVA_TOOL_OPTIONS` so that every JVM uses it: `-Dhttps.proxyHost=127.0.0.1`, the proxy's port, and a trust store that holds the proxy's certificate. That is why each JVM prints `Picked up JAVA_TOOL_OPTIONS` on startup. Do not change that variable. The proxy needs no credentials from Java, so older workarounds that run your own forwarding proxy for the JVM ([claude-code#16222](https://github.com/anthropics/claude-code/issues/16222)) are not needed in this environment.
 
 The problem is Maven Central itself. It answers the shared egress address of cloud sessions with `HTTP 429 Too Many Requests` for a large share of requests, at both `repo1.maven.org` and `repo.maven.apache.org`. Without the mirror, a first `sbt -batch h3Ext/compile` failed after 20 seconds:
 
@@ -96,15 +96,18 @@ In other attempts, the sbt launcher failed earlier with `could not retrieve sbt 
 
 ### What the setup changes
 
-`scripts/cloud-setup.sh` writes three files. Only the sbt in `/opt/h34s-tools` reads them; an sbt on your own machine never does.
+`scripts/cloud-setup.sh` writes three files and one variable. Only the sbt in `/opt/h34s-tools` reads the files; an sbt on your own machine never does.
 
 | File | Effect |
 | --- | --- |
 | `/opt/h34s-tools/sbt-1.11.7/conf/sbtopts` | The sbt runner reads this file when no `/etc/sbt/sbtopts` or `~/.config/sbt/sbtopts` exists. It adds `-Dsbt.repository.config` and `-Dsbt.global.base`, which point at the next two files. |
 | `/opt/h34s-tools/sbt-mirror/repositories` | The launcher downloads sbt 1.11.7 and Scala from the local Ivy repository and the mirror only. |
-| `/opt/h34s-tools/sbt-mirror/global/maven-central-mirror.sbt` | In every build, including the `project/` meta-build, these global settings replace a Maven Central resolver with the mirror in `csrResolvers`, `csrSbtResolvers`, and `scalaCompilerBridgeScope / csrResolvers`. sbt computes the last one separately when it fetches a compiler bridge, and it adds the plugin resolvers there. |
+| `/opt/h34s-tools/sbt-mirror/global/maven-central-mirror.sbt` | In every build, including the `project/` meta-build, these global settings replace a Maven Central resolver with the mirror in `csrResolvers`, `csrSbtResolvers`, and `scalaCompilerBridgeScope / csrResolvers`. sbt defines `csrResolvers` a second time for compiler bridges, from the unchanged `fullResolvers`, so the project-level rewrite does not reach it. In the `project/` meta-build, a plugin build, that list includes Maven Central through `sbtResolvers`. |
+| `COURSIER_REPOSITORIES`, in `CLAUDE_ENV_FILE` | sbt-scalafix fetches `scalafix-cli` and its rules with its own coursier-interface, not through sbt's resolvers. That library ignores `COURSIER_MIRRORS` too, but reads this variable. The value `ivy2Local|<mirror>` replaces its default, `ivy2Local|central`. Without it, `sbt 'h3Ext/scalafix --check'` failed with 15 HTTP 429 responses. A shell that does not run the hook's environment file does not have this variable. |
 
 The build's other resolvers stay in place, such as GitHub Packages or the staging repository of `scripts/check-consumers.mjs`. That is why the setup does not use `-Dsbt.override.build.repos=true`: that option replaces every resolver of a build, and `check-consumers.mjs` refuses to run with it.
+
+If `$SBT_ETC_FILE`, `/etc/sbt/sbtopts`, or `~/.config/sbt/sbtopts` exists, the runner ignores `conf/sbtopts`, and sbt does not use the mirror. The setup script then prints a warning that names the file. Remove the file to use the mirror again.
 
 Because the global base directory moves to `/opt/h34s-tools/sbt-mirror/global`, sbt keeps its launcher files (`boot/`) and compiled compiler bridges (`zinc/`) there, not in `~/.sbt`.
 
@@ -118,13 +121,15 @@ sbt also keeps two Ivy repositories as fallbacks, `repo.scala-sbt.org` and `repo
   ls ~/.cache/coursier/v1/https/
   ```
 
-  If a Maven Central host appears, some resolution path missed the rewrite. To find it, run the command again with `-debug` and empty caches, and search the log for the Maven Central URL. The `downloaded` line names the file, and the lines before it name the task. For example, this is how the compiler-bridge scope was found:
+  If a Maven Central host appears, some resolution path missed the rewrite. To find it, empty every cache that hides downloads, run a compiling task with `-debug`, and search the log. The `downloaded` line names the file, and the lines before it name the task. This is how the compiler-bridge scope was found:
 
   ```sh
-  rm -rf ~/.cache/coursier
-  sbt -debug -batch about > /tmp/sbt-debug.log 2>&1
-  grep -n -B5 'repo1.maven.org' /tmp/sbt-debug.log
+  rm -rf ~/.cache/coursier /opt/h34s-tools/sbt-mirror/global/boot /opt/h34s-tools/sbt-mirror/global/zinc project/target project/project/target
+  sbt -debug -batch h3Ext/compile > /tmp/sbt-debug.log 2>&1
+  grep -n -B5 -E 'repo1\.maven\.org|repo\.maven\.apache\.org' /tmp/sbt-debug.log
   ```
+
+  Expected result: no output. The run takes a few minutes, so start it in the background. sbt-scalafix uses another path; check it with `sbt 'h3Ext/scalafix --check'`.
 - To see the options that the runner passes to Java, add `-v`: `sbt -v -batch about`. The runner prints `# Executing command line:` and then one argument per line, including the two `-D` options from `conf/sbtopts`.
 - To see recent proxy failures, such as a denied host, read the proxy's status:
 
@@ -139,7 +144,7 @@ sbt also keeps two Ivy repositories as fallbacks, `repo.scala-sbt.org` and `repo
 
 The script pins sbt 1.11.7, Node 24.22.0, and pnpm 10.34.4. Keep them in step with `project/build.properties`, `mise.toml`, `package.json`, and `.github/workflows/scala.yml`.
 
-To move to another sbt version, compute the two new SHA-256 values and compare them with what upstream publishes. Maven Central publishes only a SHA-1 for the launcher, and the runner script has no published checksum. The release tarball on GitHub, `sbt-<version>.tgz`, has a SHA-256. Its `bin/sbt-launch.jar` must have the same SHA-256 as the Maven Central jar. For 1.11.7, its `bin/sbt` differed from the raw script only in the line `init_sbt_version=_to_be_replaced`.
+To move to another sbt version, compute the two new SHA-256 values and compare them with what upstream publishes. Maven Central publishes SHA-1 and MD5 checksums and a PGP signature for the launcher, but no SHA-256, and the runner script has no published checksum. The release tarball on GitHub, `sbt-<version>.tgz`, has a SHA-256. Its `bin/sbt-launch.jar` must have the same SHA-256 as the Maven Central jar. For 1.11.7, its `bin/sbt` differed from the raw script only in the line `init_sbt_version=_to_be_replaced`.
 
 Run these commands in an empty directory. The first output line is Maven Central's SHA-1; the second must match it.
 
@@ -153,6 +158,8 @@ sha1sum "sbt-launch-$v.jar"
 curl -fsSL -o sbt "https://raw.githubusercontent.com/sbt/sbt/v$v/sbt"
 sha256sum "sbt-launch-$v.jar" sbt
 ```
+
+Then set `sbt_version`, `sbt_launcher_sha256`, and `sbt_runner_sha256` in `scripts/cloud-setup.sh` to the new values, and run `bash scripts/cloud-setup.sh`. Expected result: an `installing sbt` line, then a `ready:` line.
 
 For Node, change `node_version`. The script reads the checksum from that release's `SHASUMS256.txt`.
 
@@ -181,24 +188,30 @@ To connect to PostgreSQL as its administrator:
 runuser -u postgres -- psql -c 'select version();'
 ```
 
-The [example's database settings](../development.md#2-run-the-model-and-database-example) expect user `h34s` and database `h34s` on `127.0.0.1:5432`. Create them with a password that exists only in this session:
+The [example's database settings](../development.md#2-run-the-model-and-database-example) expect user `h34s` and database `h34s` on `127.0.0.1:5432`. Create them with a random password. Each of Claude's Bash commands starts a new shell, so keep the password in a file outside the repository, not in an exported variable:
 
 ```sh
-export NUXT_DATABASE_PASSWORD="$(openssl rand -hex 16)"
+(umask 077 && openssl rand -hex 16 > ~/.h34s-db-password)
 runuser -u postgres -- psql -v ON_ERROR_STOP=1 \
-  -c "create role h34s login password '$NUXT_DATABASE_PASSWORD';" \
+  -c "create role h34s login password '$(cat ~/.h34s-db-password)';" \
   -c 'create database h34s owner h34s;'
-PGPASSWORD="$NUXT_DATABASE_PASSWORD" psql -h 127.0.0.1 -U h34s -d h34s -c 'select current_user;'
 ```
 
-Do not write this password into a file in the repository. Docker is also available if you prefer the example's Compose file, but this guide has not tested it in a cloud session.
+Then apply the example schema. Compose does this for its own database; the VM's PostgreSQL does not:
+
+```sh
+PGPASSWORD="$(cat ~/.h34s-db-password)" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U h34s -d h34s \
+  -f examples/nuxt/scala/zio/src/main/resources/sql/01-init.sql
+```
+
+Expected result: `CREATE TABLE`. Give the password to Nuxt the same way, with `NUXT_DATABASE_PASSWORD="$(cat ~/.h34s-db-password)"`. Do not copy the password into a file in the repository. Docker is also available if you prefer the example's Compose file, but this guide has not tested it in a cloud session.
 
 ## Work within the session's limits
 
 A cloud VM has about 4 vCPUs, 16 GB of memory, and 30 GB of disk. h34s builds are heavy for that size.
 
 - Run one sbt process at a time. `.jvmopts` gives each sbt JVM up to 4 GiB of heap, and two builds in the same checkout also compete for the same `target/` directories.
-- Run any command that can take more than a few minutes in the background, and wait for it to finish. A foreground command stops after at most 10 minutes. On this VM, a first `sbt -batch h3Ext/test kyoH3Ext/test` with empty caches took about two minutes. The rest of the Scala CI job took about 6 more minutes after that run; on GitHub's 4-vCPU runners, the whole job takes 8 to 12 minutes.
+- Run any command that can take more than a few minutes in the background, and wait for it to finish. Claude waits at most 10 minutes for a foreground command; after that, Claude Code moves the command to the background, where it can run for about 30 more minutes. On this VM, a first `sbt -batch h3Ext/test kyoH3Ext/test` with empty caches took about two minutes. The rest of the Scala CI job took about 6 more minutes after that run; on GitHub's hosted runner, the whole job takes 8 to 12 minutes.
 - Do not run the example's Nuxt production build while sbt runs. That build uses an 8 GiB Node heap.
 
 ## What does not work in cloud sessions
@@ -208,7 +221,7 @@ A cloud VM has about 4 vCPUs, 16 GB of memory, and 30 GB of disk. h34s builds ar
 - **`gh pr` and `gh issue`.** These commands use GitHub's GraphQL API, which the proxy rejects with a 403. Use the REST API through `gh api`, or the **Create PR** button in the Claude Code interface. For example:
 
   ```sh
-  gh api repos/yuri4n/h34s/pulls -X POST -f title='Title' -f head=my-branch -f base=main -F draft=true -f body=@body.md
+  gh api repos/yuri4n/h34s/pulls -X POST -f title='Title' -f head=my-branch -f base=main -F draft=true -F body=@body.md
   gh api 'repos/yuri4n/h34s/issues?state=open'
   gh api repos/yuri4n/h34s/issues/<number>/comments -f body='Comment text'
   ```
