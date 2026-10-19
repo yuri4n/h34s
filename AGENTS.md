@@ -151,3 +151,14 @@ A previous broad MVP implementation was rolled back at the user's request. Do no
 - Before pushing or opening a PR, verify the intended remote, repository, base branch, and authentication. If these are missing or ambiguous, ask the user; do not invent a remote, publish to an arbitrary repository, or claim a PR exists when it does not.
 - PR descriptions should state the purpose and scope, API/behavior changes, validation actually performed, remaining limitations, and migration or rollback considerations where relevant. Include UI verification and screenshots when applicable, without claiming checks that were not run.
 - Do not merge PRs, force-push, rewrite shared history, or delete branches without explicit authorization. Keep independent work isolated until reviewed and integrated deliberately.
+
+## Agent sessions
+
+These rules apply to every agent session: on the maintainer's Mac (8 CPUs, 16 GB of memory) and in Claude Code cloud VMs (about 4 vCPUs, 16 GB).
+
+- Read `docs/design/kyo-core.md` before you change the Kyo core, the ZIO adapter or a bridge. It records the user's decisions, the design and why the code differs from the first plan. When you change one of them, update it in the same pull request.
+- Start from the tracking issue [#17](https://github.com/yuri4n/h34s/issues/17), "Roadmap and current state after 0.2.0-alpha.1". When work lands, tick its item and add a comment with the pull request and the evidence. In a cloud session, read it with `gh api repos/yuri4n/h34s/issues/17` and `gh api repos/yuri4n/h34s/issues/17/comments`, because `gh issue` uses GraphQL, which is blocked there.
+- Run at most 4 agents in parallel, and at most 2 that compile, link, build, install packages or run tests. Run one sbt process at a time: a second one competes for memory and for the same `target/` directories.
+- Run one workflow at a time. Before a run of more than 10 agents, tell the user how many agents will run and what they do.
+- Make each agent write its report file when it starts, and add each finding as soon as it is verified. Keep durable notes in the repository (through a pull request) or in the tracking issue. Session scratch space can disappear.
+- Create release tags and use the Vercel CLI only on the maintainer's Mac, and only with the user's explicit approval.
