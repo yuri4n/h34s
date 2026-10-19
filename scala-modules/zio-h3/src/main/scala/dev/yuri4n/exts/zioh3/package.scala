@@ -7,11 +7,14 @@ import zio.{Scope, ZIO, ZState}
 
 import scala.util.control.NoStackTrace
 
+// claude 2026-10-19: changed: HandlerTransport, the per-request transport that ZHandler.sendStream writes through
 /** What h34s supplies to every ZIO handler: the response head as `ZState` (status, headers and
-  * cookies, written once after the handler finishes) and the request `Scope` (resources that live
-  * until the response is complete, also while a streamed body is sent).
+  * cookies, written once after the handler finishes), the request `Scope` (resources that live
+  * until the response is complete, also while `ZHandler.sendStream` sends a stream) and the
+  * `HandlerTransport` behind `ZHandler.sendStream`. A test that calls a handler function directly
+  * provides `HandlerTransport.detached`.
   */
-type HandlerEnv = ZState[ResponseHead] & Scope
+type HandlerEnv = ZState[ResponseHead] & Scope & HandlerTransport
 
 type ZHandler[-R, +E, +A] = ZIO[HandlerEnv & R, E, A]
 type Handler[+E, +A]      = ZHandler[Any, E, A]
@@ -46,6 +49,7 @@ export dev.yuri4n.exts.h3.{
   SafeError,
   SameSite,
   Secret,
+  Sent, // claude 2026-10-19: changed: export Sent
   SetCookie,
   Status,
   SuccessEnvelope,
@@ -53,6 +57,9 @@ export dev.yuri4n.exts.h3.{
   WireShape,
   WireType,
 }
+
+// claude 2026-10-19: created: the transport type that HandlerEnv carries, for tests that call handler functions directly
+export dev.yuri4n.exts.kyoh3.HandlerTransport
 
 /** Approved error messages with a status, as `ZHandler.failWith` builds them.
   *

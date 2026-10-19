@@ -18,8 +18,11 @@ object NotesHandlerSpec extends ZIOSpecDefault:
     private def run[A](program: ZIO[HandlerEnv & Notes, Throwable, A]): Task[(ResponseHead, A, List[String])] =
       for
         created <- Ref.make(List.empty[String])
+        // claude 2026-10-19: changed: HandlerEnv carries a HandlerTransport; a direct call provides a detached one
         result <- ZIO.scoped(ZIO.stateful[Scope](ResponseHead.empty)(
-          program.zip(Response.head).provideSomeEnvironment[ZState[ResponseHead] & Scope](_.add[Notes](InMemoryNotes(created))),
+          program.zip(Response.head).provideSomeEnvironment[ZState[ResponseHead] & Scope](
+            _.add[Notes](InMemoryNotes(created)).add[HandlerTransport](HandlerTransport.detached),
+          ),
         ))
         texts <- created.get
       yield (result._2, result._1, texts)
@@ -41,8 +44,10 @@ object NotesHandlerSpec extends ZIOSpecDefault:
           Resource.eval[Task, Session[Task]](attempts.update(_ + 1) *> ZIO.fail(new Exception("connection refused"))),
         )
         def withLive[A](attempts: Ref[Int])(program: ZIO[HandlerEnv & Notes, Throwable, A]) =
+          // claude 2026-10-19: changed: HandlerEnv carries a HandlerTransport; a direct call provides a detached one
           ZIO.scoped(ZIO.stateful[Scope](ResponseHead.empty)(
-            program.provideSomeLayer[HandlerEnv](ZLayer.succeed(downPool(attempts)) >>> NotesLive.layer),
+            program.provideSomeLayer[HandlerEnv](ZLayer.succeed(downPool(attempts)) >>> NotesLive.layer)
+              .provideSomeEnvironment[ZState[ResponseHead] & Scope](_.add[HandlerTransport](HandlerTransport.detached)),
           ))
         for
           attempts <- Ref.make(0)
