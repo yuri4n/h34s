@@ -60,11 +60,15 @@ end Request
 object Request:
     private val Bearer = "(?i)^Bearer (\\S+)$".r
 
+    // claude 2026-10-19: changed: added `requireJsonContentType`, default `true` like HandlerOptions (issue #41)
     /** A request for tests: call a handler function directly, without h3 or Nitro.
       *
       * `runtimeConfig` is the Nuxt runtime config as JSON text, for handlers that read it per
       * request with `RuntimeConfig.get` (Kyo) or `ZRuntimeConfig.get` (ZIO). Without it, those reads
       * fail with `ConfigError`, as they do when the h34s Nitro plugin is missing.
+      *
+      * `requireJsonContentType` has the default of `HandlerOptions`: JSON reads of a fake request
+      * without a `content-type` header answer 415, as they do in a handler.
       */
     def fake(
         method: String = "GET",
@@ -78,6 +82,7 @@ object Request:
         debug: Boolean = false,
         bodyLimit: BodyLimit = BodyLimit.default,
         runtimeConfig: Option[String] = None,
+        requireJsonContentType: Boolean = true,
     ): Request =
       val entries = headers.toVector.map((name, value) => name.toLowerCase -> value)
       val contentType = entries.collectFirst { case ("content-type", value) => value }
@@ -90,17 +95,18 @@ object Request:
         cookies,
         development,
         debug,
-        RequestBody.fake(body, contentType, bodyLimit),
+        RequestBody.fake(body, contentType, bodyLimit, requireJsonContentType),
         runtimeConfig.map(Nitro.fakeRequest(development, debug, _)),
       )
 
+    // claude 2026-10-19: changed: `requireJsonContentType` defaults to `true` (issue #41)
     /** Builds the snapshot from a native h3 event. `bodyLimit` is the default limit of body reads;
       * `requireJsonContentType` makes JSON reads reject a body without a content type.
       */
     private[exts] def fromEvent(
         event: H3Event,
         bodyLimit: BodyLimit = BodyLimit.default,
-        requireJsonContentType: Boolean = false,
+        requireJsonContentType: Boolean = true,
     ): Request =
       val request = event.node.req
       val entries = request.rawHeaders.toOption match
@@ -184,16 +190,23 @@ final class RequestBody private (
 end RequestBody
 
 object RequestBody:
+    // claude 2026-10-19: changed: `requireJsonContentType` is explicit, no default (issue #41)
     private[exts] def native(
         event: H3Event,
         contentType: Option[String],
         defaultLimit: BodyLimit,
-        requireJsonContentType: Boolean = false,
+        requireJsonContentType: Boolean,
     ): RequestBody =
       new RequestBody(Source.Native(event), contentType, defaultLimit, requireJsonContentType)
 
-    private[exts] def fake(text: Option[String], contentType: Option[String], defaultLimit: BodyLimit): RequestBody =
-      new RequestBody(Source.Fake(text), contentType, defaultLimit, requireJsonContentType = false)
+    // claude 2026-10-19: changed: the fake body carries `requireJsonContentType` (issue #41)
+    private[exts] def fake(
+        text: Option[String],
+        contentType: Option[String],
+        defaultLimit: BodyLimit,
+        requireJsonContentType: Boolean,
+    ): RequestBody =
+      new RequestBody(Source.Fake(text), contentType, defaultLimit, requireJsonContentType)
 
     private enum Source:
         case Native(event: H3Event)

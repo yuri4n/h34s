@@ -327,6 +327,20 @@ class HttpHandlerSuite extends FunSuite:
       }
     }
 
+    // claude 2026-10-19: created: negative control for issue #41 (strict JSON content type by default)
+    test("by default a JSON body without a content type is a 415; requireJsonContentType = false accepts it") {
+      val default = KHandler.define(request => request.body.json[Input].map(_.name))
+      val lenient = KHandler.define(HandlerOptions(requireJsonContentType = false))(request => request.body.json[Input].map(_.name))
+      val body = "{\"name\":\"Scala\"}"
+      val untyped = Map("content-length" -> body.length.toString)
+      for
+        rejected <- withServer(default)((_, port) => post(port, List(body), untyped))
+        accepted <- withServer(lenient)((_, port) => post(port, List(body), untyped))
+      yield
+        assertEquals(rejected, (415, KyoTesting.errors("Request body must be JSON")))
+        assertEquals(accepted, (200, "{\"data\":\"Scala\"}"))
+    }
+
     test("Raw bodies never reach h3's type sniffing: text is text/plain, other values are JSON") {
       val raw = HandlerOptions(success = SuccessEnvelope.Raw)
       val text = KHandler.define(raw)(request => request.body.text().map(name => s"<b>$name</b>"))

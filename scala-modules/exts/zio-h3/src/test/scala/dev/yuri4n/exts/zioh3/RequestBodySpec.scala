@@ -55,6 +55,21 @@ object RequestBodySpec extends ZIOSpecDefault:
         for body <- call.invoke(strict)
         yield assertTrue(call.response.status == 415, wire(body) == errors("Request body must be JSON"))
       },
+      // claude 2026-10-19: created: negative control for issue #41 (strict JSON content type by default)
+      test("by default a JSON body without a content type is a 415; requireJsonContentType = false accepts it") {
+        val default = ZHandler.define(_.body.json[Input].map(_.name))
+        val lenient = ZHandler.define(HandlerOptions(requireJsonContentType = false))(_.body.json[Input].map(_.name))
+        def untyped = Call(method = "POST", headers = Seq("content-length" -> "16")).body("{\"name\":\"Scala\"}")
+        val rejected = untyped
+        val accepted = untyped
+        for
+          rejectedBody <- rejected.invoke(default)
+          acceptedBody <- accepted.invoke(lenient)
+        yield assertTrue(
+          rejected.response.status == 415, wire(rejectedBody) == errors("Request body must be JSON"),
+          accepted.response.status == 200, wire(acceptedBody) == "{\"data\":\"Scala\"}",
+        )
+      },
       // K15
       test("decodes a JSON body with a NativeConverter") {
         for body <- post("{\"name\":\"Scala\"}").invoke(ZHandler.define(_.body.json[Input].map(input => s"Hello ${input.name}")))
