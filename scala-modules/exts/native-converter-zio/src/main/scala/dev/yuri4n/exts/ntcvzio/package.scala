@@ -1,9 +1,9 @@
 package dev.yuri4n.exts
 
-import org.getshaka.nativeconverter.NativeConverter
-import scalajs.js
+import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.prelude.NonEmptyList
-import org.getshaka.nativeconverter.ParseState
+
+import scalajs.js
 
 object ntcvzio:
     /** The shared `undefined <-> ()` converter, defined once in h3-ext. */

@@ -3,7 +3,7 @@
   "version": "0.2.0-alpha.1",
   "description": "Scala.js linking, development modules and source maps for Nuxt",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "engines": { "node": ">=22.18.0" },
   "repository": {
     "type": "git",

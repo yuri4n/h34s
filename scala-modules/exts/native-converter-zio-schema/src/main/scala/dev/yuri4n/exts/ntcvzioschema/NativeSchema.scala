@@ -2,10 +2,10 @@ package dev.yuri4n.exts.ntcvzioschema
 
 import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, Secret, WireField, WireType}
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
-import zio.{Chunk, Unsafe}
-import zio.schema.{Schema, StandardType}
 import zio.schema.annotation.validate
 import zio.schema.validation.{Validation, ValidationError}
+import zio.schema.{Schema, StandardType}
+import zio.{Chunk, Unsafe}
 
 import scala.scalajs.js
 

@@ -25,6 +25,7 @@ inThisBuild(
     scalaVersion      := "3.9.0",
     organization      := "dev.yuri4n",
     homepage          := Some(url("https://github.com/yuri4n/h34s")),
+    licenses          := List(License.Apache2), // claude 2026-10-19: created: the POM names the license
     scmInfo           := Some(ScmInfo(url("https://github.com/yuri4n/h34s"), "scm:git:https://github.com/yuri4n/h34s.git")),
     publishMavenStyle := true,
     // Publish the compiled library and sources; guides live in the docs site.

@@ -4,8 +4,8 @@ import dev.yuri4n.exts.kyoh3.KyoTesting.*
 import kyo.*
 import munit.FunSuite
 
-import scala.concurrent.{ExecutionContext, Promise}
 import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContext, Promise}
 import scala.scalajs.js
 
 /** Streamed response bodies through h3's `sendStream` (the ZIO Z13-Z18 contracts, ported). */

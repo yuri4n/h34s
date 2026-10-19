@@ -2,12 +2,12 @@ package dev.yuri4n.svr.notes
 
 import dev.yuri4n.exts.ntcvzioschema.NativeSchema
 import dev.yuri4n.svr.resources.SessionPool
-import skunk.{Query, Session}
 import skunk.codec.all.*
 import skunk.implicits.*
-import zio.{Scope, Task, ZEnvironment, ZIO, ZLayer}
-import zio.schema.{DeriveSchema, Schema, StandardType, derived}
+import skunk.{Query, Session}
 import zio.schema.validation.Validation
+import zio.schema.{DeriveSchema, Schema, StandardType, derived}
+import zio.{Scope, Task, ZEnvironment, ZIO, ZLayer}
 
 /** A note in the application: what the service creates and lists. It has no wire or table format. */
 final case class Note(id: Int, text: String)

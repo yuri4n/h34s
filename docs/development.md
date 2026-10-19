@@ -2,22 +2,16 @@
 
 Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate `website/` app serves the documentation. To use h34s in your own Nuxt project, follow [adoption.md](adoption.md).
 
-The demo builds the h34s libraries from this repository's sources (version `0.2.0-alpha.1` in `version.sbt`), not from published packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates and how they differ from the current source.
+The demo builds the h34s libraries from this repository's sources (version `0.2.0-alpha.1` in `version.sbt`), not from published packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates.
 
-The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications install the registry version that matches their Scala libraries: `0.2.0-alpha.1` for this source, or the [published `0.1.0-alpha.1` package](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) for the older API. The [npm tooling guide](npm-tooling.md) explains how to configure the same integration without copying scripts.
+The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications install the published package that matches their Scala libraries: [`0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1), or [`0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) for the older API. The [npm tooling guide](npm-tooling.md) explains how to configure the same integration without copying scripts.
 
 ## Prerequisites
 
 Use Node 24, pnpm 10.34.4, Java 25, sbt 1.11.7, and Docker with Compose for the optional database example. The build selects Scala.js 1.22.0 and Scala 3.9.0 for every module, with Kyo 1.0.0-RC7 and ZIO 2.1.26. Kyo's macros need Java 25, and the ZIO modules build on the Kyo core, so Java 21 is no longer enough for any task. `project/build.properties` pins sbt; `.jvmopts` supplies the stack and heap sizes needed by the linked dependencies. The recovered Nuxt dependency set uses pnpm 10's build allowlist.
 
-In the prepared cloud environment, first run:
-
-```sh
-cd /workspace/h34s
-source /workspace/tooling/activate-kyo.sh
-```
-
-The activation script puts the prepared `sbt` launcher on `PATH`, so the npm CLI can invoke it. `/workspace/tooling/h34s-sbt` is also available for direct Scala commands. It keeps caches writable outside the checkout. On a normal development machine, use the installed `sbt` launcher.
+<!-- claude 2026-10-19: changed: listed the route steps among the checks not verified in cloud sessions -->
+In a Claude Code cloud session, the repository's SessionStart hook installs Java 25, sbt, Node 24, and pnpm, puts them on `PATH`, and installs the pnpm workspace and the npm test fixtures; it does not start Docker. There, the sbt and `node --test` checks below are verified, but the route collection in `pnpm run scala:fast`, `check-route-types.mjs`, `pnpm dev`, the production build, and the Docker Compose steps are not. [maintainers/cloud.md](maintainers/cloud.md) explains the setup, the Maven Central mirror that sbt uses there, and the session's limits. On a normal development machine, use the installed `sbt` launcher.
 
 ## 1. Start from this repository
 
@@ -29,7 +23,8 @@ pnpm run scala:fast
 pnpm dev
 ```
 
-In the prepared cloud environment, put the prepared launcher on `PATH` (see above) and run the same `pnpm run scala:fast`. Linking with sbt alone (`nuxtsvr/fastLinkJS`) is not enough: the CLI collects the routes after linking, and the linker deletes the previous route manifests and declarations.
+<!-- claude 2026-10-19: changed: kept main's cloud-session setup and the route-generation note that linking goes through the CLI -->
+Link with `pnpm run scala:fast`, as above. Linking with sbt alone (`nuxtsvr/fastLinkJS`) is not enough: the CLI collects the routes after linking, and the linker deletes the previous route manifests and declarations.
 
 Development loads the linked Scala.js ES modules directly in Node. Nitro watches both output directories and replaces its worker after relinking, keeping Node’s module cache fresh. This avoids the large Rollup graphs that exhausted an 8 GB heap during bundled watch rebuilds. The current `pnpm dev` script enables Node source maps automatically and needs no heap override. The application pins `h3` as a direct runtime dependency for the linked modules.
 
@@ -37,7 +32,7 @@ Make a direct HTTP request to `/api/test`; the response should be `abc`. This ro
 
 Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
 
-The cloud instance uses an ignored `examples/nuxt/.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings address this environment's SQLite addon startup and network limitations. They do not affect the Scala database layer.
+An earlier cloud environment used an ignored `examples/nuxt/.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings addressed that environment's SQLite addon startup and network limitations. They do not affect the Scala database layer. The example's Nuxt build has not been tested in Claude Code cloud sessions yet.
 
 The independent [Kyo example](kyo.md) adds GET and POST `/api/kyo/greeting`. Its compiled output lives in `examples/nuxt/server/.scala-kyo`; link both applications before starting this combined Nuxt demonstration. In your own Kyo-only application, depend on `kyo-h3-ext`; you do not need the ZIO example or its database integration.
 

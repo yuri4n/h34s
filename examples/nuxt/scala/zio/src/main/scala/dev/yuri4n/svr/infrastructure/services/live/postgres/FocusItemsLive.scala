@@ -5,10 +5,9 @@ import dev.yuri4n.svr.services.FocusItems
 import skunk.Session
 import skunk.codec.all.*
 import skunk.implicits.*
-import zio.Task
 import zio.stream.Stream
 import zio.stream.interop.fs2z.*
-import zio.ZLayer
+import zio.{Task, ZLayer}
 
 final class FocusItemsLive(session: Session[Task]) extends FocusItems[Task]:
 

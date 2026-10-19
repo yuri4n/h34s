@@ -2,7 +2,7 @@
 
 Kyo is the h34s core. `KHandler.define` turns a Kyo function into an h3 handler: it takes the request snapshot, runs your program once per request, owns its scope and cancellation, and writes the response once. This guide covers everything a handler does. Your Kyo application never depends on ZIO.
 
-**Status.** This guide describes `0.2.0-alpha.1`. The published `0.1.0-alpha.1` has a different Kyo API (see the [migration guide](migration.md)). See [releases](releases.md) for installation.
+**Status.** This guide describes `0.2.0-alpha.1`. The older `0.1.0-alpha.1` has a different Kyo API (see the [migration guide](migration.md)). See [releases](releases.md) for installation.
 
 ## Prerequisites
 

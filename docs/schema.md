@@ -10,7 +10,7 @@ final case class Greeting(message: String) derives Schema, NativeSchema
 
 That one derivation gives the native value h34s sends and reads, JSON text, YAML text (Kyo only), and validation that runs on every request body read.
 
-**Status.** This page describes both bridges in `0.2.0-alpha.1`. The published `0.1.0-alpha.1` had a different ZIO schema reader; see the [migration guide](migration.md).
+**Status.** This page describes both bridges in `0.2.0-alpha.1`. The older `0.1.0-alpha.1` had a different ZIO schema reader; see the [migration guide](migration.md).
 
 ## Choose a bridge
 

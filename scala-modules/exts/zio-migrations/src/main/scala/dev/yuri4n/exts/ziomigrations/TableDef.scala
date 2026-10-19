@@ -1,7 +1,6 @@
 package dev.yuri4n.exts.ziomigrations
 
 import skunk.*
-import skunk.codec.all.*
 import zio.schema.Schema
 
 /** Represents a database column with its schema */
