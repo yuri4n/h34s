@@ -58,6 +58,37 @@ On macOS 15.7.5, x86_64, during the refactor (2026-10-17):
 
 The Scala tests use real h3 1.15.4 events with mocked Node responses. They do not start Nuxt or Nitro. The consumer and production-build checks come from Phase C1 of the refactor, on the same machine.
 
+<!-- claude 2026-10-19: created: cloud-session evidence for issues #29 and #30 -->
+### Locally verified in a cloud session (2026-10-19)
+
+In a Claude Code cloud session: Ubuntu 24.04.5, x86_64, 4 vCPUs, 15 GiB memory, Node 24.22.0, pnpm 10.34.4, OpenJDK 25.0.4.1, sbt 1.11.7, Nuxt 4.3.1, Nitro 2.13.1, Nuxt Content 3.11.2, and PostgreSQL 16.15 (`psql (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)`), from commit `f1fb8e1`. The [development guide](development.md#cloud-session-production-build-and-postgresql-2026-10-19) has the full record.
+
+| Check | Result |
+| --- | --- |
+| Production build of the demo (`pnpm run scala:full`, then `nuxt build` with `--max-old-space-size=8192`) | Passed; 2:14 for the link, 2:15 for the Nuxt build, 6.8 GB peak RSS |
+| ZIO Notes against PostgreSQL 16 with `scram-sha-256` (production server, `.env.example` variables) | `smoke.mjs` passed with the database. `POST /api/notes` 201; blank text 422 with path `text`; `{"text":42}` the generic 422; `GET /api/notes` 200 with the note |
+| Skunk 1.0.0-M12 SCRAM login in the production bundle | PostgreSQL logged `connection authenticated: identity="h34s" method=scram-sha-256` |
+| `SIGTERM` with 4 pooled sessions open | Exit status 0; 4 disconnections logged; 0 sessions of the user in `pg_stat_activity` |
+| kyo-sql code of the [database guide](database.md#run-the-kyo-sql-tests), kyo-sql-postgres 1.0.0-RC7, in Node through `sbt kyoExample/test` with `H34S_POSTGRES_URL` | 4 passed: insert and list, unique violation to `DuplicateNote`, rollback on a non-SQL `Abort`, rollback (with `SqlRequestTransactionFailedStatementException`) when the body recovers from a failed statement. kyo-net selected its `node` backend by itself. Without the variable, the 4 tests are skipped |
+
+#### Heap measurement (2026-10-19)
+
+Each row is one `nuxt build` of the demo, run alone, on the production link above. A variant is a temporary change that was reverted afterwards. The 4096 MiB limit stands for Node's default heap on a 16 GB Mac (about 4 GiB). On this VM, Node's own default limit is 8384 MiB. Peak RSS is the largest process, from GNU `time -v`.
+
+| Variant | Heap limit | Result | Peak RSS | Wall time |
+| --- | --- | --- | --- | --- |
+| Baseline (both applications, server source maps, prerendering) | 8192 MiB (the scripts' option) | Passed | 6.8 GB | 2:15 |
+| Baseline | Node's default on this VM (8384 MiB) | Passed | 6.8 GB | 2:07 |
+| Baseline | 6144 MiB | Passed | 5.7 GB | 2:06 |
+| Baseline | 4096 MiB | Out of memory in "Building Nuxt Nitro server", after prerendering | 4.9 GB | 2:36 |
+| No server source maps (`sourcemap.server=false` in `.nuxtrc`) | 4096 MiB | Passed; no `.map` file in `.output/server` | 4.6 GB | 1:56 |
+| No prerendering (a temporary `prerender:routes` hook that clears the one route) | 4096 MiB | Passed | 4.2 GB | 1:16 |
+| Kyo application only (the ZIO route files moved away) | 4096 MiB | Passed; prerendering took 17 s | 3.6 GB | 1:01 |
+| ZIO application only (the Kyo route files moved away) | 4096 MiB | Passed; prerendering took 33 s | 4.7 GB | 1:46 |
+| No full locale database (`locales-full-currencies-db` excluded from `nuxtsvr` too) | Not built | The relinked ZIO output was the same file: same name, size and time stamp. The linker already removes the database, so the build input does not change | Not measured | Not measured |
+
+Cause: Nitro 2.13.1 bundles the linked Scala.js (16.5 MB of JavaScript and 13.2 MB of source maps) twice in one process. First it builds a complete `nitro-prerender` server for the one prerendered Nuxt Content route and imports it, which took 54 s in the baseline. Then it builds the `node-server` output. Removing the prerendered route, the server source maps, or one application each brought the build under 4 GiB. The measurement does not separate how much memory each Rollup build keeps. A first attempt at the source-map row appended to `.nuxtrc` without a newline, so Nuxt ignored the setting; those two runs are not in the table.
+
 ### CI-validated
 
 Pull request CI for [#14](https://github.com/yuri4n/h34s/pull/14) passed on GitHub's `ubuntu-24.04` runners (Linux x86_64) for commit `8f9e222`, with version `0.2.0-SNAPSHOT`:
@@ -84,9 +115,9 @@ The private `yurian.land` application consumes the published packages in its pul
 | Area | Status |
 | --- | --- |
 | Relinking the real Scala.js demo under `nuxt dev`, and breakpoint stepping | Not checked (the relink reload was checked on a synthetic project) |
-| The ZIO demo against a real PostgreSQL | Not run on this branch (no database was available) |
 | The Nitro close hook when `nuxt dev` replaces its worker | Not checked; `SIGTERM` in production was |
-| kyo-sql / kyo-sql-postgres at runtime, inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) code compiles only |
+| kyo-sql / kyo-sql-postgres inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) service code ran against PostgreSQL 16 in Node through sbt (see above), not in a Nitro bundle <!-- claude 2026-10-19: changed: kyo-sql ran in Node --> |
+| PostgreSQL in CI | No CI job starts PostgreSQL. The kyo-sql suite and `smoke.mjs` need one <!-- claude 2026-10-19: created: CI gap --> |
 | NuxtHub KV as a Nitro storage mount | Not verified; storage tests use Unstorage 1.17.3's memory driver |
 | Nitro presets other than Node (serverless, edge, Workers) | Not tested; streaming needs a Node HTTP response |
 | Linux beyond the CI checks above, Windows | Not run |
@@ -98,7 +129,8 @@ The private `yurian.land` application consumes the published packages in its pul
 - **ZIO YAML on Scala.js.** zio-json-yaml is published for the JVM only (no `_sjs1_3` artifact on Maven Central), so a ZIO model has no YAML codec in Nitro. Kyo models get YAML from kyo-schema-yaml.
 - **ZIO Schema shapes.** The ZIO bridge supports strings, booleans, `Int`, `Double`, records, options, sequences, lazy and transformed schemas. Enums, sealed traits and maps are not supported yet. See [schemas](schema.md).
 - **Kyo finalizer errors** are logged and do not change the response; ZIO finalizer defects turn a value response into a 500. See [lifetimes](lifetimes.md).
-- **Build memory.** The demo links both a Kyo and a ZIO application; its `nuxt build` needed `NODE_OPTIONS=--max-old-space-size=8192`. A single-runtime application links less code, but check your own build.
+<!-- claude 2026-10-19: changed: the measured cause -->
+- **Build memory.** The demo's `nuxt build` keeps `--max-old-space-size=8192`. With a 4 GiB heap it runs out of memory, because Nitro bundles the linked Scala.js twice (once for the prerendered Nuxt Content route, once for the server) with its source maps. Without the prerendered route, without server source maps, or with one application, it passed with 4 GiB; see the [heap measurement](#heap-measurement-2026-10-19). A single-runtime application links less code, but check your own build.
 
 ## Profile `alpha-0.1.0` (published)
 

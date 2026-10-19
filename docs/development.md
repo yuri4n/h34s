@@ -10,7 +10,7 @@ The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestrati
 
 Use Node 24, pnpm 10.34.4, Java 25, sbt 1.11.7, and Docker with Compose for the optional database example. The build selects Scala.js 1.22.0 and Scala 3.9.0 for every module, with Kyo 1.0.0-RC7 and ZIO 2.1.26. Kyo's macros need Java 25, and the ZIO modules build on the Kyo core, so Java 21 is no longer enough for any task. `project/build.properties` pins sbt; `.jvmopts` supplies the stack and heap sizes needed by the linked dependencies. The recovered Nuxt dependency set uses pnpm 10's build allowlist.
 
-In a Claude Code cloud session, the repository's SessionStart hook installs Java 25, sbt, Node 24, and pnpm, puts them on `PATH`, and installs the pnpm workspace and the npm test fixtures; it does not start Docker. There, the Scala and Node checks below are verified, but `pnpm dev`, the production build, and the Docker Compose steps are not. [maintainers/cloud.md](maintainers/cloud.md) explains the setup, the Maven Central mirror that sbt uses there, and the session's limits. On a normal development machine, use the installed `sbt` launcher.
+In a Claude Code cloud session, the repository's SessionStart hook installs Java 25, sbt, Node 24, and pnpm, puts them on `PATH`, and installs the pnpm workspace and the npm test fixtures; it does not start Docker. There, the Scala and Node checks below are verified, and so are the production build and the Notes routes against the VM's PostgreSQL 16 (see [the 2026-10-19 record](#cloud-session-production-build-and-postgresql-2026-10-19)). `pnpm dev` and the Docker Compose steps are not verified there. <!-- claude 2026-10-19: changed: production build and PostgreSQL now verified in a cloud session --> [maintainers/cloud.md](maintainers/cloud.md) explains the setup, the Maven Central mirror that sbt uses there, and the session's limits. On a normal development machine, use the installed `sbt` launcher.
 
 ## 1. Start from this repository
 
@@ -28,7 +28,7 @@ Make a direct HTTP request to `/api/test`; the response should be `abc`. This ro
 
 Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
 
-An earlier cloud environment used an ignored `examples/nuxt/.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings addressed that environment's SQLite addon startup and network limitations. They do not affect the Scala database layer. The example's Nuxt build has not been tested in Claude Code cloud sessions yet.
+An earlier cloud environment used an ignored `examples/nuxt/.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings addressed that environment's SQLite addon startup and network limitations. They do not affect the Scala database layer. The production build without `.nuxtrc` settings passed in a cloud session on 2026-10-19. <!-- claude 2026-10-19: changed: cloud build verified -->
 
 The independent [Kyo example](kyo.md) adds GET and POST `/api/kyo/greeting`. Its compiled output lives in `examples/nuxt/server/.scala-kyo`; link both applications before starting this combined Nuxt demonstration. In your own Kyo-only application, depend on `kyo-h3-ext`; you do not need the ZIO example or its database integration.
 
@@ -86,9 +86,19 @@ pnpm build
 
 This runs `pnpm run scala:full` before the demo's Nuxt production build. The packaged `h34s-scala build` step reads `examples/nuxt/h34s.build.config.mjs`, clears previous output from both `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, and checks that both outputs exist. A failed link stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own. Nuxt writes the deployable output to `examples/nuxt/.output/`.
 
-The example's `build` and `generate` scripts run Nuxt with an 8 GiB Node heap (`node --max-old-space-size=8192`). Nitro bundles the linked Scala.js output for production, about 16 MB of JavaScript for the two applications. With Node's default heap (about 4 GiB on a 16 GB machine), that step ran out of memory. Give your own application's Nuxt build the same option if its linked Scala.js output is similarly large.
+<!-- claude 2026-10-19: changed: the measured cause of the 8 GiB heap (issue #30) -->
+The example's `build` and `generate` scripts run Nuxt with an 8 GiB Node heap (`node --max-old-space-size=8192`). Keep that option for this example. With a 4 GiB heap, the build runs out of memory in "Building Nuxt Nitro server", with `FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory`. Node's default heap limit depends on the machine: about 4 GiB on the maintainer's 16 GB Mac, but 8384 MiB on a 15 GiB Claude Code cloud VM, where the build passes without the option.
 
-A production build needs a complete dependency installation. `pnpm install --frozen-lockfile` runs the install scripts of the packages that `pnpm-workspace.yaml` allows, including the `better-sqlite3` addon that Nuxt Content uses, and the example's `postinstall` step, `nuxt prepare`. An installation with `--ignore-scripts`, as the library checks use, skips both. `nuxt build` then fails with `Could not locate the bindings file` or with `failed to resolve "extends":"./.nuxt/tsconfig.json"`. To recover, run `pnpm install --frozen-lockfile` without `--ignore-scripts`. If the addon cannot be built on your machine, select Node's built-in SQLite for Nuxt Content instead: put `content.experimental.sqliteConnector=native` in the ignored `examples/nuxt/.nuxtrc`, then run `pnpm --dir examples/nuxt exec nuxt prepare` before the build.
+The cause is the size of the linked Scala.js, which Rollup processes twice in one Node process:
+
+1. **Prerendering.** The example prerenders one route, Nuxt Content's `/__nuxt_content/focuses/sql_dump.txt`. For it, Nitro 2.13.1 builds a second, complete server bundle (the `nitro-prerender` preset) and imports that bundle into the build process. That step took 54 seconds for one small file.
+2. **The server build.** Nitro then bundles the server again for the `node-server` preset.
+
+Both bundles take in about 16.5 MB of linked JavaScript (11.1 MB for the ZIO application, 5.5 MB for Kyo) and, by default, its 13.2 MB of Scala.js source maps. Removing any one of three things brought the build under a 4 GiB heap: the prerendered route, the server source maps (`sourcemap.server=false`), or one of the two Scala.js applications. The full locale database made no difference: the Scala.js linker already removes it from the ZIO application's output. The [compatibility matrix](compatibility.md#heap-measurement-2026-10-19) has the measurements.
+
+The example keeps all three: the Nuxt Content route, the server source maps for Scala stack traces in Node, and both applications. If your own build runs out of memory, give it the same option, or remove one of these causes from your application. Each has a cost: without server source maps, production stack traces do not map back to `.scala` files, and without prerendering, check that Nuxt Content still serves its data.
+
+A production build needs a complete dependency installation. `pnpm install --frozen-lockfile` runs the install scripts of the packages that `pnpm-workspace.yaml` allows, including the `better-sqlite3` addon that Nuxt Content uses, and the example's `postinstall` step, `nuxt prepare`. An installation with `--ignore-scripts`, as the library checks use, skips both. `nuxt build` then fails with `Could not locate the bindings file` or with `failed to resolve "extends":"./.nuxt/tsconfig.json"`. To recover, run `pnpm install --frozen-lockfile` without `--ignore-scripts`. If pnpm answers `Already up to date`, as after the cloud session hook, it runs `nuxt prepare` but does not build the addon; then run `pnpm rebuild` too. <!-- claude 2026-10-19: changed: pnpm rebuild after an --ignore-scripts install --> If the addon cannot be built on your machine, select Node's built-in SQLite for Nuxt Content instead: put `content.experimental.sqliteConnector=native` in the ignored `examples/nuxt/.nuxtrc`, then run `pnpm --dir examples/nuxt exec nuxt prepare` before the build.
 
 Start the built server from the example directory:
 
@@ -137,7 +147,21 @@ After the review fixes on the same day and machine (with the native SQLite conne
 - `pnpm build` passed again. Against `node .output/server/index.mjs`, `kyo-smoke.mjs` passed with the default salutation and, after a restart with `NUXT_GREETING_SALUTATION=Hi`, with `H34S_EXPECTED_SALUTATION=Hi`. `H34S_SMOKE_SKIP_DATABASE=true node scripts/smoke.mjs` passed without PostgreSQL: invalid Notes input is now a 422 before any database work. `/api/test` carried `text/plain; charset=utf-8` and `X-Content-Type-Options: nosniff`.
 - The Scala CI command passed: `h3Ext` 36 tests, `kyoH3Ext` 79, `kyoNuxtHubExt` 15, `nativeConverterKyoSchemaExt` 25, `zioH3Ext` 81, `zioNuxtHubExt` 14, `nativeConverterZIOSchemaExt` 20, and `nuxtsvr` 6, plus the compile-only modules, `releaseCheck`, and `check-release.mjs --allow-snapshot`. The 47 tooling tests passed. `check-consumers.mjs` (now installing the pinned h3 fixture with `npm ci`) passed for the four consumers.
 
-Not verified: the Notes routes against PostgreSQL. Docker was not running on the verification machine, so `smoke.mjs` stopped at its first database request, and the 201 and 422 Notes responses in section 2 come from the handler and schema test suites, not from a database run. A client disconnect inside a running Nitro server was not exercised either; the Kyo test suite aborts a real HTTP client against h3 in Node.
+Not verified on that day: the Notes routes against PostgreSQL. Docker was not running on the verification machine, so `smoke.mjs` stopped at its first database request. The next section records the database run. A client disconnect inside a running Nitro server was not exercised either; the Kyo test suite aborts a real HTTP client against h3 in Node.
+
+<!-- claude 2026-10-19: created: cloud-session record for the production build and PostgreSQL (issues #29 and #30) -->
+### Cloud session: production build and PostgreSQL (2026-10-19)
+
+On 2026-10-19, in a Claude Code cloud session (Ubuntu 24.04.5, x86_64, 4 vCPUs, 15 GiB memory) with Node 24.22.0, pnpm 10.34.4, OpenJDK 25.0.4.1, sbt 1.11.7, Nuxt 4.3.1, Nitro 2.13.1, and PostgreSQL 16.15, from commit `f1fb8e1`:
+
+- `pnpm install --frozen-lockfile` and `pnpm rebuild` (the hook's install had skipped the `better-sqlite3` addon), then `pnpm run scala:full`: 2 minutes 14 seconds.
+- The Nuxt build with the scripts' 8 GiB heap passed in 2 minutes 15 seconds. Its largest process peaked at 6.8 GB RSS.
+- PostgreSQL 16 ran with `password_encryption = scram-sha-256` and the default `host all all 127.0.0.1/32 scram-sha-256` rule. The role, database and schema came from [Start PostgreSQL and Redis](maintainers/cloud.md#start-postgresql-and-redis). The server started from `examples/nuxt` with the variables of `.env.example` and the password from `~/.h34s-db-password`.
+- `node scripts/smoke.mjs` passed, including the database insert and read. With `curl`, `POST /api/notes` with `{"text":"My first note"}` answered `201 Created`, `cache-control: no-store` and `{"data":{"id":2,"text":"My first note"}}`. Blank text answered 422 with `{"errors":[{"message":"must have at least 1 character","path":"text"}]}`, and `{"text":42}` answered the generic 422. `GET /api/notes` answered 200 and listed both notes.
+- The PostgreSQL log showed `connection authenticated: identity="h34s" method=scram-sha-256` for the bundle's connection: Skunk's SCRAM login works in the production bundle with the `skunk-node-crypto.ts` plugin.
+- After eight parallel `GET /api/notes` requests, `pg_stat_activity` held 4 sessions of the user `h34s` (the pool's maximum). After `SIGTERM`, the server exited with status 0, PostgreSQL logged 4 disconnections, and `pg_stat_activity` held 0 sessions of that user.
+
+The kyo-sql code from the database guide ran against the same PostgreSQL; see [Run the kyo-sql tests](database.md#run-the-kyo-sql-tests).
 
 Use direct HTTP for stream responses. In-process Nitro local fetches (`$fetch` during server rendering) were not tested with streamed Scala bodies.
 
