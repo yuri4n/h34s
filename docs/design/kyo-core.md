@@ -1,0 +1,464 @@
+# Kyo core: design record
+
+This page records why h34s is built the way it is. It covers the decisions the user made, the design those decisions led to, every place where the implementation differs from the first plan, and the library facts that the code depends on. The guides in `docs/` tell you how to use h34s; this record tells you why it works that way, so you can change it without breaking a promise.
+
+**Status.** It describes `main` at release `0.2.0-alpha.1` (merge commit `433ac9d`, published on 2026-10-18 as the [`v0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1) and [`npm-v0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1) prereleases). Remaining work and open questions live in the tracking issue [#17](https://github.com/yuri4n/h34s/issues/17), not here.
+
+**Where it comes from.** The Kyo-core refactor (PR [#14](https://github.com/yuri4n/h34s/pull/14), 2026-10-17 and 2026-10-18) kept its design, research, progress and review notes outside the repository. This page is the curated, durable copy of those notes.
+
+**Keep it current.** When you change one of these decisions or behaviors, update this page in the same pull request. When the user makes a new decision, also record it in `AGENTS.md`.
+
+Tags such as *(dev. 4)*, *(B2-1)* and *(D-1)* are the deviation numbers from the original design notes. Review IDs such as R3, SEC-4, AD-9 and B1 are the findings of the adversarial review of PR #14; some test comments use them.
+
+## Contents
+
+1. [Decisions from the user](#1-decisions-from-the-user)
+2. [Module graph and dependency direction](#2-module-graph-and-dependency-direction)
+3. [Layers](#3-layers)
+4. [The HTTP model](#4-the-http-model)
+5. [Configuration and application resources](#5-configuration-and-application-resources)
+6. [Schema strategy](#6-schema-strategy)
+7. [The ZIO bridge](#7-the-zio-bridge)
+8. [Streaming](#8-streaming)
+9. [Implementation deviations](#9-implementation-deviations)
+10. [Review findings and their outcome](#10-review-findings-and-their-outcome)
+11. [Appendix: facts from research that still hold](#appendix-facts-from-research-that-still-hold)
+
+## 1. Decisions from the user
+
+These are binding. The lasting ones are also in `AGENTS.md`; the release steps are recorded here for history.
+
+### Recorded before the refactor
+
+- The project is named **h34s**. It is a toolbox: the application owns its models, services, databases and deployment. The repository root holds reusable libraries; `examples/nuxt/` is a runnable demo and `website/` is the documentation site. Neither is the product.
+- The repository [yuri4n/h34s](https://github.com/yuri4n/h34s) stays private. Releases go to private GitHub Packages (Maven and npm) under `dev.yuri4n`, starting with `0.1.0-alpha.1`, with a matching Git tag and GitHub prerelease.
+- Developer experience is the highest priority, next to type safety and efficiency.
+- The user chose current Kyo (1.0.0-RC7) with the tooling updates it needs over an older Kyo that would have kept the old compiler pin.
+- The ZIO database example uses **Skunk** inside Scala.js and Nitro. The user reconfirmed Skunk after discussing Doobie, because Doobie needs a JVM backend.
+- `yurian.land` uses the first-class Kyo API.
+- Scala-to-TypeScript generation was planned with **scala-ts**. PR [#15](https://github.com/yuri4n/h34s/pull/15) proposes an h34s generator instead and asks the user to decide.
+- sbt with Nix, and sbt-native-packager, are first-class targets. Interactive documentation (type hovers, symbol links, runnable examples) is an explicit post-MVP goal.
+- Work goes through branches, small commits and pull requests. Nothing is merged, force-pushed or published without the user's explicit approval.
+
+### 2026-10-17: the Kyo core
+
+1. **Kyo is the core and the lingua franca.** The h3 transport, request lifecycle, cancellation, streaming, error rendering, configuration access and application-scoped resources are implemented once, in Kyo. The user first asked for a ZIO core, then corrected it to the opposite: a Kyo core with hand-written ZIO adapters, bindings and support libraries.
+2. **ZIO is a first-class, hand-written adapter over the Kyo core.** ZIO users depend on Kyo transitively. Kyo users never depend on ZIO. This replaced two older rules: "Kyo-only and ZIO-only consumers need neither of the other runtime" and, in yurian.land, "no ZIO runtime beneath Kyo handlers".
+3. **Application authors write ordinary Scala.** No `js.native`, `js.Promise`, `js.Dynamic`, facades, casts or TypeScript glue in normal use. JavaScript is a workaround only for an API h34s does not offer yet. Configuration comes from a Scala API.
+4. **Do not overbuild everyday pieces.** Where a good library works out of the box (kyo-sql, kyo-schema-json and -yaml, zio-schema-json, Skunk), guide users to it and show how to plug it into `AppHandler`. No wrapper modules.
+5. **Schemas.** `NativeConverter` stays the default type class that h34s APIs ask for. h34s internals, the example and yurian.land use one schema derivation per model that gives JSON, `NativeConverter` and YAML. Write the `NativeConverter` bridges for Kyo Schema (new) and ZIO Schema (existing).
+6. Design and review with the `functional-design` and `scala-functional-design` skills: pure values, a thin effectful shell, one wiring point (`AppHandler`), typed error domains, one resource per scope, separate models at boundaries.
+7. Order of work: the h34s pull request first, then move yurian.land PR [#15](https://github.com/yuri4n/yurian.land/pull/15) onto the new API.
+8. **HTTP model.** A handler is a function (a Kleisli arrow) from an immutable `Request` snapshot to the response body. Status, headers and cookies are local state of the computation (Kyo `Var[ResponseHead]`, ZIO `ZState[ResponseHead]`), with per-entry `OnFailure.Keep` and handler-level defaults. See [section 4](#4-the-http-model).
+9. **Handler options and wire format.** `{ "data": ... }` for values, `{ "errors": [{ "message", "path"? }] }` for errors, 204 for `Unit`, unwrapped streams, all selectable through `HandlerOptions`.
+10. **Client disconnects.** Both runtimes interrupt the handler, wait for every request-scope and stream finalizer, write nothing, and only then settle the request. Guides must explain rollback risk and show a tested way to make a step finish.
+11. The yurian.land port is verified against a locally published `0.2.0-SNAPSHOT`. Its CI may stay red until an h34s release. Publish nothing yet.
+12. After the user approves PR #14, publish `0.2.0-alpha.1` to private GitHub Packages (Maven and npm) with matching tags and prereleases, then move yurian.land to it.
+
+### 2026-10-18: the release and cloud sessions
+
+13. The user approved PR #14 and asked to merge it into `main`, then tag `main` for `npm-v0.2.0-alpha.1` and `v0.2.0-alpha.1` and publish. Done: merge commit `433ac9d`, both tags on it, both release workflows green, both prereleases created. yurian.land then moved to `0.2.0-alpha.1`.
+14. The user asked to move durable project knowledge into the repository, so that sessions without access to the maintainer's Mac (including Claude Code cloud sessions) can continue the work. This page, the tracking issue and the "Agent sessions" section of `AGENTS.md` are the result.
+
+### Still open
+
+The user has not decided yet: the public name of the Kyo API (the user has also called it "KIO"), scala-ts versus the generator in PR #15, and what to do with the older draft PRs. The tracking issue [#17](https://github.com/yuri4n/h34s/issues/17) lists them.
+
+## 2. Module graph and dependency direction
+
+`0.2.0-alpha.1` publishes nine modules. Every module builds with Scala 3.9.0, Scala.js 1.22.0 and JDK 25 (Kyo 1.0.0-RC7's macros need Java 25 at build time). ZIO is 2.1.26 because kyo-zio 1.0.0-RC7 pins it; zio-json is 0.7.44, zio-schema 1.7.5, native-converter 0.9.0. Java and sbt are build tools only: applications run in Nitro on Node.
+
+```text
+h3-ext                                 native layer, no effect library
+├── kyo-h3-ext                         Kyo core
+│   ├── kyo-nuxthub-ext                Kyo storage
+│   └── zio-h3-ext                     ZIO adapter (+ kyo-zio, ZIO, native-converter-zio-ext)
+│       └── zio-nuxthub-ext            ZIO storage (+ kyo-nuxthub-ext)
+├── native-converter-kyo-schema-ext    Kyo Schema bridge (+ kyo-schema)
+├── native-converter-zio-schema-ext    ZIO Schema bridge (+ zio-schema)
+└── native-converter-zio-ext           ZIO converters (+ ZIO)
+    └── native-converter-zio-json-ext
+```
+
+- Dependencies point one way: native layer, then Kyo core, then the Kyo storage bridge and the ZIO adapter, then ZIO storage. Schema bridges depend only on the native layer and their schema library.
+- Removed in `0.2.0-alpha.1`: `zio-js-ext` (empty), `nuxthub-ext` (folded into the native layer's internals) and `zio-h3-schema-ext` (replaced by `derives NativeSchema` and `request.body.json`). ScalablyTyped is gone; the h3 facades are hand-written and internal.
+- Not published: `zio-migrations-ext` (an experiment that still compiles on 3.9.0 and stays in the `exts` aggregate), the examples and the aggregates.
+- Two checks enforce the direction. `scripts/check-release.mjs` reads the generated POMs: a Kyo artifact must not depend on ZIO, `h3-ext` must not depend on any effect runtime, a ZIO converter must not depend on Kyo, and only schema bridges may depend on a schema library. `scripts/check-consumers.mjs` builds four fresh consumers (Kyo, ZIO, Kyo Schema, ZIO Schema), serves real h3 requests through a preemptive router as Nitro does, and fails when a Kyo consumer resolves any `dev.zio` artifact.
+
+[Architecture](../architecture.md) has the full table of what each module offers.
+
+## 3. Layers
+
+```text
+Business logic   your services and programs (Kyo `A < S` or ZIO), owned by the application
+Interfaces       your traits + h34s values (Request, ResponseHead, SafeError, Secret, ...)
+Implementation   the h34s core runtime (Kyo), internal native facades, your interpreters
+Application      your AppHandler: config -> Shared resources -> Env / ZLayer wiring
+```
+
+- **Native gatekeeping.** Every `js.*` value and native exception is converted inside `h3-ext` and `kyo-h3-ext`. Public signatures contain no `js.*` type, no facade and no `org.scalajs.dom` type.
+- **Handlers are an error-domain boundary.** A `SafeError` becomes its approved status and body; everything else becomes an opaque 500.
+- **`AppHandler` belongs to the application.** It is the one wiring point, a function from handler to handler that supplies services, resources and policy around `KHandler.define` or `ZHandler.define`. h34s does not export or generate it.
+
+## 4. The HTTP model
+
+### 4.1 The request snapshot
+
+`Request` is an immutable snapshot built once per request: `method`, `path`, `header` / `headerValues` / `headers` (lower-case names, duplicates joined with `", "` except in `headerValues`), `query` / `queryAll`, `routerParam` / `routerParams`, `cookie` / `cookies`, `bearerToken` (exactly one `Authorization: Bearer <token>` header, otherwise `None`), `development`, `debug` and `body`.
+
+- `development` and `debug` come only from the h34s Nitro plugin. A request can never set them.
+- The body is not part of the snapshot. It is a one-shot input that you read through runtime extensions (`request.body.json[A]`, `request.body.text()`). A second read returns the same bytes.
+- `Request.fake(...)` builds a request without h3, so a test can call a handler function directly.
+- `Request.toString` is redacted to `Request(<method> <path>)`, because headers can carry credentials.
+
+### 4.2 Handler shape
+
+```scala
+// Kyo core
+type HandlerEffects = Async & Scope & Abort[Throwable] & Var[ResponseHead]
+KHandler.define(request => program)                 // program: B < HandlerEffects
+KHandler.define(options: HandlerOptions)(request => program)
+
+// ZIO adapter
+type HandlerEnv = ZState[ResponseHead] & Scope
+ZHandler.define(request => program)                 // program: ZIO[HandlerEnv, ErrorResponse | Throwable, B]
+ZHandler.define(options)(request => program)
+```
+
+The body type needs a `ResponseBody[B]` (Kyo) or `ZResponseBody[B]` (ZIO) instance: any type with a `NativeConverter`, `Unit`, or a stream of strings. There is no `Env[Request]` and no method that mutates the native response while the program runs.
+
+### 4.3 Body reading
+
+| Input | Result |
+| --- | --- |
+| Body larger than the limit (checked from `Content-Length`, then counted while reading) | `HttpError` 413. h34s never buffers more than the limit |
+| `json[A]` with a content type that is not JSON | `HttpError` 415 |
+| `json[A]` without a content type | Accepted, unless `HandlerOptions.requireJsonContentType` is true (then 415) |
+| Invalid JSON | `HttpError` 400 |
+| A shape the converter rejects, or a schema check that fails | `InvalidInput` 422 |
+| Any other exception from a decoder | A defect: opaque 500 |
+
+The default limit is 1 MiB (`BodyLimit.default`); `HandlerOptions.bodyLimit` changes it. h3's own `readBody` is not used for typed reads, because it parses JSON and URL-encoded bodies whatever the content type, with no size limit.
+
+### 4.4 Response head
+
+- Status, headers and cookies live in `Var[ResponseHead]` (Kyo) or `ZState[ResponseHead]` (ZIO). `Response.status`, `header`, `appendHeader`, `cookie`, `deleteCookie`, `redirect` and `head` change or read it.
+- The state starts at `ResponseHead.empty`. The core composes the handler defaults with what the program set, using the pure `ResponseHead.forSuccess` and `forFailure`.
+- h34s writes the head and the body once, after the program and its finalizers finish. A streamed body writes the head just before the first chunk.
+
+### 4.5 The failure rule
+
+On failure, the status always comes from the error, so a 2xx never leaks. The response keeps only the handler defaults, the entries that the program marked `OnFailure.Keep`, and the error's own headers (for example `WWW-Authenticate` on a 401). Everything else that the program set is discarded. On success, the whole head applies.
+
+Inside the program, recovering from a failure does not roll the head back. This is true for Kyo `Abort.recover` and ZIO `catchAll` alike.
+
+### 4.6 HandlerOptions and the wire format
+
+`HandlerOptions(success, errors, defaults, bodyLimit, requireJsonContentType)`; `HandlerOptions.default` is `Data`, `List`, no defaults, 1 MiB, `false`.
+
+| Outcome | Status | Body with the default options |
+| --- | --- | --- |
+| A value | 200, or the status the program set | `{"data": <value>}`. With `SuccessEnvelope.Raw`: the value itself, see below |
+| `Unit` | 204 | None |
+| A stream | 200, or the status the program set | The streamed strings, never wrapped |
+| A `SafeError` | Its status | `{"errors": [{"message": "..."}]}`; `InvalidInput` gives one entry per app-authored problem, with `path` when known, never input values |
+| Anything else | 500 | `{"errors": [{"message": "Internal server error"}]}` |
+
+`ErrorEnvelope.SingleOrList` sends `{"error": {...}}` for one entry and `{"errors": [...]}` for several. With `SuccessEnvelope.Raw`, a string goes out as `text/plain; charset=utf-8` and any other value as `JSON.stringify` text with `application/json`, both with `X-Content-Type-Options: nosniff`, unless the head already sets a content type.
+
+### 4.7 Errors and diagnostics
+
+- **`SafeError` is the only error data a client may see.** `HttpError`, `InvalidInput` and ZIO's `ErrorResponse` (rendered through an internal `SafeError`) are the public kinds. A `SafeError` must have a status from 400 to 599 and non-null entries; otherwise it is treated as a defect.
+- **A thrown `SafeError` is a defect.** Only a typed failure is approved. A `SafeError` thrown by a decoder, converter or stored-value read is never shown.
+- **Every other `Throwable` is an opaque 500.** h34s logs it on the server.
+- **Diagnostics.** In Nuxt development mode, or when debug mode is on, the internal-error entry also carries `"debug": {"cause": "..."}`: the exception chain with stack text in Kyo, `Cause.prettyPrint` in ZIO. Turn debug mode on with `NUXT_H34S_DEBUG=true` or `runtimeConfig.h34s.debug: true`. It is never derived from Nuxt's own `debug` option, and a request can never turn it on. Keep it off in production.
+- **`ConfigError`** (missing or invalid runtime config, missing Nitro plugin) is never public: it is an opaque 500.
+- **Finalizer failures differ by runtime.** Kyo `Scope` finalizer errors are logged and do not change the response (Kyo semantics). A dying ZIO finalizer in a value or `Unit` handler still produces a 500, because the adapter closes the ZIO request scope inside the fiber and the defect surfaces in the ZIO `Exit`.
+
+### 4.8 Client disconnects and uninterruptible steps
+
+When the client disconnects, h34s:
+
+1. interrupts the handler (Kyo fiber or ZIO fiber),
+2. waits for every request-scope and stream finalizer, asynchronous ones included, and for the cleanup of work forked with Kyo's structured combinators (`Async.timeout`, `race`, `gather`, `zip`, a concurrent `foreach`) or as ZIO child fibers,
+3. writes nothing, marks the h3 event as handled, removes its listener, and only then settles the request.
+
+It never starts a handler on a response that is already closed, and a late `close` event is harmless. Interrupted work can roll back, for example an open database transaction. A step that must finish goes in `KHandler.uninterruptible(step)` (Kyo) or `ZIO.uninterruptible` / `.uninterruptible` (ZIO). Kyo's own `Async.uninterruptible` is not enough: it runs the step on an unowned fiber, so the request would settle and release its scope while the step still runs.
+
+The disconnect tests in `HttpHandlerSuite` (Kyo) and `HandlerBoundarySpec` (ZIO) prove this order. Do not change it to "settle first, clean up in the background".
+
+## 5. Configuration and application resources
+
+### 5.1 Runtime config and secrets
+
+- `RuntimeConfig.get[A](request)` decodes Nuxt `runtimeConfig` (private and public) as Nitro resolves it for this request. `RuntimeConfig.load[A]` decodes Nitro's shared startup copy, for application-scoped resources. ZIO: `ZRuntimeConfig.get` / `load`.
+- `NUXT_*` environment variables override declared keys at runtime. Nitro parses them with `destr`, so `"123"` becomes a number and `"true"` a boolean; a model that expects a string then fails with `ConfigError`.
+- A decode failure is a `ConfigError` (opaque 500) that names only the path. A missing plugin record is `ConfigError("h34s Nitro plugin is not installed")`.
+- `Secret` prints as `Secret(<redacted>)`, compares in constant time for its length with `matches`, and gives the plain value only through `reveal`. Both schema bridges export a `secretSchema` so a config model with a secret can still use one schema derivation.
+
+### 5.2 Application-scoped resources
+
+- `Shared(acquire)` (Kyo) and `ZShared.layer(layer)` (ZIO) acquire a resource on first use, share it across requests, and release it when Nitro closes or on `close`.
+- Concurrent first calls share one acquisition. A failed acquisition is not cached. An interrupted waiter does not cancel the shared acquisition. `close` releases once, and a later `get` acquires again.
+- Reusing a `ZLayer` value does not memoize it across requests, and a `ZEnvironment` does not own cleanup. That is why `ZShared` exists.
+
+### 5.3 The Nitro plugin records
+
+The `@yuri4n/h34s-nuxt` module registers `runtime/h34s.mjs` (`runtime/development.mjs` re-exports it for one release). `runtime/context.mjs` builds the records with `createH34sPlugin({ useRuntimeConfig, useStorage, development })` and imports nothing from Nitro, so node tests inject fakes.
+
+| Record | Where | Fields |
+| --- | --- | --- |
+| Startup | `globalThis[Symbol.for('h34s.nitro')]` | `version: 1`, `development`, `debug`, `runtimeConfig()` (Nitro's frozen startup copy), `storage(base)`, `onClose(fn)` |
+| Request | `event.context.h34s`, set in Nitro's `request` hook | `version: 1`, `development`, `debug`, `runtimeConfig()` (lazy; Nitro clones and caches it per event), `storage(base)` |
+
+- Both records are frozen. `development` is `import.meta.dev === true`. `debug` is `useRuntimeConfig().h34s?.debug === true`, read once at startup.
+- The module declares `runtimeConfig.h34s.debug: false` so `NUXT_H34S_DEBUG=true` can override it. A value the application already set wins.
+- The Nitro `close` hook releases every registered closer with `Promise.allSettled` (one failure does not stop the others), clears the set and removes the startup record.
+- Scala reads these records only through internal facades. Application code never sees them.
+
+## 6. Schema strategy
+
+| | Kyo (primary) | ZIO |
+| --- | --- | --- |
+| Derive | `derives Schema, NativeSchema` | `derives Schema, NativeSchema` (needs `import zio.schema.derived`) |
+| HTTP and native values | `native-converter-kyo-schema-ext` | `native-converter-zio-schema-ext` |
+| JSON | kyo-schema-json `Json.encode` / `decode` | zio-schema-json `JsonCodec` |
+| YAML | kyo-schema-yaml | None on Scala.js: zio-json-yaml has no Scala.js artifact |
+| Validation | `Schema[X].check(...)`, run by the bridge on decode | `@validate` / `Schema.validation`, run by the bridge on decode |
+
+- `NativeConverter` stays the default type class. A `derives NativeConverter` model works with every h34s API without a schema library; shape errors are a generic 422, and domain rules are your code's job.
+- No blanket instance. Only types that `derives NativeSchema` (or call `NativeSchema[A]`) get a schema-derived converter, so it never competes with a converter the application already has.
+- The bridges choose no JSON or YAML library. Applications add `kyo-schema-json`, `kyo-schema-yaml` or `zio-schema-json` themselves.
+- Encoding goes straight to native JavaScript values. There is no JSON text round trip, and tests replace `JSON.stringify` and `JSON.parse` with throwing functions to prove it.
+- Wire shapes match the JSON library: the Kyo bridge output equals `JSON.parse(Json.encode(x))` for records, options, enums, sealed traits and the other tested shapes.
+
+[Schema](../schema.md) documents the user-facing rules.
+
+## 7. The ZIO bridge
+
+The ZIO adapter runs ordinary ZIO programs on a ZIO `Runtime` and bridges only at the boundary. It never translates ZIO programs into Kyo programs.
+
+### Why not kyo-zio's `ZIOs.get` and `ZStreams.get`
+
+- `ZIOs.get` forks the ZIO effect and, on Kyo interruption, calls `fiber.unsafe.interrupt`, which returns at once. The Kyo side resumes before the ZIO finalizers finish, so a ZIO resource could outlive the request that opened it. It also always uses `zio.Runtime.default` and rejects ZIO environments at compile time.
+- `ZStreams.get` closes the ZIO stream scope from an inner `Scope.run` and pulls with `ZIOs.get`, so a cancelled stream would not wait for its ZIO finalizers.
+
+Both break the disconnect rule, so they are not used on request paths. The opposite direction, kyo-zio's `ZIOs.run` (Kyo inside ZIO), does interrupt and await the Kyo fiber, so `ZShared.get` / `close` and every `ZHubKv` operation use it.
+
+### How the adapter bridges
+
+- **`ZioCall`.** It forks the ZIO effect on the given `Runtime` and observes its `Exit`. The observer completes two Kyo promises: an interruptible one for the normal wait, and an uninterruptible one that a `Scope.ensure` finalizer in the request scope waits on. On Kyo interruption the finalizer interrupts the ZIO fiber and waits for its `Exit`, so ZIO finalizers finish before the core settles the request.
+- **One ZIO fiber per request** (`internal/ZioRequest.scala`). It runs inside `uninterruptibleMask` and owns the `ZState` head: `ZIO.stateful(ResponseHead.empty)(program.exit.zip(ZIO.getState[ResponseHead]))`. The Kyo side then sets its `Var` to that head and re-raises the `Exit`. The core runs `Var` outside `Abort`, so the failure renderer still sees the head.
+- **The request `Scope`.** The Kyo side creates the ZIO `Scope` and always closes it after `stop`, whatever the fiber's `Exit` was (closing twice is a no-op) *(D-13)*. For value and `Unit` bodies the fiber closes it first, so a dying finalizer turns the response into a 500. For stream bodies it stays open until the core has finished or cancelled the stream *(dev. 26)*.
+- **Exit mapping.** See *(dev. 27)* below. In short: a single typed `SafeError` or `ErrorResponse` stays approved; everything else becomes an internal `ZioDefect` carrying `Cause.prettyPrint` for diagnostics, and renders as the opaque 500.
+- **Runtime.** `ZHandler.define` and `ZShared.layer` take `(using runtime: Runtime[Any] = Runtime.default)`.
+
+## 8. Streaming
+
+- A handler returns a `kyo.Stream[String, S]` or a `ZStream[Any, E, String]` as its body. Node writes only strings and bytes, so element types other than `String` are not offered *(D-3)*. Encode structured elements yourself, for example as NDJSON.
+- **Kyo: one producer fiber, demand-gated.** The producer runs the whole stream (and its resources) in its own scope. Two capacity-1 channels carry requests and deliveries, so no chunk is computed before the Web `ReadableStream` pulls it. The producer runs under the same never-interrupted supervisor as requests (`internal/Supervised.scala`), so a cancel awaits the stream's finalizers *(dev. 6)*.
+- **ZIO: a hand-written pull.** One forked ZIO fiber per chunk and one producer-scope finalizer that stops an in-flight pull and closes the ZIO stream scope, both awaited. Empty chunks are skipped *(dev. 28)*.
+- **Head and failures.** The head is written just before the first chunk, or before an empty stream closes, so a failure before the first chunk still uses the failure rule. A stream without a content type gets `text/plain; charset=utf-8` and `X-Content-Type-Options: nosniff`. A failure after the first chunk destroys the socket. A stream that fails before anything was sent clears the success head it applied. A failed write is reported instead of the producer's interruption.
+- **Needs a real socket.** A stream over Nitro's in-process local fetch (for example a server-side `$fetch` to your own route) is rejected before any stream resource is acquired: an opaque 500.
+- A disconnect interrupts the producer and waits for its cleanup, then releases the request scope.
+
+[Streaming](../streaming.md) has the user guide.
+
+## 9. Implementation deviations
+
+Each item says what differs from the first plan and why. Superseded items are folded into the item that replaced them.
+
+### 9.1 Native layer and build
+
+- **Facades only for what the core calls** *(dev. 1)*. `h3-ext` has internal facades for the h3 functions the core uses (`defineEventHandler`, `sendStream`, `setResponseStatus`, `setResponseHeader`, `appendResponseHeader`, `setCookie`, `deleteCookie`, `getQuery`, `getRouterParams`, `parseCookies`), not all ~25 functions the research listed. Unused facades are untested surface; add each one with its first caller.
+- **`BodyLimit` lives in `h3-ext`** *(dev. 2)* because the ZIO adapter uses it too. `kyoh3` re-exports it.
+- **Build wiring** *(dev. 14)*. `native-converter-zio-ext` depends on `h3-ext` and re-exports `unitNativeConverter`. `kyo-h3-ext` tests use `h3-ext` test fixtures; the storage and ZIO tests reuse the Kyo test fixtures (`NitroGlobal`). `zio-migrations-ext` compiles on 3.9.0 and stays in the `exts` aggregate, unpublished.
+- **Tests use a real h3.** A pinned `h3@1.15.4` lives in `scala-modules/exts/h3/test-js` (with a lockfile) and is put on `NODE_PATH` for Scala.js tests.
+- **`zio-h3-schema-ext` removed** *(dev. 31)*. Its contracts (S1-S7) moved to zio-h3's `RequestBodySpec` with the new wire format: malformed JSON is 400 (was 422), a wrong shape a generic 422, failed checks 422 entries with paths. Also removed: the `fromNative_` extension (it put `js.Any` in a public signature and made decoder throws typed). The `TaskStream`, `RStream` and `URStream` aliases stay.
+- **Release tooling** *(D-18, B1, SEC-7)*. `check-release.mjs` requires `.github/release-notes/<version>.md` when it runs on a tag, so a missing notes file fails before publication. `check-consumers.mjs` installs the pinned h3 fixture with `npm ci` and runs npm and Node without GitHub credentials; only sbt gets the token.
+- **npm version** *(D-16, AD-4)*. `packages/nuxt/package.json` follows `version.sbt`, because the Nitro plugin contract changed with the Scala modules. Scala `0.2.0-alpha.1` needs `@yuri4n/h34s-nuxt@0.2.0-alpha.1`; with the `0.1.0-alpha.1` plugin, `RuntimeConfig` and `KHubKv.mount` fail with the "plugin is not installed" `ConfigError`.
+
+### 9.2 Request and body reading
+
+- **Snapshot details** *(dev. 10)*. `Request.toString` is redacted. The first body read fixes the outcome: a body above a limit stays rejected, and a later read with a smaller limit also gets 413. An absent body is `""` for `text()`. `JSON.parse` drops `__proto__` keys.
+- **Body limit plumbing** *(dev. 18)*. `RequestBody.defaultLimit` (`private[exts]`) carries `HandlerOptions.bodyLimit`; `json[A]` uses it and `text(limit = body.defaultLimit)`. `Request.fake` gained `debug` and `bodyLimit` parameters, appended so positional calls keep working.
+- **An absent JSON body decodes like JSON `null`** *(D-5, R2)*. Passing `undefined` to a derived converter made native-converter's error path fail with a fatal `UndefinedBehaviorError` in fastLink builds (Kyo answered 500, ZIO hung). Now products fail with a normal 422 and `Option[A]` decodes to `None`. A `VirtualMachineError` from a converter becomes an `IllegalStateException` defect, so it can never hang a ZIO request.
+- **Strict JSON content type is opt-in** *(D-6, SEC-8)*. `HandlerOptions.requireJsonContentType` defaults to `false` and keeps the agreed "JSON or absent" rule. Turn it on for cookie-authenticated routes that change state: browsers send some cross-site requests without a content type and without a CORS preflight.
+- **`Request.fake(runtimeConfig = Some(json))`** *(D-15, AD-8)* lets tests decode runtime config without `js.*`.
+- **A request stream that already ended** *(R8)*. The body reader fails at once when `readableEnded` or `destroyed` is true, instead of waiting forever. It does not use `req.complete`, which is also true on a fresh request whose small body already arrived.
+
+### 9.3 Response head
+
+- **The `Var` starts empty; the core composes defaults** *(dev. 3)*. `Response.head` therefore shows only what the program set. The ZIO adapter does the same with `ZIO.stateful(ResponseHead.empty)`.
+- **Extra pure values** *(dev. 9)*: `DeleteCookie`, `HeaderMode`, `ResponseHead.++`, `forSuccess`, `forFailure`, more `Status` constants, and exactly the planned `HttpError` helpers.
+- **Validation timing.** Kyo `Response.*` checks header names and values, cookie names and redirect statuses in the continuation (`Var.use`), not when the value is built, so a hoisted value is checked too *(D-8, AD-5; replaces dev. 8)*. ZIO's `Response.*` die inside the effect *(dev. 29)*. Both give the same opaque 500.
+- **Cookie deletion** *(D-7, SEC-6, AD-6)*. `DeleteCookie` has `secure` (default `true`), and `withoutCookie` / `Response.deleteCookie` take `domain`, `secure` and `onFailure` in both runtimes. h3's `deleteCookie` sends no `Secure` attribute, and browsers ignore a `Set-Cookie` for a `__Secure-` or `__Host-` name without it.
+
+### 9.4 Rendering and the wire
+
+- **`Unit` answers 204 by resolving `null`** *(dev. 15)*. h3 1.15.4 and Nitro 2.13.1's h3 1.15.5 send a `null` result with `sendNoContent` (204, or the status already set if it is not 200; no body). `undefined` falls through to the next handler in a plain `createApp` and becomes `null` only in a preemptive router, which Nitro uses. The core sets 204 when the head has no status and keeps a status the handler set. Side effect of h3: an explicit 200 with a `Unit` body is sent as 204.
+- **Raw values** *(dev. 16, D-4, SEC-3)*. A value that converts to `undefined` or `null` is a 204. A raw value never reaches h3's type sniffing: h3 sends a string as `text/html` and treats any object with a `buffer` key as bytes, which can hang the response (`?buffer=1` on a handler that echoes the query).
+- **`InvalidInput.message`** *(dev. 19)* joins entries as `path: message` with `"; "` for logs. It is never sent; the wire carries the entries.
+- **`ErrorEntry`'s converter decodes too** *(dev. 20)*. `path` that is `null` or absent is `None`. An `undefined` value is reported at the root, because native-converter's `ParseState.fail` would call `JSON.stringify(undefined)`, a fatal error under checked semantics.
+
+### 9.5 Errors and their approval
+
+- **The core runs `Abort.run[Any]`** *(dev. 4)*. Kyo RC7's `Abort.run[Throwable]` turns every thrown exception into a typed failure, which would approve a thrown `SafeError`. `Abort.run[Any]` keeps thrown exceptions as panics, and an internal `Interop.typed` narrows the result. Streams keep the producer's own failure or panic classification.
+- **Out-of-range statuses** *(dev. 7)*. A `SafeError` with a status outside 400-599 is a defect, so a failure can never answer 2xx or 3xx.
+- **Entry approval** *(dev. 17)*. Empty `errors`, a null entry or message, `Some(null)` as a path, or an `errors` method that throws makes the error a defect.
+- **`failWith`** *(D-9, AD-9)*. `KHandler.failWith(status, message)` is typed `Nothing < Abort[HttpError]`. ZIO's `ZHandler.failWith` keeps `IO[ErrorResponse, Nothing]` to keep `0.1.0` call sites; `ErrorResponse` cannot extend `SafeError` because its `errors` field clashes.
+- **`ErrorResponse(errors, status = 400)`** *(dev. 25)*. The failure rule takes the status from the error, so `failWith` stores it there. One-field pattern matches need `_`. It renders through an internal `SafeError` (one entry per message, no path). `derives JsonEncoder` is kept and now includes `status`.
+- **ZIO exit mapping** *(dev. 27)*. A single `Fail` of `SafeError` or `ErrorResponse` stays typed and approved, also when the cause only adds interruptions (for example `zipPar` siblings). A single `Fail` of another throwable is a typed failure of an internal `ZioDefect` with `Cause.prettyPrint` (not the raw error), so diagnostics keep ZIO traces. Several failures, any defect, or interruption alone are a panic `ZioDefect`. Both render as the same opaque 500.
+
+### 9.6 Lifecycle and cancellation
+
+- **`KHandler.uninterruptible(step)`** *(D-1, R1, AD-10)*: `Scope.acquireRelease(Fiber.initUnscoped(step))(_.getResult.unit)`, then `fiber.uninterruptible.map(_.get)`. The release joins the request scope in the same step that starts the fiber, so an interrupt cannot land between the two, and the request waits for the step. Tested in both runtimes, including a case that shows bare `Async.uninterruptible` settling too early.
+- **Forked Kyo work is awaited** *(D-2, R3 disproved)*. The review expected Kyo to settle before cleanup in work forked by `Async.timeout`, `race`, `gather`, `zip` and a concurrent `foreach`. A test with a 300 ms asynchronous release shows the cleanup finishes first; it stays as a regression test. Only unowned fibers (`Fiber.initUnscoped` without a scope) are not awaited.
+- **`Shared` registers its close hook after a successful acquisition** *(dev. 13)*, not at construction, because route modules can load before Nitro plugins run. `close` returns to idle, and a later `get` acquires again. Waiting promises are uninterruptible, so one cancelled request cannot cancel a shared acquisition.
+- **`close` during the first acquisition** *(D-14, R7)* makes the waiting `get`s fail with `IllegalStateException` instead of handing them a released value. The Nitro hook cannot trigger this, because `Shared` registers only after success; an explicit `close` can.
+- **ZIO request scope** *(dev. 26, D-13, R4)*. Value and `Unit` bodies close the ZIO scope inside the fiber, so a dying ZIO finalizer is a 500 even after a success. Stream bodies keep it open until a Kyo request finalizer closes it after the core cancelled or finished the stream (a failure there is logged; the response is already decided). The scope is created on the Kyo side and always closed after `stop`, because an interrupt inside the mask could otherwise drop the `Exit` that carried it. `ZioRequest.run` has an `afterProgram` test seam for that case.
+
+### 9.7 Streaming
+
+- **Demand-gated Kyo bridge** *(dev. 6)*; see [section 8](#8-streaming).
+- **String streams only** *(D-3, R6, AD-1; replaces dev. 5)*. The first version accepted any element with a `NativeConverter` (and needed `Tag[A]` for Kyo's `Emit`). Node's `res.write` throws for objects and numbers, and the failure surfaced as an `Interrupted` 500 that kept the success head. `null` elements now fail the stream.
+- **ZStream bodies** *(dev. 28)*. Instances exist for `ZStream[Any, E <: Throwable, String]` and a separate one for `ZStream[Any, Nothing, String]`, because type inference does not pick `Nothing`.
+
+### 9.8 Configuration, the Nitro plugin and the Nuxt module
+
+- **Plugin layout** *(dev. 12)*. `runtime/context.mjs` builds the frozen records with no Nitro import; `runtime/h34s.mjs` wires `nitropack/runtime` and `import.meta.dev`. Nitro bundles the plugin itself (it is in `externals.inline`), so `nitropack/runtime` resolves to Nitro's own runtime and `import.meta.dev` reflects the build mode.
+- **Debug flag** *(D-16, SEC-2; replaces part of dev. 21)*. The module declares `runtimeConfig.h34s.debug: false` and never reads Nuxt's `debug` option. Nuxt resolves `debug: true` to an object, and the `DEBUG` environment variable can set it during builds, so deriving the flag from it either never worked or could turn on diagnostics by accident. Merge rule: an absent `runtimeConfig.h34s` becomes `{ debug: false }`; an object without `debug` gets `debug: false` added; an existing `debug` or a non-object value is left alone (and anything but `true` means off).
+- **`ZShared`** *(dev. 30)*. It adds `close: UIO[Unit]`; `layer` takes the `Runtime` as a `using` parameter; a single typed build failure keeps its own error. `provide` relies on the expected type to infer `R1`, which works in `ZHandler.define(request => shared.provide(...))`.
+- **`ZHandler.define(options)` returns `ZHandler.Configured`** *(dev. 24)*. Scala forbids default arguments in more than one overloaded alternative, and both need `(using runtime: Runtime[Any] = Runtime.default)`. The call shape `ZHandler.define(options)(request => ...)` is the same. `define(defaults: ResponseHead)` is not offered; pass `HandlerOptions(defaults = ...)`.
+
+### 9.9 Storage
+
+- **`KHubKv.mount(base)` and `ZHubKv.mount(base)`** replace constructors that took a native object from TypeScript *(dev. 11, dev. 22)*. A startup record without a `storage` function (an outdated plugin) is `ConfigError("h34s Nitro plugin is not installed")`. A non-object mount is `ConfigError("Nitro storage mount '<base>' is not available")`. A throwing `storage` function is a panic. `KHubKv.fromNative` stays `private[exts]` for the ZIO adapter.
+- **`StoredValueError(path)`** *(D-10, R5, SEC-1, AD-11)*. Every decode failure of a stored value becomes this one internal error. It names only the failing path, never the key, the value or the original exception, because native-converter's error message contains the value and the whole stored document, and keys are often session ids. An encoder `SafeError` becomes an `IllegalStateException`. Before this fix, a stored value that failed a schema answered an approved 422 and logged the stored data.
+
+### 9.10 Kyo NativeSchema bridge
+
+- **Decode uses the schema's structure as a shape hint** *(B2-1)*. kyo-schema RC7's `StructureValueReader` truncates fractions and wraps out-of-range integers, and its Instant, Duration and base64 parse errors escape as panics (500). The hint makes reads as strict as kyo-schema-json: whole numbers in range for `Int`/`Short`/`Byte`; `"NaN"`, `"Infinity"` and `"-Infinity"` strings for `Double`/`Float`; typed Instant, Duration, bytes, `BigInt` and `BigDecimal` values; a parse failure is `InvalidInput()`. It finds fields and variants by Scala name, `@rename`, `@alias`, external tagging and `@discriminator`. Where it cannot locate a value (fluent `Schema.rename`, `renameAllFields`, fluent `.discriminator`, adjacent, tuple or untagged unions), the value is converted generically and kyo's lenient number coercion applies. A custom `Codec.Reader` is impossible outside `package kyo`.
+- **Number policy** *(B2-2)*. A `Long` decodes only from a safe integer (absolute value up to 2^53-1), else `InvalidInput()`; a larger `Long` encodes as `JSON.parse` would read it (lossy). A `Float` is written with its shortest decimal when the hint names it. Decode also accepts JSON numbers for `BigDecimal` and whole numbers for `BigInt`; encode always writes strings.
+- **Big-number limits** *(D-12, SEC-4)*. Strings longer than 1000 characters and `BigDecimal` exponents beyond +/-10000 are malformed (422) before parsing. Scala.js's `BigInteger` parse is quadratic, so one 1 MiB digit string was estimated (from the algorithm, not measured) to block the event loop for seconds.
+- **Known wire differences from `JSON.parse(Json.encode(x))`** *(B2-3)*, not covered by tests: with fluent transforms, kyo-schema-json writes `BigNum` unquoted while the bridge writes a string; a `Float` the hint cannot locate is written as its double; lone UTF-16 surrogates; a `String`-keyed map bound to the pair-array instance is written as an object.
+- **Validation scope** *(B2-4)*. Only the root schema's checks run (`Schema.validate` semantics). Put checks on the root with focus paths (`_.customer.name`). The entry path is the check's segments joined with `.`; a root `check(pred, msg)` has no path.
+- **A checked model does not `derives Schema`** *(B2-5)*. kyo-schema has no check annotations, so the model declares `given Schema[X] = Schema[X].check(...)` in its companion and `derives NativeSchema`. It is still one schema. The Kyo example's `GreetingRequest` does this; `Greeting` uses `derives Schema, NativeSchema`.
+- **Dependencies** *(B2-6)*. The bridge depends on kyo-schema and `h3-ext` only. kyo-schema-json and kyo-schema-yaml are test dependencies.
+- **What counts as a shape error (generic 422)** *(B2-7)*: non-plain objects (Date, class instances), functions, nesting deeper than 512, invalid ISO, base64 or decimal strings, and every kyo `DecodeException` (missing field, type mismatch, unknown field under `denyUnknownFields`, a rejecting `derivedVia` constructor). A key whose value is `undefined` is absent. Any other exception from `Structure.decode` is a defect.
+- **Bundle size** *(B2-8)*. With kyo-schema, the Kyo example's fastLink internal module grew from 6.1 MB to 8.0 MB.
+- **`secretSchema`** *(D-11, AD-3)* is a top-level given in both bridges.
+
+### 9.11 ZIO NativeSchema bridge
+
+- *(dev. 32)* `trait NativeSchema[A] extends NativeConverter[A]` with `derived(using Schema[A])`. `apply(schema): Codec` is kept and gains `validate: Either[InvalidInput, A]`; `Codec.converter` throws `InvalidInput`. zio-schema has no app-authored messages, and its `ValidationError.message` quotes the input, so entries use messages built from the rule and its bounds (`must have at least 3 characters`, `must be greater than 17`) with paths (`lead.name`, `members[1].name`). Negated validations get the non-negated wording. Transform rejections are shape failures. Field and element results accumulate.
+- The bridge supports `String`, `Boolean`, `Int` and `Double` primitives, records, options, sequences, transforms and lazy schemas. Any other shape (enums, sealed traits, maps, other primitives) fails with `UnsupportedSchema`, a defect.
+
+### 9.12 Examples
+
+- **ZIO example** *(dev. 33, D-17, F1, AD-12)*. A Skunk pool (`Session.Builder.pooled(4)`, explicit `Network.forAsync`) lives in a `ZShared` layer. Each request takes one pooled session for its request scope on first use (memoized in the request scope), so input validation runs before a database session is needed. Settings come from `runtimeConfig.database` (`NUXT_DATABASE_*`, the password a `Secret`, empty means none). Models are split: `NoteRow` (private SQL row), `Note` (domain), `NoteView` (wire). `server/plugins/skunk-node-crypto.ts` sets `globalThis.require` because Skunk's SCRAM code calls `require('crypto')` from ES module output.
+- **Kyo example** *(D-17, AD-7)*. It reads `runtimeConfig.greeting` with `RuntimeConfig.load` inside a `Shared`, and `GreetingRequest` validates "not blank, at most 80 characters" in its schema.
+- **Build heap.** The example links a Kyo and a ZIO application, and its `nuxt build` needs `NODE_OPTIONS=--max-old-space-size=8192`. The cause is not identified.
+
+## 10. Review findings and their outcome
+
+PR #14 went through a four-part adversarial review (runtime, security, API and docs, build). A second reviewer checked each finding before the fix pass. Of the 34 confirmed findings, 32 were fixed (with regression tests where the fix changed behavior), one was disproved by a test (R3), and one was kept by design (the ZIO half of AD-9).
+
+| Area | Findings | Outcome |
+| --- | --- | --- |
+| Runtime | R1 `Async.uninterruptible` did not delay the settle; R2 absent body was fatal in fastLink builds; R3 forked cleanup; R4 ZIO stream scope leak; R5 KV converter `InvalidInput` approved; R6 non-string stream elements; R7 `close` during acquisition; R8 ended request stream hung | All fixed except R3, which a test disproved (see 9.6) |
+| Security | SEC-1 KV decode errors logged stored data; SEC-2 Nuxt `debug` never enabled diagnostics; SEC-3 raw values reached h3's sniffing; SEC-4 unbounded big numbers; SEC-5 `Secret` decode messages; SEC-6 cookie deletion without `Secure`; SEC-7 unpinned dependencies with a token; SEC-8 bodies without a content type | All fixed; SEC-8 as the opt-in `requireJsonContentType` plus a "cross-site requests" note |
+| API and docs | AD-1 to AD-13: stream element types, `nuxt dev` evidence, `Schema[Secret]`, npm version, validation timing, cookie options, the Kyo demo, `Request.fake` config, `failWith`, uninterruptible docs, `Secret` decode messages in KV logs, models at boundaries, the disconnect rule in `AGENTS.md` | All fixed; AD-9 fixed for Kyo, kept for ZIO by design |
+| Build | B1 release notes checked late; B2 npm version; B3 stale "not verified" rows; B4 `scala:types`; B5 stale Bruno collection; B6 missing redirect; B7 locale database size | B1-B5 fixed; B6 and B7 refuted (no deployed site; Skunk's minimal locale database shadows the full one in the ZIO demo) |
+
+## Appendix: facts from research that still hold
+
+These facts come from reading library sources and from experiments during the refactor. The code depends on them. Re-check them when you upgrade the library named in the source column.
+
+### Kyo 1.0.0-RC7
+
+| Fact | Source |
+| --- | --- |
+| `Abort.run[Throwable]` (and `Abort.catching[Throwable]`) turns every *thrown* exception into a typed `Failure`, because the handler checks `ConcreteTag[Throwable].accepts(ex)`. Only `Abort.run[Any]` keeps thrown exceptions as `Panic`. | kyo-prelude `kyo/Abort.scala` (`runWith`, `catching`) |
+| `Abort.recover` does not roll back `Var` changes made before the failure. h34s runs `Var` outside `Abort` so the failure renderer still sees the head. | kyo-prelude `kyo/Abort.scala`, `kyo/Var.scala`; h34s `KHandler.scala` |
+| `Env`, `Local` and `Scope` are context effects and cross forks. `Var`, `Emit` and `Memo` need an explicit `Isolate` to cross `Fiber.init`, `Async.timeout`, `race` and friends, so code that forks while it needs `Var[ResponseHead]` does not compile without one. | kyo-kernel `kyo/kernel/Isolate.scala`; kyo-core `kyo/Fiber.scala`, `kyo/Async.scala` |
+| `Async.uninterruptible` runs the step on an unowned fiber (`Fiber.internal.initUnscoped`) and joins an uninterruptible mirror. An interrupted caller settles at once and its scope closes while the step still runs. | kyo-core `kyo/Async.scala`, `kyo/Fiber.scala`, `kyo/internal/IOPromise.scala`, `IOTask.scala` |
+| Scope finalizers run once, in reverse registration order. Finalizer failures are logged, not thrown. `Scope.run` waits for the drain. `Fiber.init`'s release interrupts the fiber and awaits its scope. | kyo-core `kyo/Scope.scala`, `kyo/Fiber.scala` |
+| Inside an h34s handler, work forked with the structured combinators (`Async.timeout`, `race`, `gather`, `zip`, a concurrent `foreach`) finishes its asynchronous cleanup before the request settles. Only unowned fibers are not awaited. | h34s `HttpHandlerSuite` (regression test for R3) |
+| Kyo has no `js.Promise` interop on Scala.js. `Async.fromFuture` turns a rejected future into a `Panic`, not a typed failure. h34s bridges promises itself. | kyo-core `kyo/Async.scala`, `kyo/internal/AsyncPlatformSpecific.scala` |
+| `Emit.runFirst`, `Poll.runFirst`, `ArrowEffect.handleFirst` and `Stream.splitAt` are `private[kyo]`, and `splitAtWith` keeps the rest under `Region.NoEscape`. A stream cannot be stepped from outside; use one producer fiber and a channel. | kyo-prelude `kyo/Emit.scala`, `kyo/Poll.scala`, `kyo/Stream.scala`; kyo-kernel `ArrowEffect.scala` |
+| `Channel.Unsafe.init(capacity)` rounds a positive capacity up to a power of two; capacity 0 or less is a rendezvous channel. | kyo-core `kyo/Channel.scala` |
+| Fatal errors are `VirtualMachineError` or `ControlThrowable`. Kernel handlers skip them; `IOTask.run` completes the fiber with a `Panic` and rethrows into the macrotask. | kyo-data `kyo/IsFatal.scala`; kyo-core `IOTask.scala` |
+| `Frame` cannot be derived inside a package named `kyo`, so h34s code stays in `dev.yuri4n...` and takes `(using Frame)`. | kyo-data `kyo/Frame.scala` |
+| `Promise.init[E, A]` names its type parameters `E, A` but they mean value and effects: call `Promise.init[Value, Abort[Err]]`. | kyo-core `kyo/Fiber.scala` |
+| `Layer.run` memoizes only within one `Memo.run`. Running layers per request rebuilds them per request; build application services once. There is no `Layer.scoped`. | kyo-prelude `kyo/Layer.scala`, `kyo/Memo.scala` |
+| Kyo artifacts pull `locales-full-currencies-db` (about 40 MB of fastLink output). Applications can exclude it. Skunk brings `locales-minimal-en_us-db`, which shadows the full database by classpath order in the ZIO demo. | kyo-data POM; skunk-core 1.0.0-M12 POM |
+
+### kyo-zio 1.0.0-RC7
+
+| Fact | Source |
+| --- | --- |
+| Three public objects only: `ZIOs`, `ZLayers`, `ZStreams`. It pins ZIO 2.1.26 and needs Scala 3.9.0. | kyo-zio sources and POM |
+| `ZIOs.get` uses `zio.Runtime.default`, rejects `ZIO[R, ...]` with `R != Any` at compile time, and on Kyo interruption calls `fiber.unsafe.interrupt` without waiting for ZIO finalizers. Causes flatten to the first error; ZIO interruption becomes `Panic(Interrupted)`. | kyo-zio `kyo/ZIOs.scala` |
+| `ZIOs.run` (Kyo inside ZIO) interrupts the Kyo fiber and waits for it on ZIO interruption. Kyo `Panic` becomes `Exit.die`, also for a Kyo-side interruption. | kyo-zio `kyo/ZIOs.scala` |
+| `ZStreams.get` closes the ZIO stream scope from an inner `Scope.run` and pulls with `ZIOs.get` (not awaited on interruption). `ZLayers.run` accepts no `Scope`, so a Kyo resource layer cannot become a scoped `ZLayer` with it. | kyo-zio `kyo/ZStreams.scala`, `kyo/ZLayers.scala` |
+
+### kyo-schema 1.0.0-RC7
+
+| Fact | Source |
+| --- | --- |
+| Checks run only when `Schema.validate` is called, and only the root schema's checks. There are no check annotations. | kyo-schema `kyo/Schema.scala` |
+| `StructureValueReader` is lenient on numbers (truncates fractions, wraps out-of-range integers) and lets Instant, Duration and base64 parse errors escape as panics. The JSON reader is strict. | kyo-schema `StructureValueReader`; kyo-schema-json `JsonReader.scala` |
+| `Codec.Reader` has an abstract `private[kyo]` member (`requireEndOfInput`), so no custom reader can live outside `package kyo`. `Structure.encode` and `Structure.decode` are public. | kyo-schema `Codec.scala`, `Structure.scala` |
+| kyo-schema-json requires strings for `BigInt` / `BigDecimal` and parses them without a length limit. | kyo-schema-json `JsonReader.scala` |
+
+### kyo-sql and kyo-net 1.0.0-RC7
+
+| Fact | Source |
+| --- | --- |
+| The connection URL needs an explicit port and a database path; otherwise `SqlConnectionUrlParseException`. | kyo-sql `kyo/SqlConfig.scala` (`Url.parse`) |
+| The URL parser does not percent-decode user or password. It splits the query at the first `?`, the user information at the *last* `@`, and user from password at the first `:`. So a user with `:` or `?`, a password with `?`, or a database name with `@` or `?` cannot be expressed. yurian.land validates and decodes its URL before it builds the kyo-sql URL. | kyo-sql `kyo/SqlConfig.scala`; yurian.land `DatabaseUrl` |
+| `sslmode=allow`, `prefer` and `require` encrypt without verifying the certificate or host name. `verify-ca` / `verify-full` need `sslrootcert`, a file path. `SqlConfig.tls(NetTlsConfig.default)` verifies against the system store. | kyo-sql `kyo/internal/tls/TlsContext.scala`, `kyo/SqlConfig.scala` |
+| `DB.run(url)` opens and closes a pool per call. Build one client per application (`Shared(PostgresClient.init(url, config))`) and use `DB.run(client)` per request. | kyo-sql `kyo/DB.scala` |
+| Transactions: a failed statement marks the transaction, and a body that recovers still rolls back. A non-SQL `Abort` in the body also rolls back. An interrupted transaction gets `cancelTimeout` (default 2 s) to cancel and roll back. | kyo-sql `kyo/SqlClient.scala` |
+| `SqlConfig.default` has `idleTimeout` 10 minutes. The pool closes idle connections without sending `Terminate`, so "unexpected EOF" lines in PostgreSQL debug logs do not show an ungraceful shutdown. kyo-net sets no TCP keepalive. | kyo-sql `SqlConfig`, `SqlConnectionPool.scala`, `PostgresConnection`; kyo-net sources |
+| On Scala.js, kyo-sql-postgres registers its backend with `@JSExportTopLevel("__kyo_sql_postgres_init")`, which adds a top-level export (a `main.js` module) to the linked output. | kyo-sql-postgres `PostgresBackendRegistration.scala` |
+| kyo-net picks its Node `net`/`tls` backend when koffi is absent (it logs one warning); `KYO_NET_BACKEND=node` forces it. yurian.land ran kyo-sql against PostgreSQL 16 inside a Nitro node-server production build this way. Other presets are untested. | kyo-net `kyo/net/NetFlags.scala`, `IoBackendPlatform.scala`; yurian.land PR #15 |
+
+### Nitro, Nuxt and h3
+
+| Fact | Source |
+| --- | --- |
+| `useRuntimeConfig()` without an event returns a frozen copy with the environment applied once at startup. With an event it deep-clones the config, applies the environment again, and caches the result on `event.context.nitro.runtimeConfig`. | nitropack 2.13.1 and 2.13.3 `dist/runtime/internal/config.mjs` |
+| `event.context.nitro` exists before Nitro's `request` hook runs, so a plugin can call `useRuntimeConfig(event)` there. | nitropack `dist/runtime/internal/app.mjs` |
+| `NUXT_*` overrides work only for keys declared in `runtimeConfig`. Nested keys map to `snakeCase(path).toUpperCase()` joined by `_`. Values are parsed with `destr`. | nitropack `utils.env.mjs`; `@nuxt/schema` (sets `envPrefix: "NUXT_"`) |
+| `useStorage(base)` is `prefixStorage(storage, base)` over a build-time virtual module that Scala.js cannot import. unstorage's `Storage` also has the aliases `get`, `set`, `has`, `del`, `keys`. `{ ttl }` works only with drivers that implement it. | nitropack `dist/runtime/internal/storage.mjs`; unstorage 1.17.3 types |
+| The node-server preset calls the `close` hook on `SIGTERM` / `SIGINT` and then exits. `nitro dev` calls it when it replaces a worker. | nitropack node-server and `nitro-dev.mjs` runtimes |
+| Nitro uses only the default export of a handler module. Programmatic `nitro.handlers` entries are typed like scanned files when a `.d.ts` sits next to the module. | nitropack `rollup/index.mjs`, `core/index.mjs` |
+| Nuxt resolves `debug: true` to an object, never the boolean `true`, and the `DEBUG` environment variable can set it. | `@nuxt/schema` 4.3.1 |
+| h3 sends a `null` handler result as 204 (`sendNoContent`). In a plain `createApp`, `undefined` falls through to the next handler; in a preemptive router (Nitro) it becomes `null`. A string is sent as `text/html`; an object with a `buffer` key is sent as bytes. | h3 1.15.4 / 1.15.5 `handleHandlerResponse` |
+| h3's `readBody` parses JSON and URL-encoded bodies whatever the content type, with no size limit. `deleteCookie` sends only the options you pass (no `Secure` by default). | h3 1.15.4 `dist/index.mjs` |
+| h34s sets h3's private `_handled` field on a disconnect so h3 sends no fallback 404 for a response h34s ended. It is tested with h3 1.15.4; keep h3 pinned. | h34s `RequestLifecycle.scala` |
+
+### Node, ZIO and other libraries
+
+| Fact | Source |
+| --- | --- |
+| Node's `res.write` throws `ERR_INVALID_ARG_TYPE` for objects and numbers and `ERR_STREAM_NULL_VALUES` for `null`. | Node 24.19.0, checked with a plain `http` server |
+| After a request body is consumed, new listeners never fire and the stream shows `readableEnded: true`. `complete` can be `true` on a fresh request whose small body already arrived. | Node 24.19.0 experiment |
+| native-converter's `ParseState.fail` builds its message from `JSON.stringify` of the failing value and of the whole input document. Never log or return it. | native-converter 0.9.0 `ParseState.scala` |
+| Under fastLink (checked semantics: tests, `nuxt dev`), that message path fails with a fatal `UndefinedBehaviorError` when the value is `undefined`. Under fullLink (unchecked casts, production) the same input gives an ordinary error whose message contains `undefined`. Behavior can differ between development and production; test with both. | native-converter 0.9.0; Scala.js 1.22.0 linker semantics |
+| A derived native-converter product reads a missing key as `null`, so a missing `String` field decodes to `null` and a missing `Int` to `0` instead of failing. Schema-backed converters do not have this gap. native-converter 0.9 has no `BigInt` converter. | native-converter 0.9.0 `NativeConverter.scala` |
+| ZIO's `ZState` is backed by a `FiberRef`: a forked fiber works on a copy, and joining copies the child's state back. | ZIO 2.1.26 |
+| On Scala.js, ZIO's default `reportFatal` prints and rethrows. A fatal error leaves the fiber without an `Exit`, so observers never run. | ZIO 2.1.26 `RuntimePlatformSpecific.scala`, `FiberRuntime.scala` |
+| zio-json-yaml has no Scala.js artifact (`_sjs1_3` returns 404 on Maven Central). | Maven Central |
+| `derives Schema` for ZIO Schema needs `import zio.schema.derived`. `ValidationError.message` quotes the input value. | zio-schema 1.7.5 |
+| Scala.js's `BigInteger(String)` parse is quadratic in the number of digits. | scalajs-javalib 1.22.0 |
+| Skunk 1.0.0-M12's SCRAM code calls `require('crypto')`, which ES module output does not define. | skunk-core 1.0.0-M12 |
+
+### Tooling notes
+
+- On macOS, Node tooling tests need `TMPDIR` set to its real path: the default `/var/folders/...` path is spelled `/private/var/...` after resolution, and five tests in `scripts/scala-dev-modules.test.mjs` fail on that. `check-npm-nuxt.mjs` needs a short `TMPDIR`, because Nitro's development socket path must stay under 104 bytes.
+- A long-lived sbt server can run out of memory in `fullLinkJS` after many runs. A fresh server links again without trouble. Run one sbt process at a time.
+- Inside an sbt `set` command, `%%%` resolves the JVM artifact. Edit `build.sbt` instead.
+- An install with `--ignore-scripts` leaves `better-sqlite3` unbuilt and skips `nuxt prepare`. The example's Nuxt Content then needs the native SQLite connector (an ignored `examples/nuxt/.nuxtrc` with `content.experimental.sqliteConnector=native`) and an explicit `nuxt prepare`.
