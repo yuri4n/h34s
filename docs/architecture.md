@@ -2,7 +2,7 @@
 
 h34s is a toolbox for running Scala.js server code in your Nuxt/Nitro application. You add the modules you need, write your models and services, and mount your handlers as Nuxt routes. The repository also holds a runnable demo in `examples/nuxt/` and the documentation site in `website/`. Neither is part of the toolbox.
 
-**Status.** This page describes the design of `0.2.0-alpha.1`. The published `0.1.0-alpha.1` release has a different module graph with two independent runtimes; the [migration guide](migration.md) lists every change.
+**Status.** This page describes the design of `0.2.0-alpha.1`. The older `0.1.0-alpha.1` release has a different module graph with two independent runtimes; the [migration guide](migration.md) lists every change.
 
 ## Layers
 
@@ -82,6 +82,5 @@ The two runtimes differ in one place. A Kyo `Scope` finalizer that fails is logg
 ## Next coherent slices
 
 1. Generated route registration and `.d.ts` emission, so a new endpoint needs no TypeScript file.
-2. A published release of this module graph, after review and explicit authorization.
-3. The planned Nix and sbt-native-packager paths over the same build pipeline.
-4. Interactive documentation: compiler-derived types, symbol links and runnable examples.
+2. The planned Nix and sbt-native-packager paths over the same build pipeline.
+3. Interactive documentation: compiler-derived types, symbol links and runnable examples.

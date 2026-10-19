@@ -2,9 +2,9 @@
 
 Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate `website/` app serves the documentation. To use h34s in your own Nuxt project, follow [adoption.md](adoption.md).
 
-The demo builds the h34s libraries from this repository's sources (version `0.2.0-alpha.1` in `version.sbt`), not from published packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates and how they differ from the current source.
+The demo builds the h34s libraries from this repository's sources (version `0.2.0-alpha.1` in `version.sbt`), not from published packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates.
 
-The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications install the registry version that matches their Scala libraries: `0.2.0-alpha.1` for this source, or the [published `0.1.0-alpha.1` package](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) for the older API. The [npm tooling guide](npm-tooling.md) explains how to configure the same integration without copying scripts.
+The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications install the published package that matches their Scala libraries: [`0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1), or [`0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) for the older API. The [npm tooling guide](npm-tooling.md) explains how to configure the same integration without copying scripts.
 
 ## Prerequisites
 

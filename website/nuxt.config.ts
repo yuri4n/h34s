@@ -72,9 +72,9 @@ export default defineNuxtConfig({
       + 'ZIO is a first-class adapter over that core. Kyo applications never '
       + 'depend on ZIO; ZIO applications get Kyo transitively.',
       'This documentation describes h34s 0.2.0-alpha.1, whose Maven and npm '
-      + 'packages are private on GitHub Packages. The published 0.1.0-alpha.1 '
-      + 'libraries and npm tooling have an older API with independent '
-      + 'runtimes.',
+      + 'packages are published privately on GitHub Packages. The older '
+      + '0.1.0-alpha.1 libraries and npm tooling stay published, with an older '
+      + 'API and independent runtimes.',
       'A handler is a function from an immutable Request to the response body. '
       + 'Values are sent as {"data": ...}, errors as {"errors": [{"message"}]}, '
       + 'Unit as 204. Only SafeError data reaches clients.',
