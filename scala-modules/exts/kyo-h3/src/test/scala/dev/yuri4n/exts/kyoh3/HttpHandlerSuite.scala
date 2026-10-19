@@ -5,8 +5,8 @@ import munit.FunSuite
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 
 import scala.collection.mutable
-import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSImport
 import scala.util.Try

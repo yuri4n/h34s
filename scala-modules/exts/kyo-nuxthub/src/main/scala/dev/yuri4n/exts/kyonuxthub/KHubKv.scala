@@ -1,7 +1,7 @@
 package dev.yuri4n.exts.kyonuxthub
 
+import dev.yuri4n.exts.h3.internal.{BodyDecoding, ConfigDecoding, NativeStorage, NativeStorageSetOptions, Nitro}
 import dev.yuri4n.exts.h3.{ConfigError, InvalidInput, SafeError}
-import dev.yuri4n.exts.h3.internal.{BodyDecoding, ConfigDecoding, Nitro, NativeStorage, NativeStorageSetOptions}
 import kyo.{Abort, Async, Frame, Sync, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 

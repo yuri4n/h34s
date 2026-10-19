@@ -1,9 +1,9 @@
 package dev.yuri4n.exts
 
+import zio.prelude.NonEmptyList
 import zio.schema.{Schema, derived}
 
 import java.io.File
-import zio.prelude.NonEmptyList
 
 package object ziomigrations:
 

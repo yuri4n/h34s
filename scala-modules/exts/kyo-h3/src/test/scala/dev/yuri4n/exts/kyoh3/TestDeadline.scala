@@ -1,7 +1,7 @@
 package dev.yuri4n.exts.kyoh3
 
-import scala.concurrent.{ExecutionContext, Future, Promise, TimeoutException}
 import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContext, Future, Promise, TimeoutException}
 import scala.scalajs.js.timers.{clearTimeout, setTimeout}
 
 /** Fail before MUnit's timeout so test-owned gates and HTTP servers can close. */

@@ -1,8 +1,8 @@
 package dev.yuri4n.exts.ntcvkyoschema.internal
 
-import kyo.{Chunk, Codec, Span, Structure}
 import kyo.Structure.{PrimitiveKind, Type, Value}
 import kyo.schema.{alias, discriminator, rename}
+import kyo.{Chunk, Codec, Span, Structure}
 
 import scala.scalajs.js
 import scala.util.control.NoStackTrace

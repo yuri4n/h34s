@@ -3,9 +3,9 @@ package dev.yuri4n.exts.ntcvzioschema
 import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput}
 import org.getshaka.nativeconverter.NativeConverter
 import zio.*
-import zio.schema.{DeriveSchema, Schema, StandardType, derived}
 import zio.schema.annotation.{fieldName, fieldNameAliases, rejectExtraFields, transientField, validate}
 import zio.schema.validation.Validation
+import zio.schema.{DeriveSchema, Schema, StandardType, derived}
 import zio.test.*
 
 import scala.scalajs.js
