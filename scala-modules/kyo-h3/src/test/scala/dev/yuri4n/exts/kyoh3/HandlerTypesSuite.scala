@@ -32,9 +32,10 @@ class HandlerTypesSuite extends FunSuite:
       assertEquals(types(KHandler.define(options)(_ => "text")), ("string", s"{ error: $entry } | { errors: Array<$entry> }"))
     }
 
-    test("Unit is a response without a body; a stream of strings is text") {
+    // claude 2026-10-20: changed: a stream is sent with Response.sendStream, and its Sent body is text (ADR-0004)
+    test("Unit is a response without a body; a sent stream of strings is text") {
       assertEquals(types(KHandler.define(_ => ()))._1, "undefined")
-      assertEquals(types(KHandler.define(_ => Stream.init(Seq("a", "b"))))._1, "string")
+      assertEquals(types(KHandler.define(_ => Response.sendStream(Stream.init(Seq("a", "b")))))._1, "string")
     }
 
     test("the record is built only when read, and at(route) keeps it") {

@@ -19,7 +19,8 @@ object HttpStreamSpec extends ZIOSpecDefault:
         for body <- call.invoke(handler)
         yield assertTrue(
           js.isUndefined(body),
-          call.response.headAtFirstWrite.contains(202 -> List("content-type")),
+          // claude 2026-10-19: changed: the core's send adds the x-h34s-stream marker to the head
+          call.response.headAtFirstWrite.contains(202 -> List("content-type", "x-h34s-stream")),
           call.response.chunks.toList == List("a", "b", "c"),
           call.response.ended, !call.response.hasListener, call.handled,
         )
@@ -132,12 +133,29 @@ object HttpStreamSpec extends ZIOSpecDefault:
         )
       },
       // Z18
-      test("without a Node socket, streaming fails before acquiring stream resources") {
+      // claude 2026-10-19: changed: a socketless response (Nitro local fetch) is no longer rejected: the head is written first and the stream is handed over unread, as UTF-8 bytes
+      test("without a Node socket, the head is written first and the stream is handed over unread") {
         var acquired = 0
         val call = Call("/stream", withSocket = false)
         val stream = ZStream.fromZIO(ZIO.succeed { acquired += 1; "data" })
-        for body <- call.invoke(ZHandler.define(_ => ZIO.succeed(stream)))
-        yield assertTrue(acquired == 0, call.response.status == 500, wire(body) == opaque)
+        for
+          body <- call.invoke(ZHandler.define(_ => ZIO.succeed(stream)))
+          before = acquired
+          text <- readText(call.response.native._data)
+        yield assertTrue(
+          js.isUndefined(body), before == 0, acquired == 1, text == "data", call.response.status == 200,
+          call.response.header("x-h34s-stream").contains("1"), call.response.chunks.isEmpty,
+        )
       },
     ) @@ TestAspect.timeout(45.seconds)
+
+    // claude 2026-10-19: created: reads a Web stream of UTF-8 chunks to its end
+    private def readText(stream: js.Dynamic): Task[String] =
+      val reader  = stream.getReader()
+      val decoder = js.Dynamic.newInstance(js.Dynamic.global.TextDecoder)()
+      def loop(acc: String): Task[String] =
+        ZIO.fromPromiseJS(reader.read().asInstanceOf[js.Promise[js.Dynamic]]).flatMap { step =>
+          if step.done.asInstanceOf[Boolean] then ZIO.succeed(acc) else loop(acc + decoder.decode(step.value).asInstanceOf[String])
+        }
+      loop("")
 end HttpStreamSpec

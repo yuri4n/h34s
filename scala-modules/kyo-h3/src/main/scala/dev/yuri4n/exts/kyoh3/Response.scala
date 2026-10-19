@@ -1,10 +1,13 @@
 package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.HeaderRules
-import kyo.{Frame, Var, `<`}
+import dev.yuri4n.exts.kyoh3.ResponseBody.StreamEffects
+import dev.yuri4n.exts.kyoh3.internal.StreamResponse
+import kyo.{Env, Frame, Stream, Var, `<`}
 
 /** Response head operations. They change local state only; the core writes the head once, after
-  * the handler finishes. `Abort.recover` does not roll these changes back.
+  * the handler finishes. `Abort.recover` does not roll these changes back. `sendStream` is the one
+  * operation that writes: it sends the head and a stream, and its `Sent` result ends the handler.
   *
   * Invalid header names, header values, cookie names or redirect statuses are programming errors.
   * The check runs when the operation runs, not when you build the value: the handler then fails
@@ -45,6 +48,23 @@ object Response:
         require(status.code >= 300 && status.code <= 399, s"Redirect status must be 3xx, got ${status.code}")
         HeaderRules.requireHeader("location", location)
       }(_.redirect(location, status))
+
+    // claude 2026-10-19: created: sendStream, the way to stream (decision 1); its Sent value is the handler's result
+    /** Sends the head set so far and then `stream`, and gives `Sent`. Make it the handler's last
+      * step: return its `Sent` as the body.
+      *
+      * Each string is written as UTF-8 text, as is. The head gets `text/plain; charset=utf-8` unless
+      * you set a content type, and the `x-h34s-stream` marker. The request scope stays open until the
+      * stream ends or the client cancels it; a disconnect interrupts the stream's producer and waits
+      * for its finalizers. A failure before anything reached the client fails this step, and the core
+      * answers with the failure rule; after that, the failure is logged and the response is ended.
+      *
+      * The stream may use at most `Async & Abort[Throwable] & Scope`: it runs in its own fiber.
+      */
+    def sendStream[S >: StreamEffects](stream: Stream[String, S])(using Frame): Sent < HandlerEffects =
+      Var.use[ResponseHead](head =>
+        Env.use[HandlerTransport](transport => StreamResponse.send(transport, head, ResponseBody.chunks(stream)(ResponseBody.text))),
+      )
 
     /** The head that the handler has set so far (defaults passed to `define` are not included). */
     def head(using Frame): ResponseHead < Var[ResponseHead] = Var.get[ResponseHead]

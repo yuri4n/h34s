@@ -5,19 +5,21 @@ import dev.yuri4n.exts.h3.internal.BodyShape
 import kyo.{Abort, Async, Frame, Scope, Stream, Sync, Tag, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 
+import scala.annotation.implicitNotFound
 import scala.scalajs.js
 
+// claude 2026-10-19: changed: streams are sent with Response.sendStream, not returned; Sent is a body; a missing instance names the three options
 /** What a handler may return as its response body.
   *
   *   - any `A` with a `NativeConverter` (converted after the handler, inside the request scope);
   *   - `Unit` (no body: 204 unless the handler set another status; no converter needed);
-  *   - a `kyo.Stream[String, S]`, where `S` needs at most `Async & Abort[Throwable] & Scope`. Each
-  *     string is written as UTF-8 text, as is. The core writes the head before the first chunk
-  *     (`text/plain; charset=utf-8` unless you set a content type) and keeps the request scope open
-  *     until the stream ends. To stream values, encode each one to text yourself, for example
-  *     newline-delimited JSON with `stream.map(value => value.toJson + "\n")` and
-  *     `Response.header("content-type", "application/x-ndjson")`.
+  *   - `Sent`, the result of `Response.sendStream(stream)`: the handler sent a stream itself.
+  *
+  * A `kyo.Stream` is not a body: send it with `Response.sendStream` as the handler's last step.
   */
+@implicitNotFound(
+  "h34s cannot send ${B} as a response body. Return a value with a NativeConverter, return Unit for a 204, or end the handler with Response.sendStream(stream) to stream text",
+)
 trait ResponseBody[B]:
     private[exts] def encode(body: B)(using Frame): ResponseBody.Outgoing < Sync
 
@@ -31,20 +33,25 @@ object ResponseBody extends LowPriorityResponseBody:
     private[exts] enum Outgoing:
         case Value(native: js.Any)
         case Empty
+        // claude 2026-10-19: changed: kept only for the ZIO adapter's returned ZStream until it moves to ZHandler.sendStream
         case Streamed(chunks: Stream[js.Any, StreamEffects])
+        // claude 2026-10-19: created: the program sent its response itself
+        case Sent(sent: dev.yuri4n.exts.h3.Sent)
 
     given unit: ResponseBody[Unit]:
         private[exts] def encode(body: Unit)(using Frame): Outgoing < Sync = Outgoing.Empty
         private[exts] def shape: BodyShape                                  = BodyShape.Empty
 
-    /** Node writes only strings and bytes to a response, so stream elements are strings. */
-    given stream: [S >: StreamEffects] => ResponseBody[Stream[String, S]]:
-        private[exts] def encode(body: Stream[String, S])(using Frame): Outgoing < Sync =
-          Outgoing.Streamed(chunks(body)(text))
+    // claude 2026-10-19: created: the body of a handler that ends with Response.sendStream (replaces the stream given)
+    given sent: ResponseBody[dev.yuri4n.exts.h3.Sent]:
+        private[exts] def encode(body: dev.yuri4n.exts.h3.Sent)(using Frame): Outgoing < Sync = Outgoing.Sent(body)
 
+        // claude 2026-10-20: changed: a sent stream is UTF-8 text, so its route is typed `string` (PR #15's registry)
         private[exts] def shape: BodyShape = BodyShape.Text
 
-    /** A null element would fail the response write; fail the stream instead (a defect). */
+    /** Node writes only strings and bytes to a response, so stream elements are strings. A null
+      * element would fail the response write; fail the stream instead (a defect).
+      */
     private[exts] def text(element: String): js.Any =
       if element == null then throw NullPointerException("A streamed response element is null") else element
 
