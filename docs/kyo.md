@@ -197,10 +197,11 @@ val personalizedGreeting: EventHandler = AppHandler.define: request =>
 
 These come from Kyo 1.0.0-RC7 semantics. They matter once your handlers grow:
 
+<!-- claude 2026-10-19: changed: the "Kyo Scope finalizer errors are logged and do not change the response" item: ZIO now behaves the same (issue #40) -->
+
 - **`Abort.run[Throwable]` also catches thrown exceptions.** If your own code runs `Abort.run[Throwable]` (or recovers `Throwable`), a thrown exception becomes a typed failure there. h34s itself keeps thrown exceptions as defects. Recover narrower types, such as your own `SafeError` subtypes.
 - **`Abort.recover` does not roll back `Var` changes.** A status or header you set before a recovered failure stays set. Set response entries after the risky step, or set them again in the recovery branch.
 - **`Var` needs an isolate across forks.** Forking operations such as `Fiber.init` and `Async.race` require an `Isolate` for a `Var` they carry, so code that forks while it needs `Var[ResponseHead]` does not compile without one. Call `Response.*` in the request fiber, before or after the parallel part.
-<!-- claude 2026-10-19: changed: ZIO now behaves the same (issue #40) -->
 - **Kyo `Scope` finalizer errors are logged and do not change the response.** Do work that must affect the response in the main program, not in a finalizer. The ZIO adapter behaves the same since `0.3.0-alpha.1`.
 - **`Async.uninterruptible` does not make the request wait.** It runs the step on a fiber that nothing owns. In a handler, use `KHandler.uninterruptible(step)`; see [lifetimes](lifetimes.md#when-the-client-disconnects).
 

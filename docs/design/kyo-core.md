@@ -168,12 +168,13 @@ Inside the program, recovering from a failure does not roll the head back. This 
 
 ### 4.7 Errors and diagnostics
 
+<!-- claude 2026-10-19: changed: the "Finalizer failures are logged and keep the response, in both runtimes" item: ZIO follows Kyo on finalizer failures (issue #40) -->
+
 - **`SafeError` is the only error data a client may see.** `HttpError`, `InvalidInput` and ZIO's `ErrorResponse` (rendered through an internal `SafeError`) are the public kinds. A `SafeError` must have a status from 400 to 599 and non-null entries; otherwise it is treated as a defect.
 - **A thrown `SafeError` is a defect.** Only a typed failure is approved. A `SafeError` thrown by a decoder, converter or stored-value read is never shown.
 - **Every other `Throwable` is an opaque 500.** h34s logs it on the server.
 - **Diagnostics.** In Nuxt development mode, or when debug mode is on, the internal-error entry also carries `"debug": {"cause": "..."}`: the exception chain with stack text in Kyo, `Cause.prettyPrint` in ZIO. Turn debug mode on with `NUXT_H34S_DEBUG=true` or `runtimeConfig.h34s.debug: true`. It is never derived from Nuxt's own `debug` option, and a request can never turn it on. Keep it off in production.
 - **`ConfigError`** (missing or invalid runtime config, missing Nitro plugin) is never public: it is an opaque 500.
-<!-- claude 2026-10-19: changed: ZIO follows Kyo on finalizer failures (issue #40) -->
 - **Finalizer failures are logged and keep the response, in both runtimes.** Kyo `Scope` finalizer errors are logged and do not change the response (Kyo semantics). The ZIO adapter does the same since `0.3.0-alpha.1`: it logs a dying ZIO finalizer as `h34s: a ZIO finalizer failed` with `Cause.prettyPrint`, and keeps the program's own `Exit`, for value, `Unit` and streamed bodies. A success keeps its status, head and body; a safe failure keeps its status and entries. The maintainer decided this on 2026-10-19 ("align them", issue #40). Before, a dying ZIO finalizer turned a value or `Unit` response into a 500, because the defect surfaced in the ZIO `Exit`.
 
 ### 4.8 Client disconnects and uninterruptible steps
@@ -304,22 +305,24 @@ Each item says what differs from the first plan and why. Superseded items are fo
 
 ### 9.5 Errors and their approval
 
+<!-- claude 2026-10-19: created: the "A finalizer failure is not part of the approval" item: finalizer failures do not take part in the approval (issue #40) -->
+
 - **The core runs `Abort.run[Any]`** *(dev. 4)*. Kyo RC7's `Abort.run[Throwable]` turns every thrown exception into a typed failure, which would approve a thrown `SafeError`. `Abort.run[Any]` keeps thrown exceptions as panics, and an internal `Interop.typed` narrows the result. Streams keep the producer's own failure or panic classification.
 - **Out-of-range statuses** *(dev. 7)*. A `SafeError` with a status outside 400-599 is a defect, so a failure can never answer 2xx or 3xx.
 - **Entry approval** *(dev. 17)*. Empty `errors`, a null entry or message, `Some(null)` as a path, or an `errors` method that throws makes the error a defect.
 - **`failWith`** *(D-9, AD-9)*. `KHandler.failWith(status, message)` is typed `Nothing < Abort[HttpError]`. ZIO's `ZHandler.failWith` keeps `IO[ErrorResponse, Nothing]` to keep `0.1.0` call sites; `ErrorResponse` cannot extend `SafeError` because its `errors` field clashes.
 - **`ErrorResponse(errors, status = 400)`** *(dev. 25)*. The failure rule takes the status from the error, so `failWith` stores it there. One-field pattern matches need `_`. It renders through an internal `SafeError` (one entry per message, no path). `derives JsonEncoder` is kept and now includes `status`.
-<!-- claude 2026-10-19: created: finalizer failures do not take part in the approval (issue #40) -->
 - **A finalizer failure is not part of the approval** *(issue #40)*. `ZioRequest` closes the ZIO request scope after the program and logs a failed close through `ZioCall.logFinalizerFailure`, the same log line that the streamed path already used. The failure is never combined with the program's `Exit` (it was `cause ++ closeCause` before), so a dying finalizer can neither replace a success nor turn an approved `SafeError` into a defect. `HandlerBoundarySpec` ("a dying request-scope finalizer is logged and keeps the computed response") and `HandlerBoundarySuite` (the Kyo test of the same shape) prove that both runtimes give the same responses.
 - **ZIO exit mapping** *(dev. 27)*. A single `Fail` of `SafeError` or `ErrorResponse` stays typed and approved, also when the cause only adds interruptions (for example `zipPar` siblings). A single `Fail` of another throwable is a typed failure of an internal `ZioDefect` with `Cause.prettyPrint` (not the raw error), so diagnostics keep ZIO traces. Several failures, any defect, or interruption alone are a panic `ZioDefect`. Both render as the same opaque 500.
 
 ### 9.6 Lifecycle and cancellation
 
+<!-- claude 2026-10-19: changed: the "ZIO request scope" item: value and Unit bodies log a dying finalizer (issue #40) -->
+
 - **`KHandler.uninterruptible(step)`** *(D-1, R1, AD-10)*: `Scope.acquireRelease(Fiber.initUnscoped(step))(_.getResult.unit)`, then `fiber.uninterruptible.map(_.get)`. The release joins the request scope in the same step that starts the fiber, so an interrupt cannot land between the two, and the request waits for the step. Tested in both runtimes, including a case that shows bare `Async.uninterruptible` settling too early.
 - **Forked Kyo work is awaited** *(D-2, R3 disproved)*. The review expected Kyo to settle before cleanup in work forked by `Async.timeout`, `race`, `gather`, `zip` and a concurrent `foreach`. A test with a 300 ms asynchronous release shows the cleanup finishes first; it stays as a regression test. Only unowned fibers (`Fiber.initUnscoped` without a scope) are not awaited.
 - **`Shared` registers its close hook after a successful acquisition** *(dev. 13)*, not at construction, because route modules can load before Nitro plugins run. `close` returns to idle, and a later `get` acquires again. Waiting promises are uninterruptible, so one cancelled request cannot cancel a shared acquisition.
 - **`close` during the first acquisition** *(D-14, R7)* makes the waiting `get`s fail with `IllegalStateException` instead of handing them a released value. The Nitro hook cannot trigger this, because `Shared` registers only after success; an explicit `close` can.
-<!-- claude 2026-10-19: changed: value and Unit bodies log a dying finalizer (issue #40) -->
 - **ZIO request scope** *(dev. 26, D-13, R4, issue #40)*. Value and `Unit` bodies close the ZIO scope inside the fiber. Until `0.2.0-alpha.1`, a dying ZIO finalizer was a 500 even after a success; since `0.3.0-alpha.1` it is logged and the program's `Exit` is kept (see 4.7). Stream bodies keep it open until a Kyo request finalizer closes it after the core cancelled or finished the stream (a failure there is logged; the response is already decided). The scope is created on the Kyo side and always closed after `stop`, because an interrupt inside the mask could otherwise drop the `Exit` that carried it. `ZioRequest.run` has an `afterProgram` test seam for that case.
 
 ### 9.7 Streaming
