@@ -22,4 +22,24 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   done <<< "$env_lines"
 fi
 
-echo "h34s cloud toolchain ready (scripts/cloud-setup.sh): Java, sbt, Node and pnpm are on PATH through CLAUDE_ENV_FILE, and sbt and scalafix read Maven Central through Google's mirror. If a Bash command still cannot find sbt (seen once, when this hook first ran at a compaction), prefix the command with: eval \"\$(bash scripts/cloud-setup.sh --print-env)\" && ... Run one sbt process at a time, and run builds longer than a few minutes in the background. See docs/maintainers/cloud.md."
+# The repository's npm packages, so that the Node checks and the Scala.js test suites run
+# without a manual install: the pnpm workspace, and the pinned npm fixtures (h3, unstorage)
+# that the test suites load through Node. pnpm skips a satisfied workspace in about two
+# seconds. A fixture is skipped while npm's own marker is newer than its lockfile, because
+# `npm ci` always reinstalls. An install failure is reported in the context line below and
+# does not hide the toolchain. Install output goes to stderr; stdout is context for Claude.
+eval "$env_lines"
+packages_note="and the npm packages (workspace and test fixtures) are installed"
+if ! pnpm install --frozen-lockfile --ignore-scripts >&2; then
+  packages_note="but 'pnpm install --frozen-lockfile --ignore-scripts' failed: run it to see why"
+fi
+for fixture in scala-modules/exts/*/test-js; do
+  if [ "$fixture/node_modules/.package-lock.json" -nt "$fixture/package-lock.json" ]; then
+    continue
+  fi
+  if ! npm ci --prefix "$fixture" --ignore-scripts >&2; then
+    packages_note="but 'npm ci --prefix $fixture --ignore-scripts' failed: run it to see why"
+  fi
+done
+
+echo "h34s cloud toolchain ready (scripts/cloud-setup.sh): Java, sbt, Node and pnpm are on PATH through CLAUDE_ENV_FILE, $packages_note. sbt and scalafix read Maven Central through Google's mirror. If a Bash command still cannot find sbt (seen once, when this hook first ran at a compaction), prefix the command with: eval \"\$(bash scripts/cloud-setup.sh --print-env)\" && ... Run one sbt process at a time, and run builds longer than a few minutes in the background. See docs/maintainers/cloud.md."

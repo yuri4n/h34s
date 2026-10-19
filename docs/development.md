@@ -10,7 +10,7 @@ The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestrati
 
 Use Node 24, pnpm 10.34.4, Java 25, sbt 1.11.7, and Docker with Compose for the optional database example. The build selects Scala.js 1.22.0 and Scala 3.9.0 for every module, with Kyo 1.0.0-RC7 and ZIO 2.1.26. Kyo's macros need Java 25, and the ZIO modules build on the Kyo core, so Java 21 is no longer enough for any task. `project/build.properties` pins sbt; `.jvmopts` supplies the stack and heap sizes needed by the linked dependencies. The recovered Nuxt dependency set uses pnpm 10's build allowlist.
 
-In a Claude Code cloud session, the repository's SessionStart hook installs Java 25, sbt, Node 24, and pnpm and puts them on `PATH`; it does not start Docker. There, the Scala and Node checks below are verified, but `pnpm dev`, the production build, and the Docker Compose steps are not. [maintainers/cloud.md](maintainers/cloud.md) explains the setup, the Maven Central mirror that sbt uses there, and the session's limits. On a normal development machine, use the installed `sbt` launcher.
+In a Claude Code cloud session, the repository's SessionStart hook installs Java 25, sbt, Node 24, and pnpm, puts them on `PATH`, and installs the pnpm workspace and the npm test fixtures; it does not start Docker. There, the Scala and Node checks below are verified, but `pnpm dev`, the production build, and the Docker Compose steps are not. [maintainers/cloud.md](maintainers/cloud.md) explains the setup, the Maven Central mirror that sbt uses there, and the session's limits. On a normal development machine, use the installed `sbt` launcher.
 
 ## 1. Start from this repository
 
