@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs' // claude 2026-10-19: changed: readdirSync and statSync for the prerender bundle check
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path' // claude 2026-10-19: changed: relative and sep for the prerender bundle check
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -124,10 +124,34 @@ function assertRecords(value, { debug }) {
   assert.equal(value.onClose, 'function', 'Startup record registers close hooks')
 }
 
+// claude 2026-10-19: changed: also exports `greeting`, an h3 handler that a route mounts directly, as Scala.js handlers are
 function linkedModule(revision) {
   const output = join(app, 'server/.scala/hello.js')
-  write(`${output}.next`, `export const revision = ${JSON.stringify(revision)}\nexport function probe() { return new Error('h34s source map probe').stack }\nexport const linkedUrl = import.meta.url\n//# sourceMappingURL=hello.js.map\n`)
+  write(`${output}.next`, `export const revision = ${JSON.stringify(revision)}\nexport function probe() { return new Error('h34s source map probe').stack }\nexport const linkedUrl = import.meta.url\nexport function greeting() { return { greeting: 'linked' } }\ngreeting.__is_handler__ = true\n//# sourceMappingURL=hello.js.map\n`)
   renameSync(`${output}.next`, output)
+}
+
+// claude 2026-10-19: created: the text of every file under a directory, without its node_modules
+function texts(directory) {
+  return readdirSync(directory, { recursive: true, withFileTypes: true })
+    .map(entry => join(entry.parentPath, entry.name))
+    .filter(file => !relative(directory, file).split(sep).includes('node_modules'))
+    .filter(file => statSync(file).isFile())
+    .map(file => readFileSync(file, 'utf8'))
+}
+
+// claude 2026-10-19: created: Nitro's prerender bundle ({{ buildDir }}/prerender of the nitro-prerender preset)
+function prerenderBundles() {
+  return [join(app, '.nuxt/prerender'), join(app, 'node_modules/.cache/nuxt/.nuxt/prerender')]
+}
+
+// claude 2026-10-19: created: runs one `nuxt build` with the given environment and waits for it
+async function nuxtBuild(nuxt, env = {}) {
+  const build = start([nuxt, 'build'], { NODE_ENV: 'production', ...env })
+  const result = await Promise.race([build.done, delay(120_000, null, { ref: false })])
+  if (result)
+    children.delete(build)
+  return { build, result }
 }
 
 try {
@@ -149,12 +173,18 @@ try {
   // Only Nuxt is reused from the installed toolchain. h34s must be real packed
   // files under node_modules, where Nitro's externalization behavior differs.
   symlinkSync(nuxtPackage, join(app, 'node_modules/nuxt'), 'dir')
+  // claude 2026-10-19: changed: scalaPrerender: 'stub' with one prerendered route; H34S_CHECK_PRERENDER_SCALA adds a route that calls Scala.js
   write(join(app, 'nuxt.config.mjs'), `export default {
-  modules: ['@yuri4n/h34s-nuxt'],
+  modules: [['@yuri4n/h34s-nuxt', { scalaPrerender: 'stub' }]],
   devtools: { enabled: false },
   telemetry: false,
   compatibilityDate: '2025-05-15',
-  nitro: { preset: 'node-server' }
+  nitro: {
+    preset: 'node-server',
+    prerender: {
+      routes: ['/prerendered.txt', ...(process.env.H34S_CHECK_PRERENDER_SCALA === 'true' ? ['/calls-scala.txt'] : [])]
+    }
+  }
 }\n`)
   write(join(app, 'h34s.config.mjs'), `import { defineConfig } from '@yuri4n/h34s-nuxt/build'
 export default defineConfig({ modules: [{ output: 'server/.scala', entries: ['hello.js'] }] })\n`)
@@ -192,6 +222,17 @@ export default defineEventHandler(async (event) => {
     revision, linkedUrl, stack: probe()
   }
 })\n`)
+  // claude 2026-10-19: created: a Scala.js handler mounted directly, a prerendered route without Scala.js, and a prerendered route that calls Scala.js and catches the error, as useFetch does
+  write(join(app, 'server/api/greeting.get.ts'), `export { greeting as default } from '../.scala/hello.js'\n`)
+  write(join(app, 'server/routes/prerendered.txt.ts'), `export default defineEventHandler((event) => {
+  setResponseHeader(event, 'content-type', 'text/plain; charset=utf-8')
+  return 'Prerendered without Scala.js\\n'
+})\n`)
+  write(join(app, 'server/routes/calls-scala.txt.ts'), `export default defineEventHandler(async (event) => {
+  setResponseHeader(event, 'content-type', 'text/plain; charset=utf-8')
+  const status = await event.$fetch('/api/greeting').then(() => 200, (error: any) => error?.statusCode)
+  return \`The Scala.js route answered \${status}\\n\`
+})\n`)
   const nuxt = join(app, 'node_modules/nuxt/bin/nuxt.mjs')
   const devPort = await port()
   const dev = start([nuxt, 'dev', '--host', '127.0.0.1', '--port', String(devPort)], { NODE_ENV: 'development' })
@@ -207,10 +248,30 @@ export default defineEventHandler(async (event) => {
   assert.match(second.stack, /Hello\.scala:2/)
   await stop(dev)
 
-  const build = start([nuxt, 'build'], { NODE_ENV: 'production' })
-  const result = await Promise.race([build.done, delay(120_000, null, { ref: false })])
+  // claude 2026-10-19: created: with scalaPrerender: 'stub', a prerendered page that reaches a Scala.js route stops the build (review F1)
+  const stubbed = 'Scala.js is not bundled for prerendering'
+  const linked = 'h34s source map probe'
+  const failing = await nuxtBuild(nuxt, { H34S_CHECK_PRERENDER_SCALA: 'true' })
+  assert.ok(failing.result && Number.isInteger(failing.result.code) && failing.result.code !== 0, `A prerendered page that calls a Scala.js route must stop the build with scalaPrerender: 'stub': ${JSON.stringify(failing.result)}\n${failing.build.log}`)
+  assert.match(failing.build.log, /\[h34s\] GET \/api\/greeting answered 501 while Nuxt prerendered \/calls-scala\.txt/, failing.build.log)
+  assert.match(failing.build.log, /scalaPrerender is 'stub'[\s\S]*GET \/api\/greeting, while Nuxt prerendered \/calls-scala\.txt/, failing.build.log)
+
+  // claude 2026-10-19: changed: the production build prerenders /prerendered.txt with scalaPrerender: 'stub' (review F2)
+  for (const directory of prerenderBundles())
+    rmSync(directory, { recursive: true, force: true })
+  const { build, result } = await nuxtBuild(nuxt)
   assert.ok(result && result.code === 0, `Nuxt production build failed or timed out: ${JSON.stringify(result)}\n${build.log}`)
-  children.delete(build)
+  // claude 2026-10-19: created: the prerender bundle has the stub and no linked code; the server output has the linked code and no stub (review F2)
+  assert.ok(!build.log.includes('[h34s]'), `No prerendered request may reach the stub:\n${build.log}`)
+  assert.equal(readFileSync(join(app, '.output/public/prerendered.txt'), 'utf8'), 'Prerendered without Scala.js\n')
+  const bundles = prerenderBundles().filter(directory => existsSync(directory))
+  assert.equal(bundles.length, 1, `Expected one Nitro prerender bundle in ${prerenderBundles().join(' or ')}`)
+  const prerendered = texts(bundles[0])
+  assert.ok(prerendered.some(text => text.includes(stubbed)), 'The prerender bundle mounts the stub')
+  assert.ok(!prerendered.some(text => text.includes(linked)), 'The prerender bundle has no linked Scala.js')
+  const served = texts(join(app, '.output/server'))
+  assert.ok(served.some(text => text.includes(linked)), 'The server output bundles the linked Scala.js')
+  assert.ok(!served.some(text => text.includes(stubbed)), 'The server output has no stub')
   // A deployed application must not need the original Scala.js output tree.
   rmSync(join(app, 'server/.scala'), { recursive: true, force: true })
   const productionPort = await port()
@@ -221,6 +282,10 @@ export default defineEventHandler(async (event) => {
   assert.equal(deployed.development, false, 'Production disables development diagnostics')
   assert.ok(!deployed.linkedUrl.includes('/server/.scala/'), 'Production bundles the generated module')
   assertRecords(deployed, { debug: false })
+  // claude 2026-10-19: created: the directly mounted handler runs the linked code in the server output
+  const greeting = await fetch(`http://127.0.0.1:${productionPort}/api/greeting`, { signal: AbortSignal.timeout(5_000) })
+  assert.equal(greeting.status, 200)
+  assert.deepEqual(await greeting.json(), { greeting: 'linked' })
   await stop(production)
 
   // NUXT_H34S_DEBUG overrides the declared runtimeConfig.h34s.debug at runtime, without a rebuild.
@@ -231,7 +296,7 @@ export default defineEventHandler(async (event) => {
   const debugged = await response(`http://127.0.0.1:${debugPort}/api/probe`, debugging, 'second')
   assert.equal(debugged.development, false, 'The debug flag does not switch on development mode')
   assertRecords(debugged, { debug: true })
-  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`)
+  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, scalaPrerender: 'stub' (prerender bundle, server output, build error), production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`) // claude 2026-10-19: changed: names the scalaPrerender checks
 }
 finally {
   await Promise.allSettled([...children].map(stop))
