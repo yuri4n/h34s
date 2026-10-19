@@ -80,7 +80,7 @@ class KyoSqlPostgresSuite extends FunSuite:
     /** Opens one pool for the test, creates the table, runs `body`, deletes the suite's rows, and closes
       * the pool. `Scope.run` runs finalizers in reverse order, so the cleanup runs before the pool closes.
       */
-    // claude 2026-10-19: changed: registers the cleanup after the pool opens
+    // claude 2026-10-19: created: registers the cleanup after the pool opens
     private def withClient[A](body: PostgresClient => A < (Async & Abort[Throwable]))(using Frame): Future[A] =
       import AllowUnsafe.embrace.danger
       val program = Scope.run(
