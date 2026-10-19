@@ -4,8 +4,8 @@ import org.typelevel.twiddles.Iso
 import skunk.codec.all.*
 import zio.{Random, UIO}
 
-import java.util.UUID
 import java.time.LocalDateTime
+import java.util.UUID
 
 object model:
     final case class User(id: User.Id, name: String)

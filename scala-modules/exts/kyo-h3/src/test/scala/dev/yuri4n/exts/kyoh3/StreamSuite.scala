@@ -6,8 +6,8 @@ import kyo.*
 import munit.FunSuite
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.scalajs.js
 
 /** Kyo streams as pull-driven Web streams (the ZIO Z19-Z24 contracts, ported). */

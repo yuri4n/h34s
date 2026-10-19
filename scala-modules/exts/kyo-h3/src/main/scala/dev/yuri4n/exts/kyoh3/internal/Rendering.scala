@@ -1,5 +1,6 @@
 package dev.yuri4n.exts.kyoh3.internal
 
+import dev.yuri4n.exts.h3.internal.{H3, H3Event}
 import dev.yuri4n.exts.h3.{
   DeleteCookie,
   ErrorEntry,
@@ -12,7 +13,6 @@ import dev.yuri4n.exts.h3.{
   Status,
   SuccessEnvelope,
 }
-import dev.yuri4n.exts.h3.internal.{H3, H3Event}
 import org.getshaka.nativeconverter.NativeConverter
 
 import java.io.{PrintWriter, StringWriter}

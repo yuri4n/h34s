@@ -101,7 +101,7 @@ object ExampleUsage:
     /** Example: Use codec with Skunk queries */
     def example: Task[Unit] =
       getUserCodec match
-          case Right(codec) =>
+          case Right(_) =>
             // Now you can use this codec with Skunk queries
             /* val query: Query[Void, User] = sql"SELECT id, email, name, age, created_at FROM
              * users".query(codec) */

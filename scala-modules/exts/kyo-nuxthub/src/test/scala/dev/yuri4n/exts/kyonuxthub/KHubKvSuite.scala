@@ -1,14 +1,14 @@
 package dev.yuri4n.exts.kyonuxthub
 
-import dev.yuri4n.exts.h3.{ConfigError, ErrorEntry, HttpError, InvalidInput, SafeError}
 import dev.yuri4n.exts.h3.internal.NativeStorage
+import dev.yuri4n.exts.h3.{ConfigError, ErrorEntry, HttpError, InvalidInput, SafeError}
 import dev.yuri4n.exts.kyoh3.{KHandler, KyoTesting, NitroGlobal}
 import kyo.*
 import munit.FunSuite
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.scalajs.js
 
 class KHubKvSuite extends FunSuite:
