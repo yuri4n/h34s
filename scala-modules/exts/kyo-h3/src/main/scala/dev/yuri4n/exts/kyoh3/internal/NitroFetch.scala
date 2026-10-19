@@ -50,7 +50,8 @@ private[exts] object NitroFetch:
           try fetch(request.url, init)
           catch case error: Throwable => js.Promise.reject(error)
 
-        pending.`then`[Unit]((arrived: js.Dynamic) => { response = arrived; () }, js.undefined)
+        // claude 2026-10-19: changed: every derived promise handles a rejection (a network error must not become an unhandled rejection)
+        pending.`then`[Unit]((arrived: js.Dynamic) => { response = arrived; () }, ignore)
 
         private def init: js.Any =
           val headers = js.Dictionary.empty[String]
@@ -123,7 +124,7 @@ private[exts] object NitroFetch:
             if finished then None
             else if response == null then
                 // The head has not arrived: cancel the body when it does, without waiting.
-                pending.`then`[Unit]((arrived: js.Dynamic) => { cancel(arrived, null); () }, js.undefined)
+                pending.`then`[Unit]((arrived: js.Dynamic) => { cancel(arrived, null).`then`[Unit]((_: Unit) => (), ignore); () }, ignore)
                 None
             else Some(cancel(response, reader))
           }.map {
@@ -140,6 +141,8 @@ private[exts] object NitroFetch:
               try target.cancel("The caller's scope closed").asInstanceOf[js.Promise[Unit]]
               catch case error: Throwable => js.Promise.reject(error).asInstanceOf[js.Promise[Unit]]
     end Call
+
+    private val ignore: js.Function1[Any, Unit | js.Thenable[Unit]] = _ => ()
 
     private def headersOf(response: js.Dynamic): Map[String, String] =
       val collected = scala.collection.mutable.Map.empty[String, String]

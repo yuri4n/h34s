@@ -314,6 +314,47 @@ class NitroLocalFetchSuite extends FunSuite:
       }
     }
 
+    // claude 2026-10-19: created: measures what fetchWithEvent forwards to an absolute URL (open question: credentials to other hosts)
+    test("an absolute URL also receives the incoming cookie and authorization: fetchWithEvent forwards them to any host") {
+      final case class Forwarded(cookie: Option[String], authorization: Option[String], host: Option[String]) derives NativeConverter
+      final case class ForwardedData(data: Forwarded) derives NativeConverter
+      val app = NitroLocal.App()
+      app.route(
+        "/api/headers",
+        KHandler.define(request => Forwarded(request.header("cookie"), request.header("authorization"), request.header("host"))),
+      )
+      TestDeadline(app.listen().flatMap { server =>
+        app.route("/api/caller", KHandler.define(_ => KHandler.$fetch.get[ForwardedData](server.url("/api/headers")).map(_.data)))
+        val outer = js.Dynamic.literal(headers = js.Dynamic.literal("cookie" -> "session=abc", "authorization" -> "Bearer t0k3n"))
+        app.fetch("/api/caller", outer).flatMap(body).map(data => (data, server.port))
+          .transformWith(result => server.close().flatMap(_ => Future.fromTry(result)))
+      }).map { (data, port) =>
+        assertEquals(data.cookie.asInstanceOf[String], "session=abc")
+        assertEquals(data.authorization.asInstanceOf[String], "Bearer t0k3n")
+        assertEquals(data.host.asInstanceOf[String], s"127.0.0.1:$port")
+      }
+    }
+
+    // claude 2026-10-19: created: a network failure is a typed FetchError.Failed, not an unhandled rejection
+    test("an absolute URL that cannot be reached is a typed FetchError.Failed") {
+      val app = NitroLocal.App()
+      TestDeadline(app.listen().flatMap { server =>
+        val closed = server.url("/api/gone")
+        server.close().flatMap { _ =>
+          app.route(
+            "/api/caller",
+            KHandler.define(_ =>
+              Abort.run[FetchError](KHandler.$fetch.raw(closed)).map(_.fold(_ => "response", {
+                case FetchError.Failed(_) => "failed"
+                case other                => other.toString
+              }, _ => "panic")),
+            ),
+          )
+          app.fetch("/api/caller").flatMap(body)
+        }
+      }).map(data => assertEquals(data.asInstanceOf[String], "failed"))
+    }
+
     test("a callee error status is a typed FetchError.Status for text/as, and a plain status for raw") {
       val app = NitroLocal.App()
       app.route("/api/missing", KHandler.define(_ => KHandler.failWith(404, "No such note"): Unit < HandlerEffects))
