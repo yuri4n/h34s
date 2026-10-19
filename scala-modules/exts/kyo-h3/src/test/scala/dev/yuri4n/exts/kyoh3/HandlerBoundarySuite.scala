@@ -205,6 +205,16 @@ class HandlerBoundarySuite extends FunSuite:
         assert(noContentBody == null, s"expected no body, got $noContentBody")
     }
 
+    // claude 2026-10-19: created: documents a nested Scope.run with a failing finalizer (Codex review on #49)
+    test("a release that dies inside the handler's own scope follows the runtime's own rules") {
+      val call = Call()
+      val handler = KHandler.define(_ => Scope.run(Scope.ensure(Sync.defer(throw new Exception("kyo inner scope failure"))).andThen(Greeting("ok"))))
+      call.invoke(handler).map { body =>
+        assertEquals(call.response.status, 200)
+        assertEquals(json(body), "{\"data\":{\"message\":\"ok\"}}")
+      }
+    }
+
     // K10
     test("a throwing native converter produces an opaque response after request cleanup") {
       final case class Broken(value: String)

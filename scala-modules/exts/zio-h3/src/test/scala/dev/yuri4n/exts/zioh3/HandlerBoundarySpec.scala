@@ -242,6 +242,15 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
           finalizerLines.count(_.contains("stream handler cleanup defect")) == 1,
         )
       },
+      // claude 2026-10-19: created: documents that the #40 rule covers the request scope only (Codex review on #49)
+      test("a release that dies inside the handler's own scope follows the runtime's own rules") {
+        val call = Call()
+        val handler = ZHandler.define(_ =>
+          ZIO.scoped(ZIO.addFinalizer(ZIO.die(new Exception("inner scope defect"))) *> ZIO.succeed("ok")),
+        )
+        for body <- call.invoke(handler)
+        yield assertTrue(status(call) == 500, wire(body) == opaque)
+      },
       // Z10, K9
       test("request resources close once on success, typed failure and defect") {
         var released = 0

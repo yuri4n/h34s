@@ -197,12 +197,12 @@ val personalizedGreeting: EventHandler = AppHandler.define: request =>
 
 These come from Kyo 1.0.0-RC7 semantics. They matter once your handlers grow:
 
-<!-- claude 2026-10-19: changed: the "Kyo Scope finalizer errors are logged and do not change the response" item: ZIO now behaves the same (issue #40) -->
+<!-- claude 2026-10-19: changed: the "Kyo Scope finalizer errors are logged and do not change the response" item: ZIO now behaves the same (issue #40); the inner-scope difference (review) -->
 
 - **`Abort.run[Throwable]` also catches thrown exceptions.** If your own code runs `Abort.run[Throwable]` (or recovers `Throwable`), a thrown exception becomes a typed failure there. h34s itself keeps thrown exceptions as defects. Recover narrower types, such as your own `SafeError` subtypes.
 - **`Abort.recover` does not roll back `Var` changes.** A status or header you set before a recovered failure stays set. Set response entries after the risky step, or set them again in the recovery branch.
 - **`Var` needs an isolate across forks.** Forking operations such as `Fiber.init` and `Async.race` require an `Isolate` for a `Var` they carry, so code that forks while it needs `Var[ResponseHead]` does not compile without one. Call `Response.*` in the request fiber, before or after the parallel part.
-- **Kyo `Scope` finalizer errors are logged and do not change the response.** Do work that must affect the response in the main program, not in a finalizer. The ZIO adapter behaves the same since the next release (provisionally `0.3.0-alpha.1`); its log line is `h34s: a ZIO finalizer failed`.
+- **Kyo `Scope` finalizer errors are logged and do not change the response.** Do work that must affect the response in the main program, not in a finalizer. The ZIO adapter behaves the same since the next release (provisionally `0.3.0-alpha.1`); its log line is `h34s: a ZIO finalizer failed`. Kyo differs here: a failing finalizer inside your own nested `Scope.run` is also logged (`Scope finalizer failed`) and keeps the response, because Kyo's `Scope.run` itself logs finalizer failures. In ZIO, a release that dies inside your own `ZIO.scoped` block fails the program and answers 500. This is an accepted difference: inner-scope semantics belong to each runtime.
 - **`Async.uninterruptible` does not make the request wait.** It runs the step on a fiber that nothing owns. In a handler, use `KHandler.uninterruptible(step)`; see [lifetimes](lifetimes.md#when-the-client-disconnects).
 
 ## Choose locale data in your build
