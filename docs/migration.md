@@ -4,6 +4,20 @@ The Kyo core refactor changes the module graph, the handler shape and the wire f
 
 **Status.** The new API is [`0.2.0-alpha.1`, which is published](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1). The `0.1.0-alpha.1` artifacts stay published and unchanged, so you can upgrade when you are ready.
 
+<!-- claude 2026-10-19: created: upgrade section for the next release (issue #41) -->
+## Upgrade from 0.2.0-alpha.1 to 0.3.0-alpha.1
+
+**Status.** `0.3.0-alpha.1` is not released yet. This section collects its changes while they land on `main`.
+
+### JSON reads require a content type
+
+`HandlerOptions.requireJsonContentType` now defaults to `true`. `request.body.json[A]` answers 415 (`Request body must be JSON`) for a request without a `Content-Type`, also when the body is empty. In `0.2.0-alpha.1`, such a body was read as JSON. Requests with `application/json` or `application/*+json` behave as before, and `text()` never checks the content type.
+
+1. Check your clients. `$fetch` with an object body and `curl --json` send `application/json`. A `fetch` with a string body, `navigator.sendBeacon`, or `curl -d` without `-H 'content-type: application/json'` sends no JSON content type.
+2. Make each client send `content-type: application/json`. This is the recommended fix.
+3. If a client cannot send it, keep the old behavior for that handler only: `KHandler.define(HandlerOptions(requireJsonContentType = false))(program)`, or the same options with `ZHandler.define`. Do not do this for a cookie-authenticated handler that changes state; see [cross-site requests](kyo.md#cross-site-requests).
+4. In unit tests, add `headers = Map("content-type" -> "application/json")` to each `Request.fake` that you read with `json[A]`. `Request.fake` follows the same default; pass `requireJsonContentType = false` to test a handler that turns the option off.
+
 ## 1. Update the toolchain
 
 | | 0.1.0-alpha.1 | Now |

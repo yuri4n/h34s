@@ -60,23 +60,29 @@ This route file is the one piece of JavaScript you still write. Generated route 
 
 Read the body with `request.body.json[A]` or `request.body.text()`. The first read fixes the outcome; a second read returns the same text.
 
+<!-- claude 2026-10-19: changed: a JSON read now requires a content type by default (issue #41) -->
+`json[A]` needs a JSON content type by default. `$fetch` with an object body and `curl --json` send `application/json`. `text()` never checks the content type.
+
+<!-- claude 2026-10-19: changed: the 415 row (absent content type rejected by default, issue #41) -->
 | Situation | Result |
 | --- | --- |
-| `Content-Type` is neither absent nor JSON (`application/json`, `application/*+json`); with `HandlerOptions(requireJsonContentType = true)`, also when it is absent | `HttpError` 415 |
+| `Content-Type` is absent or not JSON (`application/json`, `application/*+json`); with `HandlerOptions(requireJsonContentType = false)`, an absent one is accepted | `HttpError` 415 |
 | Body larger than the limit (checked from `Content-Length`, then while reading) | `HttpError` 413; h34s never buffers more than the limit |
 | Text is not valid JSON | `HttpError` 400 |
 | JSON does not match the converter's shape | `InvalidInput` 422 with a generic message |
 | A schema-backed converter rejects the value | `InvalidInput` 422 with your schema's messages; see [schemas](schema.md) |
 | Any other exception from the converter | A defect: opaque 500 |
 
-The default limit is `BodyLimit.default` (1 MiB). Change it for one handler with `HandlerOptions(bodyLimit = ...)`, or for one read with `request.body.json[A](BodyLimit(bytes))`. An absent body is `""` for `text()`. For `json[A]`, an absent or empty body decodes like JSON `null`: a model answers 422, and `json[Option[A]]` gives `None`.
+The default limit is `BodyLimit.default` (1 MiB). Change it for one handler with `HandlerOptions(bodyLimit = ...)`, or for one read with `request.body.json[A](BodyLimit(bytes))`. <!-- claude 2026-10-19: changed: an absent body without a content type is a 415 for JSON reads (issue #41) -->
+An absent body is `""` for `text()`. For `json[A]`, an absent or empty body with a JSON content type decodes like JSON `null`: a model answers 422, and `json[Option[A]]` gives `None`. Without a content type, the read answers 415 first, unless you turned `requireJsonContentType` off.
 
 ### Cross-site requests
 
-A browser sends no `Content-Type` for a cross-site `fetch` with a byte body or for `navigator.sendBeacon`, and such requests need no CORS preflight. By default `json[A]` accepts a body without a content type, so a cookie-authenticated route that changes state can be reached from another site when the session cookie allows it. For those routes:
+<!-- claude 2026-10-19: changed: the strict content type is now the default; the opt-out is per handler (issue #41) -->
+A browser sends no `Content-Type` for a cross-site `fetch` with a byte body or for `navigator.sendBeacon`, and such requests need no CORS preflight. That is why `json[A]` answers 415 for a body without a content type by default: such a request fails the JSON read before your code sees its body. A cross-site request that sends `application/json` needs a CORS preflight first. For routes that change state:
 
 - Keep session cookies `SameSite=Lax` (the `SetCookie` default) or `Strict`.
-- Set `HandlerOptions(requireJsonContentType = true)`: a JSON read without a content type answers 415. `$fetch` and `curl --json` send `application/json`.
+- Keep the default `HandlerOptions(requireJsonContentType = true)`. Turn it off only for a handler whose clients cannot send a content type, and only when that handler does not change state for a cookie-authenticated user.
 - Check `request.header("sec-fetch-site")` or `request.header("origin")` on routes that change state.
 
 ## Return a body
@@ -144,13 +150,14 @@ Never put secrets, stack traces or input values in a `SafeError` message. Client
 
 Pass `HandlerOptions` to `KHandler.define(options)(program)`:
 
+<!-- claude 2026-10-19: changed: the `requireJsonContentType` row (default `true`, issue #41) -->
 | Option | Default | Alternatives |
 | --- | --- | --- |
 | `success` | `SuccessEnvelope.Data`: `{"data": value}` | `SuccessEnvelope.Raw`: the converted value without the envelope. A string is sent as `text/plain; charset=utf-8` and any other value as JSON (`application/json`), unless you set a content type; `X-Content-Type-Options: nosniff` comes with the default. A `null` or `undefined` value becomes 204 |
 | `errors` | `ErrorEnvelope.List`: always `{"errors":[...]}` | `ErrorEnvelope.SingleOrList`: `{"error":{...}}` for one entry, `{"errors":[...]}` for several |
 | `defaults` | `ResponseHead.empty` | For example `ResponseHead.noStore`: `Cache-Control: no-store` on success and failure |
 | `bodyLimit` | `BodyLimit.default` (1 MiB) | Any `BodyLimit(bytes)` |
-| `requireJsonContentType` | `false`: `json[A]` accepts a body without a content type | `true`: 415 for such a body; see [cross-site requests](#cross-site-requests) |
+| `requireJsonContentType` | `true`: `json[A]` answers 415 for a body without a content type | `false`: accept such a body as JSON; see [cross-site requests](#cross-site-requests) |
 
 Streams and `Unit` bodies are never wrapped.
 
