@@ -1,13 +1,14 @@
 package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.{H3, H3Event, HandlerMetadata, Nitro}
-import dev.yuri4n.exts.kyoh3.internal.{Interop, Rendering, RequestLifecycle, StreamResponse, Supervised}
+import dev.yuri4n.exts.kyoh3.internal.{Interop, NitroFetch, Rendering, RequestLifecycle, StreamResponse, Supervised}
 import kyo.{Abort, Async, Env, Fiber, Frame, Result, Scope, Sync, Var, `<`}
+import org.getshaka.nativeconverter.NativeConverter
 
 import scala.scalajs.js
 import scala.util.control.NonFatal
 
-// claude 2026-10-19: changed: streams are sent with Response.sendStream
+// claude 2026-10-19: changed: streams are sent with Response.sendStream; $fetch is injected
 /** Defines h3 handlers from Kyo programs.
   *
   * A handler is a function from the request snapshot to the response body: a Kleisli arrow
@@ -56,6 +57,61 @@ object KHandler:
       // The release is registered in the step that starts the fiber, so an interrupt cannot land
       // between the two.
       Scope.acquireRelease(Fiber.initUnscoped(step))(_.getResult.unit).map(fiber => fiber.uninterruptible.map(_.get))
+
+    // claude 2026-10-19: created: the $fetch accessor (decision 2) over the request's Env[Fetch]
+    /** The server-side `$fetch` of the current request, with Nuxt's `event.fetch` semantics: a path
+      * that starts with `/` is answered in-process by Nitro, and the incoming headers and cookies
+      * are forwarded.
+      *
+      * `raw` returns as soon as the head arrives. `text`, `as`, `get` and `post` read the whole body
+      * and fail with `FetchError.Status` unless the status is 2xx. A `FetchError` is not a
+      * `SafeError`: unhandled, it is an opaque 500.
+      */
+    @annotation.nowarn("id=E230")
+    object $fetch:
+        def raw(
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        )(using Frame): FetchResponse < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          Env.use[Fetch](_.raw(FetchRequest(url, method, headers, body)))
+
+        def text(
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        )(using Frame): String < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          raw(url, method, headers, body).map(response => bodyText(response).map(text => successText(response.status, text)))
+
+        def as[A: NativeConverter](
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        )(using Frame): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          raw(url, method, headers, body).map(response =>
+            bodyText(response).map(text => successText(response.status, text)).map(text => FetchResponse.decode[A](response.status, text)),
+          )
+
+        def get[A: NativeConverter](url: String, headers: Seq[(String, String)] = Nil)(using
+            Frame,
+        ): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          as[A](url, headers = headers)
+
+        def post[A: NativeConverter](url: String, body: FetchBody, headers: Seq[(String, String)] = Nil)(using
+            Frame,
+        ): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          as[A](url, "POST", headers, Some(body))
+
+        private def bodyText(response: FetchResponse)(using Frame): String < (Async & Scope) = response match
+            case FetchResponse.Plain(_, _, text)    => text
+            case FetchResponse.Streamed(_, _, body) => body.run.map(_.mkString)
+
+        private def successText(status: Int, text: String)(using Frame): String < Abort[FetchError] =
+          if status >= 200 && status <= 299 then text else Abort.fail(FetchError.Status(status, text))
+    end $fetch
 end KHandler
 
 /** One request: snapshot, program, scope, cancellation and the single write of head and body. */
@@ -101,7 +157,7 @@ private[kyoh3] object RequestRuntime:
           )
     end run
 
-    // claude 2026-10-19: changed: provides Env[HandlerTransport]; a Sent body ends the request; a returned stream (ZIO adapter only) goes through the same send
+    // claude 2026-10-19: changed: provides Env[HandlerTransport] and Env[Fetch]; a Sent body ends the request; a returned stream (ZIO adapter only) goes through the same send
     /** The worker program. Var runs outside Abort so a failure still sees the response head. */
     private def work[B](transport: HandlerTransport, program: Request => B < HandlerEffects)(using
         body: ResponseBody[B],
@@ -109,9 +165,16 @@ private[kyoh3] object RequestRuntime:
     ): Completion < (Async & Abort[Throwable] & Scope) =
       val event   = transport.event
       val options = transport.options
-      Sync.defer(Request.fromEvent(event, options.bodyLimit, options.requireJsonContentType)).map { request =>
+      Sync.defer {
+        // Captured at request start: Nitro sets event.fetch in onRequest, before any route handler.
+        (Request.fromEvent(event, options.bodyLimit, options.requireJsonContentType), new NitroFetch(event))
+      }.map { (request, fetch) =>
         Var.runTuple(ResponseHead.empty)(
-          Abort.run[Any](Env.run(transport)(Sync.defer(program(request))).map(value => body.encode(value))),
+          Abort.run[Any](
+            Env.run(transport)(Env.run(fetch)(
+              Sync.defer(program(request)),
+            )).map(value => body.encode(value)),
+          ),
         ).map { (head, result) =>
           Interop.typed(result).foldError(
             {
