@@ -38,12 +38,14 @@ async function setup(t, options, nuxtOptions = {}, allowed = ['nitro:config']) {
 function recordingNitro(prerender = { failOnError: true }) {
   const hooks = new Map()
   const warnings = []
+  const errors = [] // claude 2026-10-19: created: the logger's error lines
   return {
     hooks,
     warnings,
+    errors, // claude 2026-10-19: created: the logger's error lines
     nitro: {
       options: { prerender },
-      logger: { warn: message => warnings.push(message) },
+      logger: { warn: message => warnings.push(message), error: message => errors.push(message) }, // claude 2026-10-19: changed: also records errors
       hooks: {
         hook(name, callback) {
           assert.ok(!hooks.has(name), `Nitro hook ${name} registered twice`)
@@ -249,6 +251,7 @@ test('scalaPrerender: \'stub\' reports requests that reached the stub after prer
     { message: /scalaPrerender is 'stub'[\s\S]*\n {2}GET \/api\/notes, while Nuxt prerendered \/notes\n/ },
   )
   assert.deepEqual(failing.main.warnings, [])
+  assert.deepEqual(failing.main.errors, []) // claude 2026-10-19: created: no failed route, so h34s throws instead of logging
 
   const lenient = await prerender({ failOnError: false })
   assert.throws(() => lenient.handler(event), { statusCode: 501 })
@@ -257,7 +260,24 @@ test('scalaPrerender: \'stub\' reports requests that reached the stub after prer
   assert.match(lenient.main.warnings[0], /\n {2}GET \/api\/notes, while Nuxt prerendered \/notes\n/)
   lenient.main.hooks.get('prerender:done')({ prerenderedRoutes: [], failedRoutes: [] })
   assert.equal(lenient.main.warnings.length, 1, 'each prerender run reports its own requests once')
-  assert.equal(warnings.length, 2, 'the stub logged each request')
+
+  // claude 2026-10-19: created: Nitro 2.13.1 calls prerender:done before its own check of failed routes; when that check will stop the build, h34s logs the report and lets Nitro throw with its summary (review F1)
+  // Nitro passes `failedRoutes` as an array; a Set is accepted too.
+  for (const failedRoutes of [[{ route: '/api/notes' }], new Set([{ route: '/api/notes' }])]) {
+    const nitroFails = await prerender({ failOnError: true })
+    assert.throws(() => nitroFails.handler(event), { statusCode: 501 })
+    nitroFails.main.hooks.get('prerender:done')({ prerenderedRoutes: [], failedRoutes })
+    assert.equal(nitroFails.main.errors.length, 1, 'the report is logged as an error')
+    assert.match(nitroFails.main.errors[0], /scalaPrerender is 'stub'[\s\S]*\n {2}GET \/api\/notes, while Nuxt prerendered \/notes\n/)
+    assert.deepEqual(nitroFails.main.warnings, [])
+  }
+  // claude 2026-10-19: created: without failOnError, failed routes do not change the warning
+  const lenientFailed = await prerender({ failOnError: false })
+  assert.throws(() => lenientFailed.handler(event), { statusCode: 501 })
+  lenientFailed.main.hooks.get('prerender:done')({ prerenderedRoutes: [], failedRoutes: [{ route: '/api/notes' }] })
+  assert.equal(lenientFailed.main.warnings.length, 1)
+  assert.deepEqual(lenientFailed.main.errors, [])
+  assert.equal(warnings.length, 5, 'the stub logged each request') // claude 2026-10-19: changed: three more requests above
 })
 
 // claude 2026-10-19: created: an unknown scalaPrerender value fails before any hook is registered

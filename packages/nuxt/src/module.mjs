@@ -22,7 +22,7 @@ export default async function h34sNuxt(options, nuxt) {
           rollupConfig.plugins.unshift(scalaPrerenderStub(root, outputs))
         })
       })
-      nitro.hooks.hook('prerender:done', () => reportStubCalls(nitro))
+      nitro.hooks.hook('prerender:done', result => reportStubCalls(nitro, result)) // claude 2026-10-19: changed: passes Nitro's result (review F1)
     })
   }
   nuxt.hook('nitro:config', (nitro) => {
@@ -74,14 +74,25 @@ function scalaPrerenderOption(value = 'bundle') {
 // A page that catches the stub's 501, as useFetch does, still prerenders with status 200, so
 // Nitro's own check of failed routes does not see it. Nuxt turns on `prerender.failOnError`; with
 // it, the build stops here, before Nitro builds the server output.
-function reportStubCalls(nitro) {
+// claude 2026-10-19: changed: lets Nitro stop the build when it fails on its own (review F1)
+// Nitro 2.13.1 calls `prerender:done` before its own check. When that check is about to stop the
+// build (`failOnError` and at least one failed route), a throw here would hide Nitro's summary of
+// the failed routes, so h34s logs its report as an error and lets Nitro throw.
+function reportStubCalls(nitro, result) {
   const calls = takeStubCalls()
   if (calls.length === 0)
     return
   const report = stubCallReport(calls)
-  if (nitro.options?.prerender?.failOnError)
-    throw new Error(report)
-  nitro.logger.warn(report)
+  if (!nitro.options?.prerender?.failOnError) {
+    nitro.logger.warn(report)
+    return
+  }
+  const failed = result?.failedRoutes
+  if ((failed?.length ?? failed?.size ?? 0) > 0) {
+    nitro.logger.error(report)
+    return
+  }
+  throw new Error(report)
 }
 
 // Declares `runtimeConfig.h34s.debug: false` (private: never sent to the browser). Declared keys
