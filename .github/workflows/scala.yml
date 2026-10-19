@@ -171,8 +171,10 @@ jobs:
         working-directory: examples/nuxt
         run: |
           set -euo pipefail
+          # Count client sessions only: here h34s is the bootstrap superuser, which also owns the
+          # logical replication launcher.
           sessions() {
-            psql -h 127.0.0.1 -U h34s -d h34s -tAc "select count(*) from pg_stat_activity where usename = 'h34s' and pid <> pg_backend_pid()"
+            psql -h 127.0.0.1 -U h34s -d h34s -tAc "select count(*) from pg_stat_activity where usename = 'h34s' and backend_type = 'client backend' and pid <> pg_backend_pid()"
           }
           node .output/server/index.mjs > "$RUNNER_TEMP/server.log" 2>&1 &
           server=$!
