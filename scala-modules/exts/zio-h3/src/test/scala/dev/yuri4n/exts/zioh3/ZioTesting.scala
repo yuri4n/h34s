@@ -67,7 +67,12 @@ private[exts] object ZioTesting:
     def turns(count: Int): UIO[Unit] =
       ZIO.async[Any, Nothing, Unit](done => js.timers.setTimeout(0)(done(ZIO.unit))).repeatN(count - 1)
 
-    /** Runs a handler function without h3: a fake request, a fresh head and a request scope. */
+    // claude 2026-10-19: changed: also provides a detached HandlerTransport (HandlerEnv carries one)
+    /** Runs a handler function without h3: a fake request, a fresh head, a request scope and a
+      * detached transport.
+      */
     def direct[E, A](program: ZIO[HandlerEnv, E, A]): IO[E, (ResponseHead, A)] =
-      ZIO.scoped(ZIO.stateful[Scope](ResponseHead.empty)(program.zip(Response.head).map((value, head) => (head, value))))
+      ZIO.scoped(ZIO.stateful[Scope & HandlerTransport](ResponseHead.empty)(
+        program.zip(Response.head).map((value, head) => (head, value)),
+      ).provideSomeLayer[Scope](ZLayer.succeed(HandlerTransport.detached)))
 end ZioTesting

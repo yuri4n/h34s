@@ -1,7 +1,7 @@
 package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.{H3, H3Event, Nitro}
-import dev.yuri4n.exts.kyoh3.internal.{Interop, NitroFetch, Rendering, RequestLifecycle, StreamResponse, Supervised}
+import dev.yuri4n.exts.kyoh3.internal.{Interop, NitroFetch, Rendering, RequestLifecycle, Supervised}
 import kyo.{Abort, Async, Env, Fiber, Frame, Result, Scope, Sync, Var, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 
@@ -157,7 +157,7 @@ private[kyoh3] object RequestRuntime:
           )
     end run
 
-    // claude 2026-10-19: changed: provides Env[HandlerTransport] and Env[Fetch]; a Sent body ends the request; a returned stream (ZIO adapter only) goes through the same send
+    // claude 2026-10-19: changed: provides Env[HandlerTransport] and Env[Fetch]; a Sent body ends the request
     /** The worker program. Var runs outside Abort so a failure still sees the response head. */
     private def work[B](transport: HandlerTransport, program: Request => B < HandlerEffects)(using
         body: ResponseBody[B],
@@ -183,10 +183,6 @@ private[kyoh3] object RequestRuntime:
               case ResponseBody.Outgoing.Sent(sent)       =>
                 if sent.owner eq transport then Completion.Sent
                 else Completion.Failed(head, Result.Panic(IllegalStateException("The handler returned a Sent value of another request")))
-              case ResponseBody.Outgoing.Streamed(chunks) =>
-                Abort.run[Any](StreamResponse.send(transport, head, chunks)).map(result =>
-                  Interop.typed(result).foldError(_ => Completion.Sent, failure => Completion.Failed(head, failure)),
-                )
             },
             failure => Completion.Failed(head, failure),
           )

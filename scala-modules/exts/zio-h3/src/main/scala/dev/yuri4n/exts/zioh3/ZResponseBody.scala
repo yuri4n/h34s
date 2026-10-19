@@ -1,58 +1,42 @@
 package dev.yuri4n.exts.zioh3
 
 import dev.yuri4n.exts.kyoh3.ResponseBody
-import dev.yuri4n.exts.zioh3.internal.ZStreamSource
 import kyo.{Frame, Sync, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 import zio.Runtime
-import zio.stream.ZStream
 
+import scala.annotation.implicitNotFound
+
+// claude 2026-10-19: changed: streams are sent with ZHandler.sendStream; Sent is a body; the ZStream givens and the streamed flag are gone
 /** What a ZIO handler may return as its response body.
   *
   *   - any `A` with a `NativeConverter` (converted after the handler, inside the request);
   *   - `Unit` (no body: 204 unless the handler set another status; no converter needed);
-  *   - a `ZStream[Any, E, String]` (`E` a `Throwable`). Each string is written as UTF-8 text, as is.
-  *     h34s writes the head before the first chunk (`text/plain; charset=utf-8` unless you set a
-  *     content type) and keeps the request `Scope` open until the stream ends or the client goes
-  *     away. To stream values, encode each one to text yourself, for example newline-delimited JSON
-  *     with `stream.map(value => value.toJson + "\n")`.
+  *   - `Sent`, the result of `ZHandler.sendStream(stream)`: the handler sent a stream itself.
+  *
+  * A `ZStream` is not a body: send it with `ZHandler.sendStream` as the handler's last step.
   */
+@implicitNotFound(
+  "h34s cannot send ${B} as a response body. Return a value with a NativeConverter, return Unit for a 204, or end the handler with ZHandler.sendStream(stream) to stream text",
+)
 trait ZResponseBody[B]:
     private[exts] def toCore(body: B, runtime: Runtime[Any])(using Frame): ResponseBody.Outgoing < Sync
 
-    /** Whether the request scope must stay open while the body is sent. */
-    private[exts] def streamed: Boolean = false
-
-object ZResponseBody extends StreamZResponseBody:
+object ZResponseBody extends LowPriorityZResponseBody:
     given unit: ZResponseBody[Unit]:
         private[exts] def toCore(body: Unit, runtime: Runtime[Any])(using Frame): ResponseBody.Outgoing < Sync =
           ResponseBody.Outgoing.Empty
 
-    /** Streams that cannot fail, such as `ZStream("a", "b")` (type inference does not pick `Nothing`). */
-    given infallibleStream: ZResponseBody[ZStream[Any, Nothing, String]] = streamBody[Nothing]
+    // claude 2026-10-19: created: the body of a handler that ends with ZHandler.sendStream
+    given sent: ZResponseBody[Sent]:
+        private[exts] def toCore(body: Sent, runtime: Runtime[Any])(using Frame): ResponseBody.Outgoing < Sync =
+          ResponseBody.Outgoing.Sent(body)
 
-    /** The core's body type class for a ZIO body, running streams on `runtime`. */
+    /** The core's body type class for a ZIO body. */
     private[exts] def core[B](body: ZResponseBody[B], runtime: Runtime[Any]): ResponseBody[B] =
       new ResponseBody[B]:
           private[exts] def encode(value: B)(using Frame): ResponseBody.Outgoing < Sync = body.toCore(value, runtime)
 end ZResponseBody
-
-trait StreamZResponseBody extends LowPriorityZResponseBody:
-    /** Node writes only strings and bytes to a response, so stream elements are strings. */
-    given stream: [E <: Throwable] => ZResponseBody[ZStream[Any, E, String]] = streamBody[E]
-
-    protected def streamBody[E <: Throwable]: ZResponseBody[ZStream[Any, E, String]] =
-      streamOf[E, String](ResponseBody.text)
-
-    /** A stream with its own element encoding. Internal (tests encode other element types). */
-    private[exts] def streamOf[E <: Throwable, A](encode: A => scala.scalajs.js.Any): ZResponseBody[ZStream[Any, E, A]] =
-      new ZResponseBody[ZStream[Any, E, A]]:
-          override private[exts] def streamed: Boolean = true
-
-          private[exts] def toCore(body: ZStream[Any, E, A], runtime: Runtime[Any])(using
-              Frame,
-          ): ResponseBody.Outgoing < Sync =
-            ResponseBody.Outgoing.Streamed(ZStreamSource(runtime, body, encode))
 
 trait LowPriorityZResponseBody:
     given native: [A: NativeConverter] => ZResponseBody[A]:

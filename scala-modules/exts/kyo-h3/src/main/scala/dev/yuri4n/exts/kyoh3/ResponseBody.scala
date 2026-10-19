@@ -6,7 +6,7 @@ import org.getshaka.nativeconverter.NativeConverter
 import scala.annotation.implicitNotFound
 import scala.scalajs.js
 
-// claude 2026-10-19: changed: streams are sent with Response.sendStream, not returned; Sent is a body; a missing instance names the three options
+// claude 2026-10-19: changed: streams are sent with Response.sendStream, not returned (Outgoing.Streamed is gone); Sent is a body; a missing instance names the three options
 /** What a handler may return as its response body.
   *
   *   - any `A` with a `NativeConverter` (converted after the handler, inside the request scope);
@@ -28,8 +28,6 @@ object ResponseBody extends LowPriorityResponseBody:
     private[exts] enum Outgoing:
         case Value(native: js.Any)
         case Empty
-        // claude 2026-10-19: changed: kept only for the ZIO adapter's returned ZStream until it moves to ZHandler.sendStream
-        case Streamed(chunks: Stream[js.Any, StreamEffects])
         // claude 2026-10-19: created: the program sent its response itself
         case Sent(sent: dev.yuri4n.exts.h3.Sent)
 
