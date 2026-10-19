@@ -198,7 +198,7 @@ Do not write this password into a file in the repository. Docker is also availab
 A cloud VM has about 4 vCPUs, 16 GB of memory, and 30 GB of disk. h34s builds are heavy for that size.
 
 - Run one sbt process at a time. `.jvmopts` gives each sbt JVM up to 4 GiB of heap, and two builds in the same checkout also compete for the same `target/` directories.
-- Run any command that can take more than a few minutes in the background, and wait for it to finish. A foreground command stops after at most 10 minutes. On this VM, a first `sbt -batch h3Ext/test kyoH3Ext/test` with empty caches took about two minutes. The full Scala CI job takes 8 to 12 minutes on GitHub's 4-vCPU runners.
+- Run any command that can take more than a few minutes in the background, and wait for it to finish. A foreground command stops after at most 10 minutes. On this VM, a first `sbt -batch h3Ext/test kyoH3Ext/test` with empty caches took about two minutes. The rest of the Scala CI job took about 6 more minutes after that run; on GitHub's 4-vCPU runners, the whole job takes 8 to 12 minutes.
 - Do not run the example's Nuxt production build while sbt runs. That build uses an 8 GiB Node heap.
 
 ## What does not work in cloud sessions
@@ -221,6 +221,9 @@ A cloud VM has about 4 vCPUs, 16 GB of memory, and 30 GB of disk. h34s builds ar
 On 2026-10-19, in a cloud session with **Full** network access (Ubuntu 24.04.5, x86_64, 4 vCPUs, 15 GiB memory), starting from a VM with only Java 21 and Node 22:
 
 - The hook on a fresh VM installed OpenJDK 25.0.4.1, sbt 1.11.7, Node 24.22.0, and pnpm 10.34.4 in 16.9 seconds. Three more runs took 0.35 seconds each and changed no file. With `CLAUDE_CODE_REMOTE` unset or `false`, the hook wrote nothing.
-- With only the hook's environment and empty sbt and coursier caches, `sbt -batch h3Ext/test kyoH3Ext/test` passed: `h3Ext` 36 tests and `kyoH3Ext` 79 tests.
+- With only the hook's environment and empty sbt and coursier caches, `sbt -batch h3Ext/test kyoH3Ext/test` passed in 1 minute 50 seconds: `h3Ext` 36 tests and `kyoH3Ext` 79 tests. coursier's cache then held one host, the mirror. A fully cold `sbt -debug -batch about` requested nothing from `repo1.maven.org` or `repo.maven.apache.org`.
+- `pnpm install --frozen-lockfile --ignore-scripts` passed in 5 seconds, and `node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs` passed 47 tests.
+- Right after that, every step of the Scala CI job in `.github/workflows/scala.yml` passed, in order, in about 6 minutes: the ten sbt test and compile tasks (154 seconds; the ZIO suites reported no failures), `pnpm run scala:full` (37 seconds), `sbt -batch releaseCheck`, `node scripts/check-release.mjs --allow-snapshot`, `sbt -batch releasePublishLocal`, and `node scripts/check-consumers.mjs` (132 seconds; the zio, kyo, zio-schema, and kyo-schema consumers served real h3 requests through their explicit Maven Central resolver, rewritten to the mirror).
+- `bash scripts/cloud-setup.sh --services` started PostgreSQL 16.15 and Redis, and the example role and database commands above worked.
 
-Not verified: the Trusted access level, the cached setup script, a non-root user, arm64, the full Scala CI command, private GitHub Packages, the example's Nuxt build, and Nix.
+Not verified: the hook firing by itself when a session starts (this session began before the hook existed, so it ran with the variables that Claude Code documents), the Trusted access level, the cached setup script, a non-root user, arm64, private GitHub Packages, the example's Nuxt build, Docker Compose, and Nix.
