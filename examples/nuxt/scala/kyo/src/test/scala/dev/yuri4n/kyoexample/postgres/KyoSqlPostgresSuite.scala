@@ -164,14 +164,15 @@ class KyoSqlPostgresSuite extends FunSuite:
     pgTest("a nested transaction that fails rolls back only its own part") { client =>
       val existing = unique("nested-existing")
       val text     = unique("nested-outer")
-      val outer: Unit < (Async & Abort[SqlException]) =
+      // The outer transaction returns the nested one's result, so the test can check that it failed.
+      val outer: Result[SqlException, Unit] < (Async & Abort[SqlException]) =
         DB.run(client)(DB.transaction(
           for
-            _ <- sql"INSERT INTO notes (text) VALUES ($text)".execute
-            _ <- Abort.recover[SqlException](_ => ())(
+            _     <- sql"INSERT INTO notes (text) VALUES ($text)".execute
+            inner <- Abort.run[SqlException](
               DB.transaction(sql"INSERT INTO notes (text) VALUES ($existing)".execute.unit),
             )
-          yield (),
+          yield inner,
         ))
       for
         _      <- NotesLive(client).create(existing)
@@ -179,6 +180,14 @@ class KyoSqlPostgresSuite extends FunSuite:
         rows   <- count(client, text)
       yield
         assert(result.isSuccess, s"expected the outer transaction to commit, got $result")
+        val inner = result.getOrThrow
+        assert(
+          inner.failure.exists {
+            case error: SqlServerConstraintViolationException => error.sqlState == "23505"
+            case _                                            => false
+          },
+          s"expected the nested transaction to fail with a unique violation, got $inner",
+        )
         assertEquals(rows, 1L)
     }
 end KyoSqlPostgresSuite

@@ -165,6 +165,9 @@ jobs:
           # Fail instead of skipping when the URL is missing.
           H34S_POSTGRES_REQUIRED: 'true'
         run: sbt -batch kyoExample/test
+      # claude 2026-10-19: created: the suite's cleanup only logs a failure, so check its result here
+      - name: Check that the kyo-sql suite removed its rows
+        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U h34s -d h34s -tAc "select count(*) from notes where text like 'h34s kyo-sql %'" | grep -Fx 0
       - name: Build the example for production
         run: pnpm build
       - name: Serve the build, run the smoke checks, and stop it with SIGTERM
