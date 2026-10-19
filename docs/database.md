@@ -19,7 +19,7 @@ Create the schema with your own migration tool or scripts. Handlers should never
 ## Kyo: kyo-sql and kyo-sql-postgres
 
 <!-- claude 2026-10-19: changed: status after the PostgreSQL 16 run (issue #29) -->
-**Status: runs against PostgreSQL 16 in Node; not run inside Nitro.** The service code below (`NotesLive`, `Note`, `NoteView`, `DuplicateNote`) is copied without changes into the Kyo example's opt-in test, `KyoSqlPostgresSuite`. On 2026-10-19, with kyo-sql-postgres 1.0.0-RC7, it inserted and listed a note, mapped a unique violation to `DuplicateNote`, and rolled back two failed transactions against PostgreSQL 16.15 with SCRAM authentication. See [Run the kyo-sql tests](#run-the-kyo-sql-tests). The `Database` and `AppHandler` snippets compile, but they were not run, because they need Nitro. The demo's Nuxt application does not use kyo-sql. Treat this code as a starting point.
+**Status: runs against PostgreSQL 16 in Node; not run inside Nitro.** The service code below (`NotesLive`, `Note`, `NoteView`, `DuplicateNote`) is copied without changes into the Kyo example's opt-in test, `KyoSqlPostgresSuite`. On 2026-10-19, with kyo-sql-postgres 1.0.0-RC7, it inserted and listed a note, mapped a unique violation to `DuplicateNote`, rolled back two failed transactions, and kept the outer work of a transaction whose nested transaction failed, against PostgreSQL 16.15 with SCRAM authentication. See [Run the kyo-sql tests](#run-the-kyo-sql-tests). The `Database` and `AppHandler` snippets compiled in a temporary test file on 2026-10-17 (see [compatibility](compatibility.md)); they were not run, because they need Nitro. The demo's Nuxt application does not use kyo-sql. Treat this code as a starting point.
 
 Add the client to your application:
 
@@ -73,11 +73,11 @@ object Database:
 
 Set `verifyTls` to `false` only for a local database without TLS.
 
+<!-- claude 2026-10-19: created: the table that the kyo-sql code uses -->
 ### Create the table
 
 Create the table with your migration tool or setup script, not in a handler. The code below expects this table:
 
-<!-- claude 2026-10-19: created: the table that the kyo-sql code uses -->
 ```sql
 CREATE TABLE IF NOT EXISTS notes (
   id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -125,8 +125,7 @@ object NotesLive:
 ```
 
 - `sql"..."` binds `$text` as a parameter. The value is never concatenated into the SQL text.
-<!-- claude 2026-10-19: changed: the recovered-statement case, as observed against PostgreSQL 16 -->
-- `DB.transaction` commits when the body succeeds and rolls back when it fails, also on a non-SQL `Abort`. A body that recovers from a failed statement still rolls back: the transaction then fails with `SqlRequestTransactionFailedStatementException`. To keep the rest of the work, put the step that may fail in a nested `DB.transaction`. A client disconnect interrupts it too, so the transaction can roll back. When the insert must finish anyway, run it with `KHandler.uninterruptible(notes.create(text))`; see [lifetimes](lifetimes.md#when-the-client-disconnects).
+- `DB.transaction` commits when the body succeeds and rolls back when it fails, also on a non-SQL `Abort`. A body that recovers from a failed statement still rolls back: the transaction then fails with `SqlRequestTransactionFailedStatementException`. To keep the rest of the work, wrap the step that may fail in a nested `DB.transaction` and recover from its failure. The nested transaction takes a savepoint, so only its own part rolls back and the outer transaction still commits; `KyoSqlPostgresSuite` tests this. A client disconnect interrupts the transaction too, so it can roll back. When the insert must finish anyway, run it with `KHandler.uninterruptible(notes.create(text))`; see [lifetimes](lifetimes.md#when-the-client-disconnects). <!-- claude 2026-10-19: changed: the recovered-statement case and the nested transaction, as observed against PostgreSQL 16 -->
 - `SQLSTATE 23505` is a unique violation. Map only the states your client should see; `SqlException` details can contain values from the database, so never put them in a `SafeError` message.
 
 Provide the service in your `AppHandler`, the same way as any Kyo service:
@@ -149,23 +148,24 @@ KYO_NET_BACKEND=node node .output/server/index.mjs
 <!-- claude 2026-10-19: changed: what the Node test run showed about backend selection -->
 **Unverified inside Nitro.** h34s has not run kyo-sql inside a Nitro bundle. In the Node test run, without `KYO_NET_BACKEND`, kyo-net selected its `node` backend by itself and logged a warning that the FFI backends were unavailable, because the `koffi` npm package was not installed. The FFI backends, the bundle size, and non-Node Nitro presets (which have no `net` or `tls`) are open questions. Test your deployment target before you rely on it.
 
+<!-- claude 2026-10-19: created: how to run KyoSqlPostgresSuite -->
 ### Run the kyo-sql tests
 
-`KyoSqlPostgresSuite` in `examples/nuxt/scala/kyo/src/test/scala/` runs the service code above against a real database. It runs only when `H34S_POSTGRES_URL` holds a kyo-sql URL. Without the variable, munit reports its four tests as skipped.
+`KyoSqlPostgresSuite` in `examples/nuxt/scala/kyo/src/test/scala/` runs the service code above against a real database. It runs only when `H34S_POSTGRES_URL` holds a kyo-sql URL. Without the variable, munit reports its five tests as skipped.
 
-1. Start PostgreSQL 16 and create a role and a database for the test. The suite creates the `notes` table if it does not exist and adds rows with unique text.
+1. Start PostgreSQL 16 and create the role `h34s`, the database `h34s` and the password file `~/.h34s-db-password`, as in [Start PostgreSQL and Redis](maintainers/cloud.md#start-postgresql-and-redis). Use a database that has no `notes` table of your own: the suite creates `notes` if it does not exist, writes rows whose text starts with `h34s kyo-sql `, and deletes those rows when each test ends. The table stays.
 2. Run the suite from the repository root:
 
    ```sh
    H34S_POSTGRES_URL="postgres://h34s:$(cat ~/.h34s-db-password)@127.0.0.1:5432/h34s" sbt -batch kyoExample/test
    ```
 
-Expected result: `Passed: Total 4, Failed 0, Errors 0, Passed 4`. The suite runs in Node through sbt, not inside Nitro. Set `H34S_POSTGRES_REQUIRED=true` to make the tests fail instead of skip when the URL is missing; the `postgres` CI job does this. <!-- claude 2026-10-19: created: the required flag -->
+Expected result: `Passed: Total 5, Failed 0, Errors 0, Passed 5`. The suite runs in Node through sbt, not inside Nitro. Set `H34S_POSTGRES_REQUIRED=true` to make the tests fail instead of skip when the URL is missing; the `postgres` CI job does this.
 
 ## ZIO: Skunk in a `ZShared` layer
 
 <!-- claude 2026-10-19: changed: the Notes flow ran against PostgreSQL 16 (issue #29) -->
-The demo's Notes example uses Skunk 1.0.0-M12 through zio-interop-cats. Its handlers are unit-tested. On 2026-10-19, a production build of the demo ran against PostgreSQL 16.15 with `scram-sha-256` authentication: `POST /api/notes` answered 201, invalid input answered 422, `GET /api/notes` listed the note, and after `SIGTERM` no session of the example's user stayed in `pg_stat_activity`. See [compatibility](compatibility.md) for the commands and the output.
+The demo's Notes example uses Skunk 1.0.0-M12 through zio-interop-cats. Its handlers are unit-tested. On 2026-10-19, a production build of the demo ran against PostgreSQL 16.15 with `scram-sha-256` authentication: `POST /api/notes` answered 201, invalid input answered 422, `GET /api/notes` listed the note, and after `SIGTERM` no session of the example's user stayed in `pg_stat_activity`. See the [development guide](development.md#cloud-session-production-build-and-postgresql-2026-10-19) for the steps and the output.
 
 ### Configure
 
@@ -246,7 +246,7 @@ Skunk's `$text` is a parameter codec; the value is bound separately. For a trans
 
 ### Keep the Skunk Node plugin
 
-Skunk 1.0.0-M12 calls `require('crypto')` for SCRAM authentication, even in ES-module output. The demo installs Node's loader in a Nitro plugin, `examples/nuxt/server/plugins/skunk-node-crypto.ts`. <!-- claude 2026-10-19: changed: SCRAM evidence --> With that plugin, the production bundle logged in to PostgreSQL 16 with `scram-sha-256`; the server log showed `connection authenticated: identity="h34s" method=scram-sha-256`. Copy that plugin when you use Skunk in your own Nuxt app. If authentication ran before the plugin was installed, restart the server.
+Skunk 1.0.0-M12 calls `require('crypto')` for SCRAM authentication, even in ES-module output. The demo installs Node's loader in a Nitro plugin, `examples/nuxt/server/plugins/skunk-node-crypto.ts`. <!-- claude 2026-10-19: changed: SCRAM evidence --> With that plugin, the production bundle logged in to PostgreSQL 16 with `scram-sha-256`; PostgreSQL's log showed `connection authenticated: identity="h34s" method=scram-sha-256`. Copy that plugin when you use Skunk in your own Nuxt app. If authentication ran before the plugin was installed, restart the server.
 
 ## Set up a local database
 

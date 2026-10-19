@@ -52,7 +52,6 @@ On macOS 15.7.5, x86_64, during the refactor (2026-10-17):
 | ZIO demo over the same h3 server | `/api/test` answers `abc`; `/api/notes` without the plugin is an opaque 500; with a fake plugin record and no database, a 500 with `debug.cause` and no password in it, and one close hook registered and released |
 | Production build of the demo (Scala full link, `nuxt build`, then the Node server from `.output/`) | Built with `NODE_OPTIONS=--max-old-space-size=8192` (the default heap ran out of memory). Kyo routes: the same 200, 422, 400 responses, and 415 for `text/plain`. `/api/test` streamed `abc`. `/api/notes` without a database: opaque 500. With `NUXT_H34S_DEBUG=true`: `debug.cause` present, password absent. `SIGTERM`: the `ZShared` pool registered on the first Notes request was released, exit status 0 |
 | Production build after the review fixes (same machine, same day) | `kyo-smoke.mjs` passed with the default salutation and with `NUXT_GREETING_SALUTATION=Hi` (Kyo `RuntimeConfig.load` in a `Shared`); `smoke.mjs` with `H34S_SMOKE_SKIP_DATABASE=true` passed without PostgreSQL (invalid Notes input is a 422 before any database work); streams carry `text/plain; charset=utf-8` and `nosniff` by default |
-
 | `nuxt dev` on the demo (Nuxt 4.3.1, `pnpm dev` after `pnpm run scala:fast`) | Kyo GET 200 with `{"data":...}` and `no-store`; a blank name 422 with path `name`; `/api/test` answered `abc`; `/api/notes` without a database answered a 500 with `debug.cause` (Scala stack frames, no password). A Kyo handler that threw a JavaScript `TypeError` (a temporary probe route) had its stack mapped to `RequestLifecycle.scala` and `KHandler.scala` |
 | `scripts/check-npm-nuxt.mjs` (the packed module in a synthetic Nuxt 4.3.1 project) | Development diagnostics, direct loading, Scala source maps, a relink reload, production bundling, and `NUXT_H34S_DEBUG=true` at runtime |
 
@@ -61,33 +60,33 @@ The Scala tests use real h3 1.15.4 events with mocked Node responses. They do no
 <!-- claude 2026-10-19: created: cloud-session evidence for issues #29 and #30 -->
 ### Locally verified in a cloud session (2026-10-19)
 
-In a Claude Code cloud session: Ubuntu 24.04.5, x86_64, 4 vCPUs, 15 GiB memory, Node 24.22.0, pnpm 10.34.4, OpenJDK 25.0.4.1, sbt 1.11.7, Nuxt 4.3.1, Nitro 2.13.1, Nuxt Content 3.11.2, and PostgreSQL 16.15 (`psql (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)`), from commit `f1fb8e1`. The [development guide](development.md#cloud-session-production-build-and-postgresql-2026-10-19) has the full record.
+In a Claude Code cloud session: Ubuntu 24.04.5, x86_64, 4 vCPUs, 15.7 GiB memory, Node 24.22.0, pnpm 10.34.4, OpenJDK 25.0.4.1, sbt 1.11.7, Nuxt 4.3.1, Nitro 2.13.1, Nuxt Content 3.11.2, and PostgreSQL 16.15 (`psql (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)`), from commit `f1fb8e1`; the kyo-sql row with `KyoSqlPostgresSuite` from commit `314546f` (the first four tests also from `70688b2`). The [development guide](development.md#cloud-session-production-build-and-postgresql-2026-10-19) has the full record.
 
 | Check | Result |
 | --- | --- |
-| Production build of the demo (`pnpm run scala:full`, then `nuxt build` with `--max-old-space-size=8192`) | Passed; 2:14 for the link, 2:15 for the Nuxt build, 6.8 GB peak RSS |
+| Production build of the demo (`pnpm run scala:full`, then `nuxt build` with `--max-old-space-size=8192`) | Passed; 2:14 for `pnpm run scala:full` (cold sbt start, compile and link), 2:15 for the Nuxt build, 6.5 GiB peak RSS |
 | ZIO Notes against PostgreSQL 16 with `scram-sha-256` (production server, `.env.example` variables) | `smoke.mjs` passed with the database. `POST /api/notes` 201; blank text 422 with path `text`; `{"text":42}` the generic 422; `GET /api/notes` 200 with the note |
 | Skunk 1.0.0-M12 SCRAM login in the production bundle | PostgreSQL logged `connection authenticated: identity="h34s" method=scram-sha-256` |
 | `SIGTERM` with 4 pooled sessions open | Exit status 0; 4 disconnections logged; 0 sessions of the user in `pg_stat_activity` |
-| kyo-sql code of the [database guide](database.md#run-the-kyo-sql-tests), kyo-sql-postgres 1.0.0-RC7, in Node through `sbt kyoExample/test` with `H34S_POSTGRES_URL` | 4 passed: insert and list, unique violation to `DuplicateNote`, rollback on a non-SQL `Abort`, rollback (with `SqlRequestTransactionFailedStatementException`) when the body recovers from a failed statement. kyo-net selected its `node` backend by itself. Without the variable, the 4 tests are skipped |
+| kyo-sql code of the [database guide](database.md#run-the-kyo-sql-tests), kyo-sql-postgres 1.0.0-RC7, in Node through `sbt kyoExample/test` with `H34S_POSTGRES_URL` | 5 passed, twice: insert and list, unique violation to `DuplicateNote`, rollback on a non-SQL `Abort`, rollback (with `SqlRequestTransactionFailedStatementException`) when the body recovers from a failed statement, and a failed nested transaction that rolls back only its own part. The nested test also checks that the nested step failed with SQLSTATE 23505. After each run, no suite row was left in `notes`. kyo-net selected its `node` backend by itself. Without the variable, the 5 tests are skipped; with `H34S_POSTGRES_REQUIRED=true` and no variable, they fail |
 
 #### Heap measurement (2026-10-19)
 
-Each row is one `nuxt build` of the demo, run alone, on the production link above. A variant is a temporary change that was reverted afterwards. The 4096 MiB limit stands for Node's default heap on a 16 GB Mac (about 4 GiB). On this VM, Node's own default limit is 8384 MiB. Peak RSS is the largest process, from GNU `time -v`.
+Each row is one `nuxt build` of the demo, run alone, on the production link above. A variant is a temporary change that was reverted afterwards. The 4096 MiB limit stands for Node's default heap on a 16 GB Mac (about 4 GiB). On this VM, Node's own default limit is 2240 MiB (`env -u NODE_OPTIONS node -e 'console.log(require("v8").getHeapStatistics().heap_size_limit/1048576)'`). The session's environment set `NODE_OPTIONS=--max-old-space-size=8192`; a command-line `--max-old-space-size` overrides it for the build process. In a full 8192 MiB build sampled every 10 seconds (14 samples), the only child processes were two esbuild services, which have no Node heap, so the limits in the table apply to the build's only Node process. Peak RSS is the largest process, from GNU `time -v` (KiB), given in GiB.
 
 | Variant | Heap limit | Result | Peak RSS | Wall time |
 | --- | --- | --- | --- | --- |
-| Baseline (both applications, server source maps, prerendering) | 8192 MiB (the scripts' option) | Passed | 6.8 GB | 2:15 |
-| Baseline | Node's default on this VM (8384 MiB) | Passed | 6.8 GB | 2:07 |
-| Baseline | 6144 MiB | Passed | 5.7 GB | 2:06 |
-| Baseline | 4096 MiB | Out of memory in "Building Nuxt Nitro server", after prerendering | 4.9 GB | 2:36 |
-| No server source maps (`sourcemap.server=false` in `.nuxtrc`) | 4096 MiB | Passed; no `.map` file in `.output/server` | 4.6 GB | 1:56 |
-| No prerendering (a temporary `prerender:routes` hook that clears the one route) | 4096 MiB | Passed | 4.2 GB | 1:16 |
-| Kyo application only (the ZIO route files moved away) | 4096 MiB | Passed; prerendering took 17 s | 3.6 GB | 1:01 |
-| ZIO application only (the Kyo route files moved away) | 4096 MiB | Passed; prerendering took 33 s | 4.7 GB | 1:46 |
-| No full locale database (`locales-full-currencies-db` excluded from `nuxtsvr` too) | Not built | The relinked ZIO output was the same file: same name, size and time stamp. The linker already removes the database, so the build input does not change | Not measured | Not measured |
+| Baseline (both applications, server source maps, prerendering) | 8192 MiB (the scripts' option) | Passed | 6.50 GiB | 2:15 |
+| Baseline | Node's real default on this VM (2240 MiB; `NODE_OPTIONS` removed) | Out of memory while it built the prerender bundle ("Initializing prerenderer") | 2.58 GiB | 1:00 |
+| Baseline | 6144 MiB | Passed | 5.46 GiB | 2:06 |
+| Baseline | 4096 MiB | Out of memory in "Building Nuxt Nitro server", after prerendering | 4.66 GiB | 2:36 |
+| No server source maps (`sourcemap.server=false` in `.nuxtrc`) | 4096 MiB | Passed; no `.map` file in `.output/server` | 4.34 GiB | 1:56 |
+| No prerendering (a temporary `prerender:routes` hook that clears the one route) | 4096 MiB | Passed | 4.02 GiB | 1:16 |
+| Kyo application only (the ZIO route files moved away) | 4096 MiB | Passed; prerendering took 17 s | 3.41 GiB | 1:01 |
+| ZIO application only (the Kyo route files moved away) | 4096 MiB | Passed; prerendering took 33 s | 4.46 GiB | 1:46 |
+| No full locale database (`locales-full-currencies-db` excluded from `nuxtsvr` too) | Not built | The database jar is on the ZIO application's classpath (`show nuxtsvr/Compile/fullClasspath`), but excluding it did not change the linked output (same name, size and time stamp), so the build input does not change | Not measured | Not measured |
 
-Cause: Nitro 2.13.1 bundles the linked Scala.js (16.5 MB of JavaScript and 13.2 MB of source maps) twice in one process. First it builds a complete `nitro-prerender` server for the one prerendered Nuxt Content route and imports it, which took 54 s in the baseline. Then it builds the `node-server` output. Removing the prerendered route, the server source maps, or one application each brought the build under 4 GiB. The measurement does not separate how much memory each Rollup build keeps. A first attempt at the source-map row appended to `.nuxtrc` without a newline, so Nuxt ignored the setting; those two runs are not in the table.
+Cause: Nitro 2.13.1 bundles the linked Scala.js (16.5 MB of JavaScript and 13.2 MB of source maps) twice in one process. First it builds a complete `nitro-prerender` server for the one prerendered Nuxt Content route and imports it, which took 47 to 59 s across the baseline runs. Then it builds the `node-server` output. Removing the prerendered route, the server source maps, or one application each let the build pass with a 4096 MiB heap limit; peak RSS was then 3.4 to 4.5 GiB. The measurement does not separate how much memory each Rollup build keeps. A first attempt at the source-map row appended to `.nuxtrc` without a newline, so Nuxt ignored the setting; those two runs are not in the table.
 
 ### CI-validated
 
@@ -117,7 +116,8 @@ The private `yurian.land` application consumes the published packages in its pul
 | Relinking the real Scala.js demo under `nuxt dev`, and breakpoint stepping | Not checked (the relink reload was checked on a synthetic project) |
 | The Nitro close hook when `nuxt dev` replaces its worker | Not checked; `SIGTERM` in production was |
 | kyo-sql / kyo-sql-postgres inside Nitro, including `KYO_NET_BACKEND=node` | Not run. The [database guide](database.md) service code ran against PostgreSQL 16 in Node through sbt (see above), not in a Nitro bundle <!-- claude 2026-10-19: changed: kyo-sql ran in Node --> |
-| PostgreSQL in CI | The `postgres` job of the Scala.js libraries workflow runs PostgreSQL 16 with SCRAM, the kyo-sql suite (`H34S_POSTGRES_REQUIRED=true`, so it cannot skip), the demo's production build, `smoke.mjs` and the `SIGTERM` session check. Added in [#45](https://github.com/yuri4n/h34s/pull/45); no run on `main` yet <!-- claude 2026-10-19: changed: CI job added --> |
+| kyo-sql guide code vs `KyoSqlPostgresSuite` | Copied by hand; no check keeps them identical (byte-identical on 2026-10-19). The `postgres` CI job compiles and runs the suite, not the guide <!-- claude 2026-10-19: created: drift risk --> |
+| PostgreSQL in CI | The `postgres` job of the Scala.js libraries workflow runs PostgreSQL 16 with SCRAM, the kyo-sql suite (`H34S_POSTGRES_REQUIRED=true`, so it cannot skip), a check that the suite left no rows, the demo's production build, `smoke.mjs` and the `SIGTERM` session check. It runs on pull requests and pushes to `main` that touch the libraries or the example, and on release tags, because `release.yml` reuses this workflow. Its first run on [#45](https://github.com/yuri4n/h34s/pull/45) failed: the `SIGTERM` check counted PostgreSQL's logical replication launcher, which runs as the bootstrap superuser `h34s` in the job's container. The corrected check has not passed in CI yet <!-- claude 2026-10-19: created: CI job --> |
 | NuxtHub KV as a Nitro storage mount | Not verified; storage tests use Unstorage 1.17.3's memory driver |
 | Nitro presets other than Node (serverless, edge, Workers) | Not tested; streaming needs a Node HTTP response |
 | Linux beyond the CI checks above, Windows | Not run |
@@ -129,8 +129,7 @@ The private `yurian.land` application consumes the published packages in its pul
 - **ZIO YAML on Scala.js.** zio-json-yaml is published for the JVM only (no `_sjs1_3` artifact on Maven Central), so a ZIO model has no YAML codec in Nitro. Kyo models get YAML from kyo-schema-yaml.
 - **ZIO Schema shapes.** The ZIO bridge supports strings, booleans, `Int`, `Double`, records, options, sequences, lazy and transformed schemas. Enums, sealed traits and maps are not supported yet. See [schemas](schema.md).
 - **Kyo finalizer errors** are logged and do not change the response; ZIO finalizer defects turn a value response into a 500. See [lifetimes](lifetimes.md).
-<!-- claude 2026-10-19: changed: the measured cause -->
-- **Build memory.** The demo's `nuxt build` keeps `--max-old-space-size=8192`. With a 4 GiB heap it runs out of memory, because Nitro bundles the linked Scala.js twice (once for the prerendered Nuxt Content route, once for the server) with its source maps. Without the prerendered route, without server source maps, or with one application, it passed with 4 GiB; see the [heap measurement](#heap-measurement-2026-10-19). A single-runtime application links less code, but check your own build.
+- **Build memory.** The demo's `nuxt build` keeps `--max-old-space-size=8192`. With a 4096 MiB heap limit it runs out of memory, because Nitro bundles the linked Scala.js twice (once for the prerendered Nuxt Content route, once for the server) with its source maps. A 6144 MiB limit passed in one run, and the scripts keep 8 GiB as a margin. Without the prerendered route, without server source maps, or with one application, it passed with a 4096 MiB heap limit; see the [heap measurement](#heap-measurement-2026-10-19). A single-runtime application links less code, but check your own build. <!-- claude 2026-10-19: changed: the measured cause -->
 
 ## Profile `alpha-0.1.0` (published)
 
