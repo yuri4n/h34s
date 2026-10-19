@@ -187,6 +187,13 @@ lazy val kyoExample: Project = (project in file("examples/nuxt/scala/kyo"))
     Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala-kyo",
     Compile / fullLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / ".." / ".." / "server" / ".scala-kyo",
     cleanFiles += (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
+    // claude 2026-10-19: created: test-only kyo-sql for the opt-in PostgreSQL suite of the database
+    // guide's code. It runs only when H34S_POSTGRES_URL is set; the linked application is unchanged.
+    libraryDependencies ++= Seq(
+      "io.getkyo"     %%% "kyo-sql-postgres" % kyoVersion   % Test,
+      "org.scalameta" %%% "munit"            % munitVersion % Test,
+    ),
+    commonJsTests,
   )
   // One schema per model: `derives Schema, NativeSchema`.
   .dependsOn(kyoH3Ext, nativeConverterKyoSchemaExt)
