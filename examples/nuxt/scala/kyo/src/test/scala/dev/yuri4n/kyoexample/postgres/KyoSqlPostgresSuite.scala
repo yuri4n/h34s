@@ -46,7 +46,8 @@ object NotesLive:
   * when `H34S_POSTGRES_URL` holds a kyo-sql URL, for example
   * `postgres://h34s:<password>@127.0.0.1:5432/h34s`. Without it, munit reports them as skipped,
   * unless `H34S_POSTGRES_REQUIRED=true`: then they fail, so that CI cannot pass by skipping them.
-  * The suite creates the guide's `notes` table if it does not exist and adds rows with unique text.
+  * The suite creates the guide's `notes` table if it does not exist. Every row it writes has text that
+  * starts with `h34s kyo-sql `, and each test deletes those rows when it ends. The table stays.
   */
 // claude 2026-10-19: created: opt-in integration suite for the kyo-sql guide code (issue #29)
 class KyoSqlPostgresSuite extends FunSuite:
@@ -64,6 +65,9 @@ class KyoSqlPostgresSuite extends FunSuite:
     private val createTable =
       "CREATE TABLE IF NOT EXISTS notes (id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, text text NOT NULL UNIQUE)"
 
+    // claude 2026-10-19: created: removes the suite's rows, so that runs do not accumulate data
+    private val cleanup = "DELETE FROM notes WHERE text LIKE 'h34s kyo-sql %'"
+
     private final case class Boom() extends Exception("boom")
 
     private final case class Count(count: Long) derives Schema
@@ -73,11 +77,18 @@ class KyoSqlPostgresSuite extends FunSuite:
     private def count(client: PostgresClient, text: String): Long < (Async & Abort[SqlException]) =
       DB.run(client)(sql"SELECT count(*) AS count FROM notes WHERE text = $text".as[Count].run.map(_.head.count))
 
-    /** Opens one pool for the test, creates the table, runs `body`, and closes the pool. */
+    /** Opens one pool for the test, creates the table, runs `body`, deletes the suite's rows, and closes
+      * the pool. `Scope.run` runs finalizers in reverse order, so the cleanup runs before the pool closes.
+      */
+    // claude 2026-10-19: changed: registers the cleanup after the pool opens
     private def withClient[A](body: PostgresClient => A < (Async & Abort[Throwable]))(using Frame): Future[A] =
       import AllowUnsafe.embrace.danger
       val program = Scope.run(
-        PostgresClient.init(url.get).map(client => DB.run(client)(DB.executeRaw(createTable)).andThen(body(client))),
+        PostgresClient.init(url.get).map(client =>
+          DB.run(client)(DB.executeRaw(createTable))
+            .andThen(Scope.ensure(DB.run(client)(DB.executeRaw(cleanup))))
+            .andThen(body(client)),
+        ),
       )
       Fiber.Unsafe.init(Abort.run[Throwable](program)).toFuture().map(_.getOrThrow)
 
@@ -147,5 +158,27 @@ class KyoSqlPostgresSuite extends FunSuite:
           s"expected SqlRequestTransactionFailedStatementException, got $result",
         )
         assertEquals(rows, 0L)
+    }
+
+    // claude 2026-10-19: created: the guide's advice to keep the rest of the work with a nested transaction
+    pgTest("a nested transaction that fails rolls back only its own part") { client =>
+      val existing = unique("nested-existing")
+      val text     = unique("nested-outer")
+      val outer: Unit < (Async & Abort[SqlException]) =
+        DB.run(client)(DB.transaction(
+          for
+            _ <- sql"INSERT INTO notes (text) VALUES ($text)".execute
+            _ <- Abort.recover[SqlException](_ => ())(
+              DB.transaction(sql"INSERT INTO notes (text) VALUES ($existing)".execute.unit),
+            )
+          yield (),
+        ))
+      for
+        _      <- NotesLive(client).create(existing)
+        result <- Abort.run[SqlException](outer)
+        rows   <- count(client, text)
+      yield
+        assert(result.isSuccess, s"expected the outer transaction to commit, got $result")
+        assertEquals(rows, 1L)
     }
 end KyoSqlPostgresSuite
