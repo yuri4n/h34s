@@ -148,10 +148,16 @@ private[kyoh3] object RequestRuntime:
     ): js.Any =
       result.foldError(
         {
+          // claude 2026-10-19: changed: a body that cannot be rendered (NaN, infinity) is a defect under the failure rule
           case Completion.Value(head, native) =>
             val complete = ResponseHead.forSuccess(options.defaults, head)
-            val (body, contentType) = Rendering.successBody(options.success, native)
-            success(event, options, contentType.fold(complete)(Rendering.withDefaultContentType(event, complete, _)), body)
+            val rendered =
+              try Right(Rendering.successBody(options.success, native))
+              catch case NonFatal(error) => Left(error)
+            rendered match
+                case Right((body, contentType)) =>
+                  success(event, options, contentType.fold(complete)(Rendering.withDefaultContentType(event, complete, _)), body)
+                case Left(error)                => defect(event, options, head, error)
           case Completion.Empty(head)         =>
             val complete = ResponseHead.forSuccess(options.defaults, head)
             success(event, options, complete.copy(status = complete.status.orElse(Some(Status.NoContent))), Rendering.noContent)

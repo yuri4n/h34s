@@ -35,20 +35,55 @@ private[exts] object Rendering:
     private def validEntry(entry: ErrorEntry): Boolean =
       entry != null && entry.message != null && entry.path != null && !entry.path.contains(null)
 
+    // claude 2026-10-19: changed: throws for NaN and infinite numbers, which JSON text turns into null
     /** A value body in its success envelope, and the content type to use when the handler set none.
       *
       * `Raw` never hands a converted value to h3 as is: h3 would send a string as `text/html` and
       * treat an object with a `buffer`, `pipe` or `arrayBuffer` field as a binary body. A string is
       * sent as `text/plain; charset=utf-8`; any other value as JSON text with `application/json`.
       * A value converting to `undefined` or `null` is sent as `null`, so h3 answers 204 in a plain app
-      * and in Nitro alike.
+      * and in Nitro alike. A value with `NaN` or an infinite number throws (see `requireFinite`).
       */
     def successBody(envelope: SuccessEnvelope, native: js.Any): (js.Any, Option[String]) = envelope match
-        case SuccessEnvelope.Data => (js.Dynamic.literal(data = native), None)
+        case SuccessEnvelope.Data =>
+          requireFinite(native)
+          (js.Dynamic.literal(data = native), None)
         case SuccessEnvelope.Raw  =>
           if js.isUndefined(native) || native == null then (noContent, None)
           else if js.typeOf(native) == "string" then (native, Some(textContentType))
-          else (js.JSON.stringify(native), Some(jsonContentType))
+          else
+              requireFinite(native)
+              (js.JSON.stringify(native), Some(jsonContentType))
+
+    // claude 2026-10-19: created: rejects the numbers that JSON text cannot carry
+    /** Throws if `native` contains `NaN` or an infinite number. JSON text writes them as `null`, which
+      * the generated type `number` does not describe, so h34s never sends them: the response is a
+      * defect, an opaque 500. It visits what `JSON.stringify` writes: the result of `toJSON`, array
+      * elements and own enumerable properties.
+      */
+    def requireFinite(native: js.Any): Unit =
+      // `key` is a property name or an array index; it becomes text only when it is needed.
+      def visit(value: js.Any, key: Any): Unit =
+        val json =
+          if value != null && js.typeOf(value) == "object" && js.typeOf(value.asInstanceOf[js.Dynamic].toJSON) == "function"
+          then value.asInstanceOf[js.Dynamic].toJSON(key.toString)
+          else value
+        js.typeOf(json) match
+            case "number" if !java.lang.Double.isFinite(json.asInstanceOf[Double]) =>
+              val at = if key == "" then "the top level" else s"key \"$key\""
+              throw IllegalArgumentException(s"The response body has $json at $at; JSON cannot represent it")
+            case "object" if json != null =>
+              if js.Array.isArray(json) then
+                  val array = json.asInstanceOf[js.Array[js.Any]]
+                  var index = 0
+                  while index < array.length do
+                      visit(array(index), index)
+                      index += 1
+              else
+                  val fields = json.asInstanceOf[js.Dictionary[js.Any]]
+                  js.Object.keys(json.asInstanceOf[js.Object]).foreach(name => visit(fields(name), name))
+            case _ => ()
+      visit(native, "")
 
     val textContentType: String = "text/plain; charset=utf-8"
     val jsonContentType: String = "application/json"

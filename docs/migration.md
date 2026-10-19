@@ -132,6 +132,9 @@ The wire format changed. Update your `fetch` code, and remove the TypeScript int
 | A safe error | `{"errors": ["message"]}` | `{"errors": [{"message": "..."}]}`, with `path` for schema entries |
 | An internal error | `{"errors": ["Internal server error"]}`, plus top-level `debug` in development | `{"errors": [{"message": "Internal server error"}]}`; in development or debug mode the entry carries `debug.cause` |
 
+<!-- claude 2026-10-19: changed: added the change for NaN and infinite numbers -->
+A value body that contains `NaN` or an infinite number (`Double`, `Float`) is now the opaque 500. `0.1.0-alpha.1` and `0.2.0-alpha.1` sent these numbers as `null`. If a value can be non-finite, return an `Option` or a string for it instead.
+
 To keep the old success shape for a handler, pass `HandlerOptions(success = SuccessEnvelope.Raw)`. A `Raw` string is sent as `text/plain; charset=utf-8` and any other value as JSON text with `application/json`, unless you set a content type; h3 no longer guesses (it sent strings as `text/html`). There is no option for the old string-array errors.
 
 Body problems now have their own statuses: 415 for a non-JSON content type, 413 for a body above the limit (1 MiB by default), 400 for invalid JSON, and 422 for a body that does not match the converter or schema. The old schema reader answered 422 for invalid JSON and `Request body does not match schema` for every rejection. A plain `readBody` failure used to be an opaque 500.

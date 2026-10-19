@@ -150,6 +150,9 @@ Pass `HandlerOptions` to `KHandler.define(options)(program)`:
 
 Streams and `Unit` bodies are never wrapped.
 
+<!-- claude 2026-10-19: changed: added the rule for NaN and infinite numbers -->
+JSON has no `NaN` or infinity, and `JSON.stringify` would send them as `null`. So h34s answers a value body that contains one with the opaque 500, in both envelopes, and a `number` in the generated type is always a finite number.
+
 ## Compose services in your AppHandler
 
 Write one wiring point that provides your services to every handler. The demo calls it `AppHandler`; you choose the name. Define your service first:
