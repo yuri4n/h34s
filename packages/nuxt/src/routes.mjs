@@ -115,14 +115,16 @@ function readManifestFile(path) {
   return manifest
 }
 
+// claude 2026-10-19: changed: checks every output before it writes any file, so a failure keeps all manifests as they were
 /**
- * Loads the linked modules of every configured output, then writes a `.d.ts` file next to each
- * module whose default export is an h34s handler, and the route manifest of each output. A
- * module without `entries` must contain at least one h34s handler.
+ * Loads and checks the linked modules of every configured output, then writes a `.d.ts` file
+ * next to each module whose default export is an h34s handler, and the route manifest of each
+ * output. A module without `entries` must contain at least one h34s handler. When any output
+ * fails, no file of any output changes.
  */
 export async function writeRoutes({ root = process.cwd(), config, load = loadRecords }) {
   const seen = new Map()
-  const results = []
+  const outputs = []
   for (const module of config.modules) {
     const directory = resolve(root, module.output)
     const { routes, declarations } = readRecords(module.output, await load(directory))
@@ -138,9 +140,13 @@ export async function writeRoutes({ root = process.cwd(), config, load = loadRec
         throw new Error(`Two Scala.js handlers mount ${key}: ${previous} and ${module.output}/${route.module}`)
       seen.set(key, `${module.output}/${route.module}`)
     }
-    mkdirSync(directory, { recursive: true })
     const manifestPath = resolve(directory, manifestFile)
-    const previous = readManifestFile(manifestPath)
+    outputs.push({ module, directory, manifestPath, previous: readManifestFile(manifestPath), routes, declarations })
+  }
+  // Every output is valid: only now replace its files. Nuxt never sees a mix of old and new routes.
+  const results = []
+  for (const { module, directory, manifestPath, previous, routes, declarations } of outputs) {
+    mkdirSync(directory, { recursive: true })
     const written = new Set()
     for (const record of declarations) {
       const file = declarationFile(record.file)

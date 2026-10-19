@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 // The package uses Node's runner without additional test dependencies.
 // eslint-disable-next-line test/no-import-node-test
 import test from 'node:test'
@@ -108,6 +108,37 @@ test('rejects duplicate routes, invalid routes, other record versions and output
   // Listed entries are enough: an output may have no h34s handler (route files mount it).
   const [listed] = await writeRoutes({ root, config: { modules: [{ output: 'server/.scala', entries: ['main.js'] }] }, load: async () => [] })
   assert.deepEqual(listed.routes, [])
+})
+
+// claude 2026-10-19: created: a failing later output must not leave a mixed snapshot of manifests
+test('a failure in a later output leaves the manifests and declarations of every output as they were', async (t) => {
+  const root = fixture(t)
+  mkdirSync(join(root, 'server/.scala-kyo'), { recursive: true })
+  const config = { modules: [{ output: 'server/.scala' }, { output: 'server/.scala-kyo' }] }
+  const first = { file: 'a.js', version: 1, route: '/api/a', method: 'get', ...types }
+  const second = { file: 'b.js', version: 1, route: '/api/b', method: 'get', ...types }
+  const linkedOutputs = { 'server/.scala': [first], 'server/.scala-kyo': [second] }
+  await writeRoutes({ root, config, load: async directory => linkedOutputs[relative(root, directory)] })
+  const files = ['server/.scala/h34s-routes.json', 'server/.scala/a.d.ts', 'server/.scala-kyo/h34s-routes.json', 'server/.scala-kyo/b.d.ts']
+  const before = files.map(file => readFileSync(join(root, file), 'utf8'))
+
+  // The next link changes the first output; the second fails in each way the collection can fail.
+  const changed = [{ ...first, route: '/api/a2', success: 'string' }, { file: 'c.js', version: 1, route: '/api/c', ...types }]
+  for (const [failure, load, message] of [
+    ['a module that fails to load', async () => { throw new Error('Could not load the linked Scala.js module b.js') }, /Could not load/],
+    ['a duplicate route', async () => [{ ...second, route: '/api/a2' }], /Two Scala\.js handlers mount GET \/api\/a2/],
+    ['an invalid route', async () => [{ ...second, route: 'api/b' }], /must start with '\/'/],
+    ['no handlers', async () => [], /has no h34s handlers/],
+  ]) {
+    await assert.rejects(
+      writeRoutes({ root, config, load: async directory => relative(root, directory) === 'server/.scala' ? changed : load() }),
+      message,
+      failure,
+    )
+    assert.deepEqual(files.map(file => readFileSync(join(root, file), 'utf8')), before, failure)
+    assert.equal(existsSync(join(root, 'server/.scala/c.d.ts')), false, failure)
+  }
+  assert.deepEqual(readRoutes({ root, config }).handlers.map(handler => handler.route), ['/api/a', '/api/b'])
 })
 
 test('reports outputs that have no manifest yet', (t) => {

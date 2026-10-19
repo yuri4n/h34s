@@ -48,9 +48,11 @@ export interface RouteManifest {
   /** The `.d.ts` files written next to the linked modules. */
   declarations: string[]
 }
+// claude 2026-10-19: changed: states that a failure leaves every output's files as they were
 /**
  * Imports the linked modules of every output in a child Node process, writes a `.d.ts` next to
- * each h34s handler module and the route manifest of each output.
+ * each h34s handler module and the route manifest of each output. It checks every output first:
+ * when one fails, no file of any output changes.
  */
 export function writeRoutes(options: BuildOptions): Promise<RouteManifest[]>
 export interface NitroRouteHandler {
