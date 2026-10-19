@@ -60,21 +60,21 @@ This route file is the one piece of JavaScript you still write. Generated route 
 
 Read the body with `request.body.json[A]` or `request.body.text()`. The first read fixes the outcome; a second read returns the same text.
 
-<!-- claude 2026-10-19: changed: a JSON read now requires a content type by default (issue #41) -->
-`json[A]` needs a JSON content type by default. `$fetch` with an object body and `curl --json` send `application/json`. `text()` never checks the content type.
+<!-- claude 2026-10-19: changed: a JSON read with a body requires a content type by default (issue #41) -->
+By default, `json[A]` needs a JSON content type when the request has a body. `$fetch` with an object body and `curl --json` send `application/json`. `text()` never checks the content type.
 
-<!-- claude 2026-10-19: changed: the 415 row (absent content type rejected by default, issue #41) -->
+<!-- claude 2026-10-19: changed: the 415 row and the 413 row (a body without a content type is rejected after the read, issue #41) -->
 | Situation | Result |
 | --- | --- |
-| `Content-Type` is absent or not JSON (`application/json`, `application/*+json`); with `HandlerOptions(requireJsonContentType = false)`, an absent one is accepted | `HttpError` 415 |
-| Body larger than the limit (checked from `Content-Length`, then while reading) | `HttpError` 413; h34s never buffers more than the limit |
+| `Content-Type` is not JSON (`application/json`, `application/*+json`), or is absent while the request has a body; with `HandlerOptions(requireJsonContentType = false)`, an absent one is accepted | `HttpError` 415 |
+| Body larger than the limit (checked from `Content-Length`, then while reading) | `HttpError` 413; h34s never buffers more than the limit. A body without a content type is read up to the limit before the 415, so one above the limit answers 413 |
 | Text is not valid JSON | `HttpError` 400 |
 | JSON does not match the converter's shape | `InvalidInput` 422 with a generic message |
 | A schema-backed converter rejects the value | `InvalidInput` 422 with your schema's messages; see [schemas](schema.md) |
 | Any other exception from the converter | A defect: opaque 500 |
 
-The default limit is `BodyLimit.default` (1 MiB). Change it for one handler with `HandlerOptions(bodyLimit = ...)`, or for one read with `request.body.json[A](BodyLimit(bytes))`. <!-- claude 2026-10-19: changed: an absent body without a content type is a 415 for JSON reads (issue #41) -->
-An absent body is `""` for `text()`. For `json[A]`, an absent or empty body with a JSON content type decodes like JSON `null`: a model answers 422, and `json[Option[A]]` gives `None`. Without a content type, the read answers 415 first, unless you turned `requireJsonContentType` off.
+<!-- claude 2026-10-19: changed: an absent body needs no content type; a body without one is a 415 (issue #41) -->
+The default limit is `BodyLimit.default` (1 MiB). Change it for one handler with `HandlerOptions(bodyLimit = ...)`, or for one read with `request.body.json[A](BodyLimit(bytes))`. An absent body is `""` for `text()`. For `json[A]`, an absent or empty body with a JSON content type decodes like JSON `null`: a model answers 422, and `json[Option[A]]` gives `None`. Without a content type, a request without a body reads the same way; a request with a body answers 415 first, unless you turned `requireJsonContentType` off.
 
 ### Cross-site requests
 

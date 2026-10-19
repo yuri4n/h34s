@@ -341,6 +341,18 @@ class HttpHandlerSuite extends FunSuite:
         assertEquals(accepted, (200, "{\"data\":\"Scala\"}"))
     }
 
+    // claude 2026-10-19: created: a request without a body needs no content type (issue #41 review)
+    test("by default a request without a body needs no content type: json[Option[A]] is None, a model is 422") {
+      val optional = KHandler.define(request => request.body.json[Option[Input]].map(_.fold("none")(_.name)))
+      val model = KHandler.define(request => request.body.json[Input].map(_.name))
+      for
+        absentOptional <- withServer(optional)((_, port) => post(port, Nil, Map.empty))
+        absentModel <- withServer(model)((_, port) => post(port, Nil, Map.empty))
+      yield
+        assertEquals(absentOptional, (200, "{\"data\":\"none\"}"))
+        assertEquals(absentModel, (422, KyoTesting.errors("Request body does not match the expected shape")))
+    }
+
     test("Raw bodies never reach h3's type sniffing: text is text/plain, other values are JSON") {
       val raw = HandlerOptions(success = SuccessEnvelope.Raw)
       val text = KHandler.define(raw)(request => request.body.text().map(name => s"<b>$name</b>"))

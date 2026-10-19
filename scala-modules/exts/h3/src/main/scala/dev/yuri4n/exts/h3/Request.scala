@@ -68,7 +68,7 @@ object Request:
       * fail with `ConfigError`, as they do when the h34s Nitro plugin is missing.
       *
       * `requireJsonContentType` has the default of `HandlerOptions`: JSON reads of a fake request
-      * without a `content-type` header answer 415, as they do in a handler.
+      * with a body but without a `content-type` header answer 415, as they do in a handler.
       */
     def fake(
         method: String = "GET",

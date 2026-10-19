@@ -28,8 +28,8 @@ enum ErrorEnvelope:
   * @param bodyLimit
   *   the limit of `request.body.json` and `request.body.text` reads that do not pass their own
   * @param requireJsonContentType
-  *   when `true` (the default), `request.body.json` answers 415 for a body without a
-  *   `Content-Type`. Browsers send no content type for some cross-site requests that need no CORS
+  *   when `true` (the default), `request.body.json` answers 415 for a request that has a body but
+  *   no `Content-Type`. Browsers send no content type for some cross-site requests that need no CORS
   *   preflight (a `fetch` with a byte body, `navigator.sendBeacon`). Set it to `false` only for a
   *   handler whose clients cannot send a content type and that does not change state for a
   *   cookie-authenticated user. `$fetch` and `curl --json` send `application/json`.

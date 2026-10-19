@@ -11,9 +11,11 @@ extension (body: RequestBody)
     def json[A: NativeConverter]: IO[HttpError | InvalidInput, A] =
       body.json[A](body.defaultLimit)
 
+    // claude 2026-10-19: changed: a missing content type is checked after the read, so a request without a body needs none (issue #41)
     /** Decodes a JSON body with a `NativeConverter`.
       *
-      *   - 415 when the content type is neither absent nor JSON;
+      *   - 415 when the content type is not JSON, or when a body is present without a content type
+      *     and `HandlerOptions.requireJsonContentType` is on (the default);
       *   - 413 when the body exceeds `limit` (checked from `Content-Length`, then while streaming);
       *   - 400 when the text is not valid JSON;
       *   - `InvalidInput` (422) when the value does not match the converter's shape, or when a
@@ -22,12 +24,15 @@ extension (body: RequestBody)
       * Any other exception from the converter, also a thrown `SafeError`, is a defect (opaque 500).
       */
     def json[A: NativeConverter](limit: BodyLimit): IO[HttpError | InvalidInput, A] =
-      if !BodyDecoding.acceptsJson(body.contentType, body.requireJsonContentType) then ZIO.fail(BodyDecoding.unsupportedMediaType)
+      if !BodyDecoding.acceptsJson(body.contentType, requireContentType = false) then ZIO.fail(BodyDecoding.unsupportedMediaType)
       else
           readText(body, limit).flatMap { text =>
-            ZIO.fromEither(BodyDecoding.parseJson(text)).flatMap { native =>
-              ZIO.attempt(BodyDecoding.decode[A](native)).orDie.flatMap(ZIO.fromEither(_))
-            }
+            if !BodyDecoding.acceptsJsonBody(body.contentType, body.requireJsonContentType, text) then
+                ZIO.fail(BodyDecoding.unsupportedMediaType)
+            else
+                ZIO.fromEither(BodyDecoding.parseJson(text)).flatMap { native =>
+                  ZIO.attempt(BodyDecoding.decode[A](native)).orDie.flatMap(ZIO.fromEither(_))
+                }
           }
 
     /** The body as UTF-8 text; an absent body is the empty string. 413 above `limit`, which is the

@@ -40,7 +40,7 @@ Request.fake(
 ```
 
 <!-- claude 2026-10-19: changed: `Request.fake` takes `requireJsonContentType` and follows the handler default (issue #41) -->
-`development`, `debug`, `bodyLimit`, `requireJsonContentType` and `runtimeConfig` are also available. Body reads follow the same rules as a real request: the content type, the limit, invalid JSON and schema validation behave the same. Like `HandlerOptions`, `Request.fake` requires a JSON content type by default, so give a request that you read with `json[A]` a `content-type` header. Pass `requireJsonContentType = false` to test a handler that turns the option off.
+`development`, `debug`, `bodyLimit`, `requireJsonContentType` and `runtimeConfig` are also available. Body reads follow the same rules as a real request: the content type, the limit, invalid JSON and schema validation behave the same. Like `HandlerOptions`, `Request.fake` requires a JSON content type by default, so give a fake request with a body that you read with `json[A]` a `content-type` header. Pass `requireJsonContentType = false` to test a handler that turns the option off.
 
 A handler that reads configuration per request with `RuntimeConfig.get(request)` (Kyo) or `ZRuntimeConfig.get(request)` (ZIO) needs the config in the fake request, as JSON text:
 
@@ -54,6 +54,7 @@ Without `runtimeConfig`, those reads fail with `ConfigError("h34s Nitro plugin i
 
 Run the program with an empty head and a scope. This is the core's own test (`HandlerBoundarySuite`):
 
+<!-- claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41) -->
 ```scala
 val handler: Request => Greeting < HandlerEffects = request =>
   for
@@ -62,7 +63,6 @@ val handler: Request => Greeting < HandlerEffects = request =>
     _     <- Response.status(Status.Created)
   yield Greeting(s"${first.name} $again")
 
-// claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41)
 val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = Some("{\"name\":\"Scala\"}"))
 val program = Scope.run(Var.runTuple(ResponseHead.empty)(handler(request)))
 // program: (ResponseHead, Greeting) < (Async & Abort[Throwable])
