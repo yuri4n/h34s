@@ -65,4 +65,18 @@ object NotesHandlerSpec extends ZIOSpecDefault:
           valid.left.toOption.exists(_.getMessage == "connection refused"), afterValid == 1,
         )
       },
+      // claude 2026-10-20: created: a route that never uses Notes never builds the pool (issue #52)
+      test("with NotesLive.lazily, the pool is built only when a note operation runs") {
+        def countingPool(builds: Ref[Int]) = builds.update(_ + 1) *> ZIO.fail(new Exception("connection refused"))
+        for
+          builds <- Ref.make(0)
+          unused <- ZHandler.test(_ => ZIO.serviceWith[Notes](_ => "no note").provideSomeLayer[HandlerEnv](NotesLive.lazily(countingPool(builds))))(Request.fake())
+          beforeUse <- builds.get
+          used <- ZHandler.test(_ => ZIO.serviceWithZIO[Notes](_.list).provideSomeLayer[HandlerEnv](NotesLive.lazily(countingPool(builds))))(Request.fake()).either
+          afterUse <- builds.get
+        yield assertTrue(
+          unused.body == TestResponse.Body.Value("no note"), beforeUse == 0,
+          used.left.toOption.exists(_.getMessage == "connection refused"), afterUse == 1,
+        )
+      },
     )

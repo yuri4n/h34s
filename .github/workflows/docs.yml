@@ -6,6 +6,8 @@ on:
     paths:
       - docs/**
       - examples/nuxt/scala/**
+      # claude 2026-10-20: created: the project tour reads two regions of this file (issue #52)
+      - examples/nuxt/nuxt.config.ts
       - .gitmodules
       - pnpm-workspace.yaml
       - pnpm-lock.yaml
@@ -17,6 +19,8 @@ on:
     paths:
       - docs/**
       - examples/nuxt/scala/**
+      # claude 2026-10-20: created: the project tour reads two regions of this file (issue #52)
+      - examples/nuxt/nuxt.config.ts
       - .gitmodules
       - pnpm-workspace.yaml
       - pnpm-lock.yaml
