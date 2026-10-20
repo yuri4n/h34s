@@ -253,7 +253,7 @@ A cloud VM has about 4 vCPUs, 16 GB of memory, and 30 GB of disk. h34s builds ar
   gh api repos/yuri4n/h34s/issues/<number>/comments -f body='Comment text'
   ```
 
-- **Private GitHub Packages.** Only the downstream `yurian.land` application and `node scripts/check-consumers.mjs --published` need to read the private `maven.pkg.github.com/yuri4n/h34s` registry. This is not tested in a cloud session. In the session, `GITHUB_TOKEN` holds the placeholder `proxy-injected`, and it is not known whether the GitHub proxy supplies real credentials for Maven requests to `maven.pkg.github.com`.
+- **GitHub Packages.** Only the downstream `yurian.land` application and `node scripts/check-consumers.mjs --published` need to read the `maven.pkg.github.com/yuri4n/h34s` registry. Its packages are public, but every read needs a token. This is not tested in a cloud session. In the session, `GITHUB_TOKEN` holds the placeholder `proxy-injected`, and it is not known whether the GitHub proxy supplies real credentials for Maven requests to `maven.pkg.github.com`. <!-- claude 2026-10-20: changed: the Maven registry is public with the repository (ADR-0013) -->
 - **Personal skills.** Skills from your own `~/.claude`, such as `functional-design` and `scala-functional-design`, are not part of this repository. A cloud session loads them only when you enable them in your claude.ai settings.
 
 ## Verification record
@@ -272,4 +272,4 @@ On 2026-10-19, in a cloud session with **Full** network access (Ubuntu 24.04.5, 
 
 On 2026-10-19, a later cloud session built the example for production and ran its Notes routes and the kyo-sql guide code against the VM's PostgreSQL 16; see the [development guide](../development.md#cloud-session-production-build-and-postgresql-2026-10-19). That build needs a complete install: after the hook's `--ignore-scripts` install, run `pnpm install --frozen-lockfile && pnpm rebuild`. The install runs `nuxt prepare`, and `pnpm rebuild` builds the `better-sqlite3` addon. <!-- claude 2026-10-19: created: the example's Nuxt build is verified -->
 
-Not verified: the Trusted access level, the cached setup script, a non-root user, arm64, private GitHub Packages, Docker Compose, and Nix. <!-- claude 2026-10-19: changed: the example's Nuxt build is no longer listed -->
+Not verified: the Trusted access level, the cached setup script, a non-root user, arm64, GitHub Packages reads, Docker Compose, and Nix. <!-- claude 2026-10-20: changed: GitHub Packages is no longer called private (ADR-0013) -->

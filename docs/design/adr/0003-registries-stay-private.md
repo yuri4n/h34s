@@ -2,7 +2,7 @@
 
 <!-- claude 2026-10-20: created: title and status -->
 
-- **Status:** accepted
+- **Status:** superseded by [ADR-0013](0013-public-repository-and-registries.md) <!-- claude 2026-10-20: changed: superseded by ADR-0013 -->
 - **Date:** 2026-10-20
 - **Decided by:** the maintainer, by accepting the recommendation ("just take the recommended decisions", 2026-10-20)
 - **Source:** [issue #54](https://github.com/yuri4n/h34s/issues/54), "Decisions for the maintainer", question 7; the [scaffolding memo](https://github.com/yuri4n/h34s/blob/1367f5b11c9bbc12da2480c6c22d3640ff44f960/docs/design/scaffolding-options.md), section 2.7 and section 8, question 7; [issue #21](https://github.com/yuri4n/h34s/issues/21) and its comment of 2026-10-19.
