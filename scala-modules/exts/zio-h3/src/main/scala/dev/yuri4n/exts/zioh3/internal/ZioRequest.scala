@@ -6,17 +6,19 @@ import dev.yuri4n.exts.zioh3.HandlerEnv
 import kyo.{Frame, Scope, Sync, Var, `<`}
 import zio.{Exit, Runtime, UIO, Unsafe, ZEnvironment, ZIO}
 
+// claude 2026-10-19: changed: value, Unit and interrupted programs log a failed close and keep their Exit (issue #40)
 /** One ZIO handler program inside the Kyo request worker.
   *
   * The program runs on one ZIO fiber with its own request `Scope` and `ZState[ResponseHead]`:
   *
-  *   - value and Unit bodies: the fiber closes the request scope itself, so a dying finalizer turns
-  *     the response into a 500 (it surfaces in the Exit);
+  *   - value and Unit bodies: the fiber closes the request scope itself; a failed close is logged
+  *     and does not change the program's Exit, as in Kyo;
   *   - stream bodies: the scope stays open while the core sends the stream; a Kyo request finalizer
   *     closes it after the stream ended or was cancelled (the Kyo side creates and always closes
   *     the scope, whatever the fiber's Exit says);
   *   - interruption (client disconnect): the Kyo finalizer interrupts the fiber and waits until the
-  *     request scope is closed, so ZIO finalizers finish before the core settles the response.
+  *     request scope is closed, so ZIO finalizers finish before the core settles the response; a
+  *     failed close is logged and the fiber's Exit stays the interruption.
   *
   * The head is copied into the core's `Var[ResponseHead]` before the Exit is re-raised, so the
   * failure renderer sees what the program set.
@@ -59,11 +61,22 @@ private[exts] object ZioRequest:
           case Exit.Success((exit, head)) if streamed && exit.isSuccess =>
             // The scope stays open while the core sends the stream; the Kyo finalizer closes it.
             afterProgram.as(Completed(head, exit))
+          // claude 2026-10-19: changed: a failing finalizer is logged and keeps the program's Exit (issue #40)
           case Exit.Success((exit, head))                               =>
-            scope.close(exit).exit.map(closed => Completed(head, afterClose(exit, closed)))
+            closeAndLog(scope, exit).as(Completed(head, exit))
+          // claude 2026-10-19: changed: a failing finalizer during an interruption is logged too (issue #40 review)
           case Exit.Failure(cause)                                      =>
-            scope.close(Exit.failCause(cause)).as(Completed(ResponseHead.empty, Exit.failCause(cause)))
+            closeAndLog(scope, Exit.failCause(cause)).as(Completed(ResponseHead.empty, Exit.failCause(cause)))
         }
+      }
+
+    // claude 2026-10-19: created: closes the request scope and logs a failed close, interruptions included (issue #40 review)
+    /** Closes `scope` and logs a failed close. Never fails: the log runs outside the fiber's
+      * failure path, so a cause that cannot be rendered cannot turn the response into a 500.
+      */
+    private def closeAndLog(scope: zio.Scope.Closeable, exit: Exit[Any, Any]): UIO[Unit] =
+      scope.close(exit).exit.flatMap { closed =>
+        ZIO.attempt(closed.causeOption.foreach(ZioCall.logFinalizerFailure(_, includeInterrupts = true))).ignore
       }
 
     private def stateful[B](
@@ -74,11 +87,4 @@ private[exts] object ZioRequest:
         // A program that throws while it is built is a defect, never an approved error.
         ZIO.suspendSucceed(program).exit.zip(ZIO.getState[ResponseHead]),
       ).provideEnvironment(ZEnvironment[zio.Scope](scope))
-
-    /** A finalizer that dies makes the request fail, also after a success or a safe failure. */
-    private def afterClose[B](exit: Exit[Throwable, B], closed: Exit[Nothing, Unit]): Exit[Throwable, B] =
-      (exit, closed) match
-          case (_, Exit.Success(_))                         => exit
-          case (Exit.Success(_), Exit.Failure(closeCause))  => Exit.failCause(closeCause)
-          case (Exit.Failure(cause), Exit.Failure(closeCause)) => Exit.failCause(cause ++ closeCause)
 end ZioRequest

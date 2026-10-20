@@ -3,10 +3,29 @@
 <!-- claude 2026-10-19: changed: one guide for every upgrade path, newest first (issue #41 review) -->
 Each section lists every removed or renamed API with its replacement. Start with the section for the version you use now.
 
-<!-- claude 2026-10-19: created: upgrade section for the next release (issue #41); changed: the absent-body rule and the client list (review) -->
+<!-- claude 2026-10-19: created: upgrade section for the next release (issues #41 and #40); changed: the absent-body rule and the client list (review) -->
 ## Upgrade from 0.2.0-alpha.1 to 0.3.0-alpha.1
 
 **Status.** `0.3.0-alpha.1` is not released yet. This section collects its changes while they land on `main`.
+
+### Mount handlers from Scala
+
+<!-- claude 2026-10-20: changed: moved from the 0.1-to-0.2 path -->
+
+Mount your handlers from Scala, then delete the route files:
+
+1. Add `.at(Route.get("/api/notes"))` (with the route and method of the file) to each exported handler.
+2. Remove `entries` from `h34s.config.mjs`, or keep them for outputs that still have route files.
+3. Link with `h34s-scala dev`. It prints the routes it found and writes `h34s-routes.json` and the `.d.ts` files.
+4. Delete the `server/api` files that re-export the linked modules, and the hand-written `declare module` types for them. A route file and `.at` for the same route register the handler twice.
+
+Route files keep working if you want to move later. See [routes and typed `$fetch`](routes.md).
+
+### Non-finite numbers are an opaque 500
+
+<!-- claude 2026-10-20: changed: moved from the 0.1-to-0.2 path -->
+
+A value body that contains `NaN` or an infinite number (`Double`, `Float`) is now the opaque 500. `0.1.0-alpha.1` and `0.2.0-alpha.1` sent these numbers as `null`. If a value can be non-finite, return an `Option` or a string for it instead.
 
 ### JSON reads require a content type
 
@@ -16,6 +35,19 @@ Each section lists every removed or renamed API with its replacement. Start with
 2. Make each client send `content-type: application/json`. This is the recommended fix.
 3. If a client cannot send it, keep the old behavior for that handler only: `KHandler.define(HandlerOptions(requireJsonContentType = false))(program)`, or the same options with `ZHandler.define`. Do not do this for a cookie-authenticated handler that changes state; see [cross-site requests](kyo.md#cross-site-requests).
 4. In unit tests, add `headers = Map("content-type" -> "application/json")` to each `Request.fake` with a body that you read with `json[A]`. `Request.fake` follows the same default; pass `requireJsonContentType = false` to test a handler that turns the option off.
+
+<!-- claude 2026-10-19: created: the #40 subsection (issue #40); changed: the streaming-before-return case and the request-scope boundary (review) -->
+### A dying ZIO finalizer keeps the response
+
+In `0.2.0-alpha.1`, a ZIO finalizer that died after a value or `Unit` program turned the response into an opaque 500, and after a safe failure it replaced the approved error with the opaque 500. Now the ZIO adapter behaves like Kyo: it logs `h34s: a ZIO finalizer failed` with `Cause.prettyPrint` on the server, and the client gets the response that your program produced. This also applies to a streaming handler that fails before it returns its stream. Streamed bodies already behaved this way.
+
+You do not need to change code that compiles. Check your handlers if you relied on the old 500:
+
+1. Find cleanup in `ZIO.acquireRelease`, `ZIO.addFinalizer` or a scoped `ZLayer` that must succeed for the response to be correct, for example a commit in a finalizer.
+2. Move that step into the program, before the value is returned. A failure there follows the failure rule as before.
+3. Watch the server log for `h34s: a ZIO finalizer failed` to see finalizers that fail.
+
+The rule applies to the request scope. A release that dies inside your own `ZIO.scoped` block, or inside a scoped layer that you provide inside the handler, fails the program under ZIO's rules and answers 500, as before.
 
 <!-- claude 2026-10-19: changed: heading for the 0.1-to-0.2 path, its steps and rollback nested one level down (issue #41 review) -->
 ## Upgrade from 0.1.0-alpha.1 to 0.2.0-alpha.1
@@ -152,9 +184,6 @@ The wire format changed. Update your `fetch` code, and remove the TypeScript int
 | A safe error | `{"errors": ["message"]}` | `{"errors": [{"message": "..."}]}`, with `path` for schema entries |
 | An internal error | `{"errors": ["Internal server error"]}`, plus top-level `debug` in development | `{"errors": [{"message": "Internal server error"}]}`; in development or debug mode the entry carries `debug.cause` |
 
-<!-- claude 2026-10-19: changed: added the change for NaN and infinite numbers -->
-A value body that contains `NaN` or an infinite number (`Double`, `Float`) is now the opaque 500. `0.1.0-alpha.1` and `0.2.0-alpha.1` sent these numbers as `null`. If a value can be non-finite, return an `Option` or a string for it instead.
-
 To keep the old success shape for a handler, pass `HandlerOptions(success = SuccessEnvelope.Raw)`. A `Raw` string is sent as `text/plain; charset=utf-8` and any other value as JSON text with `application/json`, unless you set a content type; h3 no longer guesses (it sent strings as `text/html`). There is no option for the old string-array errors.
 
 Body problems now have their own statuses: 415 for a non-JSON content type, 413 for a body above the limit (1 MiB by default), 400 for invalid JSON, and 422 for a body that does not match the converter or schema. The old schema reader answered 422 for invalid JSON and `Request body does not match schema` for every rejection. A plain `readBody` failure used to be an opaque 500.
@@ -170,16 +199,6 @@ Body problems now have their own statuses: 415 for a non-JSON content type, 413 
 Keep `@yuri4n/h34s-nuxt` in `modules`. Its Nitro plugin is now `runtime/h34s.mjs` and supplies the development and debug flags, runtime config, storage and the close hook. The module registers it for you. If you registered `runtime/development.mjs` yourself, remove that entry; the old file still re-exports the new plugin for one release.
 
 The module also declares `runtimeConfig.h34s.debug: false`, so `NUXT_H34S_DEBUG=true` turns on diagnostics at runtime. Nuxt's own `debug` option does not turn them on. Keep debug mode off in production; see [debugging](debugging.md).
-
-<!-- claude 2026-10-19: changed: merged main's wording with the route-generation additions -->
-Mount your handlers from Scala, then delete the route files:
-
-1. Add `.at(Route.get("/api/notes"))` (with the route and method of the file) to each exported handler.
-2. Remove `entries` from `h34s.config.mjs`, or keep them for outputs that still have route files.
-3. Link with `h34s-scala dev`. It prints the routes it found and writes `h34s-routes.json` and the `.d.ts` files.
-4. Delete the `server/api` files that re-export the linked modules, and the hand-written `declare module` types for them. A route file and `.at` for the same route register the handler twice.
-
-Route files keep working if you want to move later. See [routes and typed `$fetch`](routes.md).
 
 Use the package version that matches your Scala libraries: `@yuri4n/h34s-nuxt@0.2.0-alpha.1`. The `0.1.0-alpha.1` package lacks the new plugin records, and `RuntimeConfig` and `KHubKv.mount` then fail with `ConfigError`.
 

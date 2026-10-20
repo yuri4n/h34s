@@ -134,9 +134,11 @@ The private `yurian.land` application consumes the published packages in its pul
 
 ### Known gaps
 
+<!-- claude 2026-10-19: changed: the "Finalizer failures" item, ZIO follows Kyo (issue #40) -->
+
 - **ZIO YAML on Scala.js.** zio-json-yaml is published for the JVM only (no `_sjs1_3` artifact on Maven Central), so a ZIO model has no YAML codec in Nitro. Kyo models get YAML from kyo-schema-yaml.
 - **ZIO Schema shapes.** The ZIO bridge supports strings, booleans, `Int`, `Double`, records, options, sequences, lazy and transformed schemas. Enums, sealed traits and maps are not supported yet. See [schemas](schema.md).
-- **Kyo finalizer errors** are logged and do not change the response; ZIO finalizer defects turn a value response into a 500. See [lifetimes](lifetimes.md).
+- **Finalizer failures** are logged and do not change the response, in Kyo and in ZIO. Before the next release (provisionally `0.3.0-alpha.1`), a dying ZIO finalizer turned a value response into a 500. See [lifetimes](lifetimes.md).
 - **Build memory.** The demo's `nuxt build` keeps `--max-old-space-size=8192`. Nitro bundles the linked Scala.js twice (once for the prerendered Nuxt Content route, once for the server) with its source maps. Without `scalaPrerender: 'stub'`, a 4096 MiB heap limit runs out of memory, and a 6144 MiB limit passed in one run. The demo now sets `scalaPrerender: 'stub'`: with it, a 4096 MiB limit passed. With an equivalent temporary hook, Node's 2240 MiB default on a 15.7 GiB cloud VM ran out of memory. Without the prerendered route, without server source maps, or with one application, the build also passed with a 4096 MiB heap limit; see the [heap measurement](#heap-measurement-2026-10-19). The scripts keep 8 GiB as a margin. A single-runtime application links less code, but check your own build. <!-- claude 2026-10-19: changed: the measured cause and the scalaPrerender option; the 2240 MiB run used a temporary hook (review F3) -->
 
 ## Profile `alpha-0.1.0` (published)
