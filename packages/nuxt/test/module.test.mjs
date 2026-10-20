@@ -413,3 +413,44 @@ test('rejects an unknown scalaPrerender value with a TypeError before registerin
     )
   }
 })
+
+// claude 2026-10-20: created: layout B, the development source maps embed the Scala sources of the sbt build (ADR-0009)
+test('layout B: development source maps embed Scala sources from sbtRoot, outside the Nuxt root', async (t) => {
+  const repository = await mkdtemp(join(tmpdir(), 'h34s-nuxt-layout-b-'))
+  t.after(() => rm(repository, { recursive: true, force: true }))
+  const web = join(repository, 'web')
+  const scala = join(repository, 'scala-server/src/main/scala/Hello.scala')
+  const linked = join(web, 'server/.scala/hello.js')
+  await mkdir(join(repository, 'scala-server/src/main/scala'), { recursive: true })
+  await mkdir(join(web, 'server/.scala'), { recursive: true })
+  await writeFile(join(repository, 'build.sbt'), '')
+  await writeFile(join(web, 'h34s.config.mjs'), `export default { sbtRoot: '..', modules: [{ project: 'server', output: 'server/.scala', entries: ['hello.js'] }] }`)
+  await writeFile(scala, 'object Hello:\n  def probe = new RuntimeException("h34s source map probe")\n')
+  await writeFile(linked, 'export function probe() { return new Error("h34s source map probe") }\n')
+  // A source of another repository: its path stays, its content is not read.
+  const other = join(tmpdir(), 'h34s-not-in-the-build/Other.scala')
+  await writeFile(`${linked}.map`, JSON.stringify({
+    version: 3,
+    file: 'hello.js',
+    names: [],
+    sources: [pathToFileURL(scala).href, pathToFileURL(other).href],
+    mappings: 'AAAA',
+  }))
+  let configure
+  await h34sNuxt(undefined, {
+    options: { rootDir: web },
+    hook(name, callback) {
+      if (name === 'nitro:config')
+        configure = callback
+    },
+  })
+  const nitro = { dev: true }
+  configure(nitro)
+  const maps = nitro.rollupConfig.plugins.find(plugin => plugin.name === 'h34s-scala-source-maps')
+  const loaded = await maps.load.call({ addWatchFile() {} }, linked)
+  assert.deepEqual(loaded.map.sources, [scala, other])
+  assert.deepEqual(loaded.map.sourcesContent, [
+    'object Hello:\n  def probe = new RuntimeException("h34s source map probe")\n',
+    null,
+  ])
+})

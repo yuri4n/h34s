@@ -90,3 +90,18 @@ test('leaves unrelated JS and virtual modules to Nitro', async (t) => {
   assert.equal(await f.load('\0virtual'), null)
   assert.deepEqual(f.watched, [])
 })
+
+// claude 2026-10-20: created: sourceRoots, such as the sbt root of layout B or C (ADR-0009)
+test('embeds Scala sources inside sourceRoots, and skips a source root that does not exist', async (t) => {
+  const f = await fixture(t)
+  const build = await mkdtemp(join(tmpdir(), 'h34s-source-maps-build-'))
+  t.after(() => rm(build, { recursive: true, force: true }))
+  const scala = join(build, 'Server.scala')
+  await writeFile(scala, 'object Server\n')
+  await writeFile(`${f.linked}.map`, JSON.stringify({ version: 3, sources: [pathToFileURL(scala).href, pathToFileURL(f.scala).href], names: [], mappings: 'AACA' }))
+  const load = sourceRoots => scalaSourceMaps(f.root, undefined, sourceRoots).load.call({ addWatchFile() {} }, f.linked)
+  const project = await readFile(f.scala, 'utf8')
+  assert.deepEqual((await load([build])).map.sourcesContent, ['object Server\n', project])
+  assert.deepEqual((await load([])).map.sourcesContent, [null, project], 'without the source root, only the project root embeds')
+  assert.deepEqual((await load([join(build, 'missing')])).map.sourcesContent, [null, project])
+})

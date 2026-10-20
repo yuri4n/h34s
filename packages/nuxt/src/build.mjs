@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { lstatSync, mkdirSync, realpathSync, rmSync, statSync, watch } from 'node:fs'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path' // claude 2026-10-20: changed: dirname and join for sbtRoot (ADR-0009)
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { writeRoutes } from './routes.mjs'
@@ -34,10 +34,22 @@ function relativePath(value, label) {
   return value
 }
 
+// claude 2026-10-20: created: the file and the written sbtRoot of each config that loadConfig returned, for messages (ADR-0009)
+const loadedConfigs = new WeakMap()
+
 /** Keep app-owned settings in one file shared by the CLI and Nuxt module. */
 export function defineConfig(config) {
   if (!config || !Array.isArray(config.modules) || config.modules.length === 0)
     throw new TypeError('h34s config requires at least one Scala.js module')
+  // claude 2026-10-20: created: the optional sbtRoot key (ADR-0009)
+  if (
+    config.sbtRoot !== undefined
+    && (typeof config.sbtRoot !== 'string' || !config.sbtRoot || config.sbtRoot.includes('\0'))
+  ) {
+    throw new TypeError(
+      'sbtRoot must be a nonempty path to the sbt build, relative to the config file, or omitted',
+    )
+  }
   const outputs = []
   for (const module of config.modules) {
     if (
@@ -95,7 +107,44 @@ export async function loadConfig({
   const path = resolve(root, configFile)
   if (!statSync(path, { throwIfNoEntry: false })?.isFile())
     throw new Error(`Missing h34s config: ${path}`)
-  return defineConfig((await import(pathToFileURL(path).href)).default)
+  const config = defineConfig((await import(pathToFileURL(path).href)).default)
+  // claude 2026-10-20: changed: resolves sbtRoot against the config file's directory, default '.' (ADR-0009)
+  const loaded = { ...config, sbtRoot: resolve(dirname(path), config.sbtRoot ?? '.') }
+  loadedConfigs.set(loaded, { file: path, sbtRoot: config.sbtRoot })
+  return loaded
+}
+
+// claude 2026-10-20: created: the sbt build directory, checked before sbt starts or any output is removed (ADR-0009)
+/**
+ * The directory where the CLI runs sbt: `config.sbtRoot` resolved against `root` (`loadConfig`
+ * has already made it absolute, against the config file's directory). It must hold `build.sbt` or
+ * a `project/` directory, as the sbt launcher requires.
+ */
+function sbtDirectory(root, config) {
+  const directory = resolve(root, config.sbtRoot ?? '.')
+  const found = statSync(directory, { throwIfNoEntry: false })
+  let problem
+  if (!found)
+    problem = 'does not exist'
+  else if (!found.isDirectory())
+    problem = 'is not a directory'
+  else if (
+    !statSync(join(directory, 'build.sbt'), { throwIfNoEntry: false })?.isFile()
+    && !statSync(join(directory, 'project'), { throwIfNoEntry: false })?.isDirectory()
+  ) {
+    problem = 'has no build.sbt and no project/ directory'
+  }
+  if (!problem)
+    return directory
+  const loaded = loadedConfigs.get(config)
+  const written = loaded ? loaded.sbtRoot : config.sbtRoot
+  const key = written === undefined
+    ? `sbtRoot is not set, so the sbt build is the config file's directory, ${directory}, which`
+    : `sbtRoot '${written}' resolves to ${directory}, which`
+  const fix = loaded
+    ? `Set sbtRoot in ${loaded.file} to the directory of your sbt build, relative to that file, for example '..'.`
+    : 'Set sbtRoot in the h34s config to the directory of your sbt build, relative to the app root, or load the config with loadConfig.'
+  throw new Error(`${key} ${problem}. ${fix}`)
 }
 
 function outputPaths(root, config) {
@@ -147,6 +196,7 @@ export function linkScala({
     throw new TypeError('Scala link mode must be build, dev or watch')
   defineConfig(config)
   root = resolve(root)
+  const sbt = sbtDirectory(root, config) // claude 2026-10-20: created: the sbt build, checked before any output is removed (ADR-0009)
   const directories = outputPaths(root, config)
   if (mode === 'build') {
     for (const directory of directories)
@@ -167,7 +217,7 @@ export function linkScala({
   ]
   const windows = process.platform === 'win32'
   const result = run(windows ? 'sbt.bat' : 'sbt', args, {
-    cwd: root,
+    cwd: sbt, // claude 2026-10-20: changed: runs sbt in the sbt build (ADR-0009)
     stdio: 'inherit',
     ...(windows ? { shell: true } : {}),
   })
@@ -199,11 +249,12 @@ export function watchScala({
 } = {}) {
   defineConfig(config)
   root = resolve(root)
+  const sbt = sbtDirectory(root, config) // claude 2026-10-20: created: the sbt build (ADR-0009)
   const directories = outputPaths(root, config)
   const tasks = [...new Set(config.modules.map(module => `${module.project ? `${module.project}/` : ''}fastLinkJS`))]
   const windows = process.platform === 'win32'
   const child = start(windows ? 'sbt.bat' : 'sbt', ['-Dsbt.supershell=false', '-batch', `~;${tasks.join(';')}`], {
-    cwd: root,
+    cwd: sbt, // claude 2026-10-20: changed: runs sbt in the sbt build (ADR-0009)
     stdio: 'inherit',
     ...(windows ? { shell: true } : {}),
   })

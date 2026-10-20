@@ -42,7 +42,14 @@ export function scalaPrerenderStub(
   projectRoot: string,
   outputDirectories?: string[],
 ): PrerenderStubPlugin
+// claude 2026-10-20: changed: sourceRoots, the other directories whose Scala sources are embedded (ADR-0009)
+/**
+ * Supplies the linked Scala.js source maps to Rollup. A map embeds the content of each `.scala`
+ * source inside `projectRoot` or one of `sourceRoots` (relative to `projectRoot`, or absolute),
+ * such as the sbt root; it keeps the path of every other source without reading it.
+ */
 export function scalaSourceMaps(
   projectRoot: string,
   outputDirectories?: string[],
+  sourceRoots?: string[],
 ): SourceMapPlugin

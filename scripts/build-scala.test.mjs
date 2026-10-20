@@ -29,6 +29,7 @@ export default handler
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'h34s-production-link-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
+  writeFileSync(join(root, 'build.sbt'), '') // claude 2026-10-20: created: the repository root is the sbt build (ADR-0009)
   for (const name of ['.scala', '.scala-kyo']) {
     mkdirSync(join(root, 'examples/nuxt/server', name), { recursive: true })
     writeFileSync(
