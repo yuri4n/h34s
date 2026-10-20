@@ -44,7 +44,7 @@ pnpm add -D /tmp/yuri4n-h34s-nuxt-0.2.0-alpha.1.tgz
 
 The repository example uses the local package. A packed-tarball check verifies that consumers receive the runtime plugin and helpers without referencing files outside the package. A local tarball path is a review setup; use the pinned registry dependency for an independently installable application.
 
-Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, routes mounted from the route manifest (typed, and added while Nuxt runs), and a production bundle that runs without the original generated files.
+Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, routes mounted from the route manifest (typed, and added while Nuxt runs), and a production bundle that runs without the original generated files. It also builds the consumer with `scalaPrerender: 'stub'`: the prerender bundle must get the stub, the server output must keep the linked code, and a prerendered route that calls a Scala.js route must stop the build. <!-- claude 2026-10-19: changed: the scalaPrerender checks (review F2) -->
 
 For `0.2.0-alpha.1`, the [successful npm release workflow](https://github.com/yuri4n/h34s/actions/runs/39144809255) downloaded the published archive with registry authentication, compared its bytes with the tested tarball, and installed that download offline in a clean consumer. It checked the CLI and all three JavaScript entry points without installing Nuxt as a peer. The [release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1) attaches the tarball and `registry.json`, which records its stable registry URL and integrity. The [`0.1.0-alpha.1` workflow](https://github.com/yuri4n/h34s/actions/runs/38937318206) ran the same checks for that version.
 
@@ -134,11 +134,36 @@ After each link, `dev`, `build` and `watch` load the linked modules in a separat
 
 For production, `pnpm build` clears each generated output directory, runs `fullLinkJS`, verifies the configured entry files, writes the route manifests and declarations, and only then starts the Nuxt build. A linker failure, a missing entry, an output without handlers, or two handlers for the same route stops the command. The Nuxt module alone does not run a production link; keep that ordering in the application build script.
 
-Large linked outputs make Nitro's production bundling memory-hungry. The repository demo, which links a Kyo and a ZIO application, runs `nuxt build` with `node --max-old-space-size=8192`, because Nitro bundles the linked Scala.js twice when a route is prerendered. If your build stops with a JavaScript heap error, raise the limit the same way, or remove one of the causes in the [development guide](development.md#production-build). <!-- claude 2026-10-19: changed: the demo's option and the measured cause -->
-
 The CLI accepts `--root <directory>` and `--config <file>` for projects with a different layout. Configure an alternate file in Nuxt with `modules: [['@yuri4n/h34s-nuxt', { configFile: 'custom.mjs' }]]`. Keep the Nuxt integration and CLI pointed at the same application configuration. sbt must be available on `PATH`.
 
-The `./build` entry point also exports `loadConfig`, `buildScala`, `linkScala`, `watchScala`, `writeRoutes` (collect routes and write the manifests and declarations after your own link step) and `readRoutes` for custom orchestration. The `./rollup` entry point exports `scalaDevModules` and `scalaSourceMaps` for custom integrations. Ordinary Nuxt applications use the module above; they do not need to wire these helpers individually.
+The `./build` entry point also exports `loadConfig`, `buildScala`, `linkScala`, `watchScala`, `writeRoutes` (collect routes and write the manifests and declarations after your own link step) and `readRoutes` for custom orchestration. The `./rollup` entry point exports `scalaDevModules`, `scalaSourceMaps` and `scalaPrerenderStub` (the plugin behind `scalaPrerender: 'stub'`) for custom integrations. Ordinary Nuxt applications use the module above; they do not need to wire these helpers individually. <!-- claude 2026-10-19: changed: scalaPrerenderStub export -->
+
+Large linked outputs make Nitro's production bundling memory-hungry. When your application prerenders a route, Nitro 2.13.1 bundles the linked Scala.js twice in one build process: once for its prerenderer and once for the server output. The repository demo, which links a Kyo and a ZIO application, sets the `scalaPrerender: 'stub'` option below and still runs `nuxt build` with `node --max-old-space-size=8192`. If your build stops with a JavaScript heap error, raise the limit the same way, try the option, or remove one of the causes in the [development guide](development.md#production-build). <!-- claude 2026-10-19: changed: the scalaPrerender option as a remedy -->
+
+### Keep Scala.js out of the prerender bundle
+
+Set the module option `scalaPrerender: 'stub'` in `nuxt.config.ts` when you prerender routes and none of them needs Scala.js: <!-- claude 2026-10-19: created: the scalaPrerender option, example first (issue #30, review F4) -->
+
+```ts
+export default defineNuxtConfig({
+  modules: [['@yuri4n/h34s-nuxt', { scalaPrerender: 'stub' }]],
+})
+```
+
+The option decides what Nitro's prerender bundle gets from your Scala.js outputs in a production build: <!-- claude 2026-10-19: created: the table's introduction -->
+
+| Value | Prerender bundle | Server output (`.output/server`) <!-- claude 2026-10-19: created: the table header --> |
+| --- | --- | --- |
+| `'bundle'` (the default) | The linked Scala.js | The linked Scala.js <!-- claude 2026-10-19: created: the default --> |
+| `'stub'` | One stub that answers 501 | The linked Scala.js <!-- claude 2026-10-19: created: the stub --> |
+
+With `'stub'`, every import of a file in a configured output directory resolves to the stub while Nitro builds its prerenderer. Every export that your code imports from it is an h3 event handler that throws a 501 error with the status message `Scala.js is not bundled for prerendering (h34s scalaPrerender: 'stub')`. h3 treats it as a handled error, so Nitro does not log it as unhandled. The option changes nothing when no route is prerendered, in `nuxt dev`, or in the server output. The stub covers the output directories in `h34s.config.mjs`; Scala.js that your code imports from another directory is still bundled. <!-- claude 2026-10-19: created: what the stub does; the 501 is a handled h3 error (review F2) -->
+
+For example, Nuxt Content prerenders its database dump, which runs no Scala.js code, so the demo sets `'stub'`. Keep the default when a prerendered page fetches data from a Scala.js route. While Nuxt prerenders that page, the request answers 501 instead of running your handler, and h34s prints a `[h34s]` warning that names the request by its method and path; it leaves out the query string and fragment, which can hold tokens. After prerendering, the build stops with an error that lists these requests: each one once, sorted, at most 20, and then the number of the others. The `[h34s]` warnings name every request. Without that error, a page that catches the 501, as `useFetch` does, would be saved with its error state and the build would pass. Nuxt 4 shares `useFetch` and `useAsyncData` results, failed ones too, between the pages it prerenders (`experimental.sharedPrerenderData`), so other pages that use the same data, for example through a shared layout or component, may hold the same error; check every prerendered page that renders a listed call. When Nitro stops the build itself, because a prerendered route answered with an error, h34s logs the list as an error and Nitro shows its own summary of the failed routes. With `nitro.prerender.failOnError: false` (Nuxt sets it to `true`), h34s only warns, and those pages keep their error state. <!-- claude 2026-10-19: created: when to use the stub, and the build error for a prerendered request (review F1); what the list shows, shared data, and Nitro's own failure (review F1, F3, F4); no query strings in the log (Codex review) -->
+
+A Nitro plugin that calls Scala.js code at startup gets the stub in the prerenderer too. The stub then throws while Nitro loads the prerender bundle, before any page is prerendered, so the build stops with the stub's own message, not with the list of requests. `nuxt generate` prerenders every page that it finds by following links from `/`, so check those pages before you turn the option on. <!-- claude 2026-10-19: created: plugins and nuxt generate; a plugin stops the build before the list (review F5) -->
+
+Any other value stops Nuxt with a `TypeError` that names the option. The option removes the second copy of the Scala.js, not every heap problem. In the demo on a 15.7 GiB cloud VM, a build with the option passed with a 4096 MiB heap limit, and prerendering took 3.6 seconds instead of 47 to 59. At Node's default limit on that VM, 2240 MiB, a build with an equivalent temporary hook still ran out of memory while it built the server output. The [development guide](development.md#production-build) has the measurements. <!-- claude 2026-10-19: created: validation and the measured effect (review F3) -->
 
 ## Keep application policy in the application
 

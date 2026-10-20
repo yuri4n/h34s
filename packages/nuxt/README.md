@@ -58,8 +58,13 @@ After each link, the CLI loads the linked modules in a separate Node process and
 
 `build` clears previous output, runs `fullLinkJS`, verifies every configured entry, and writes the route manifests and declarations before succeeding. Keep this step before Nuxt production builds. The Nuxt module does not run a production link automatically.
 
-The CLI accepts `--root <directory>` and `--config <file>`. The Nuxt module accepts `{ configFile: 'custom.mjs' }` as its module options. Point both tools at the same application config; sbt is resolved from `PATH`.
+The CLI accepts `--root <directory>` and `--config <file>`. Point the CLI and the Nuxt module at the same application config; sbt is resolved from `PATH`. <!-- claude 2026-10-19: changed: module options moved to their own list -->
 
-`./build` exports `defineConfig`, `loadConfig`, `buildScala`, `linkScala`, `watchScala`, `writeRoutes`, and `readRoutes`. `./rollup` exports `scalaDevModules` and `scalaSourceMaps` for custom integrations. Most Nuxt applications need only the module and CLI.
+The Nuxt module accepts these options, for example `modules: [['@yuri4n/h34s-nuxt', { scalaPrerender: 'stub' }]]`: <!-- claude 2026-10-19: created: module options list -->
+
+- `configFile`: the h34s config file, relative to the application root. The default is `h34s.config.mjs`. <!-- claude 2026-10-19: created: moved from the paragraph above -->
+- `scalaPrerender`: `'bundle'` (the default) or `'stub'`. With `'stub'`, a production build keeps the linked Scala.js out of Nitro's prerender bundle, so a build that prerenders routes bundles the Scala.js once, for the server output. While Nuxt prerenders, every Scala.js route then answers 501. Use it only when no prerendered page or Nitro plugin needs Scala.js. If a prerendered page calls a Scala.js route anyway, the build stops after prerendering with a list of those requests, because a page that catches the 501, as `useFetch` does, would be saved with its error state. With `nitro.prerender.failOnError: false`, h34s only warns. Any other value is a `TypeError`. The repository's `docs/npm-tooling.md` guide explains the trade-off. <!-- claude 2026-10-19: created: the scalaPrerender option and its build error (review F1) -->
+
+`./build` exports `defineConfig`, `loadConfig`, `buildScala`, `linkScala`, `watchScala`, `writeRoutes`, and `readRoutes`. `./rollup` exports `scalaDevModules`, `scalaSourceMaps`, and `scalaPrerenderStub` for custom integrations. Most Nuxt applications need only the module and CLI. <!-- claude 2026-10-19: changed: scalaPrerenderStub export -->
 
 The combined h34s profile uses Node 24. Windows, Nix/NixOS, and additional deployment targets need separate validation.
