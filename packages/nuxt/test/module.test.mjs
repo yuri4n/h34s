@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises' // claude 2026-10-19: changed: mkdir for the scalaPrerender tests
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 // The package uses Node's runner without additional test dependencies.
 // eslint-disable-next-line test/no-import-node-test
 import test from 'node:test'
@@ -10,8 +11,8 @@ import h34sNuxt from '../src/module.mjs'
 import { takeStubCalls } from '../src/scala-prerender-stub.mjs' // claude 2026-10-19: created: closes the stub's request record (review F1)
 import './nitro-runtime-stub.mjs'
 
-// claude 2026-10-19: changed: records every Nuxt hook; only the names in `allowed` may be registered, once each
-async function setup(t, options, nuxtOptions = {}, allowed = ['nitro:config']) {
+// claude 2026-10-19: changed: records every Nuxt hook in order; only the names in `allowed` may be registered, and nitro:config once
+async function setup(t, options, nuxtOptions = {}, allowed = ['nitro:config', 'nitro:init']) {
   const root = await mkdtemp(join(tmpdir(), 'h34s-nuxt-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const file = options?.configFile ?? 'h34s.config.mjs'
@@ -27,15 +28,17 @@ async function setup(t, options, nuxtOptions = {}, allowed = ['nitro:config']) {
     options: { rootDir: root, ...nuxtOptions },
     hook(name, callback) {
       assert.ok(allowed.includes(name), `unexpected Nuxt hook ${name}`)
-      assert.ok(!hooks.has(name), `Nuxt hook ${name} registered twice`)
-      hooks.set(name, callback)
+      hooks.set(name, [...(hooks.get(name) ?? []), callback])
     },
   })
-  return { root, configure: hooks.get('nitro:config'), hooks }
+  assert.equal(hooks.get('nitro:config')?.length, 1, 'nitro:config registered once')
+  // claude 2026-10-19: created: every nitro:init hook: the development manifest watcher, and the prerender hooks of scalaPrerender: 'stub' in production builds
+  const init = nitro => (hooks.get('nitro:init') ?? []).forEach(hook => hook(nitro))
+  return { root, configure: hooks.get('nitro:config')[0], init, hooks }
 }
 
 // claude 2026-10-19: created: a Nitro instance whose hooks only record their callbacks, with prerender options and a recording logger (review F1)
-function recordingNitro(prerender = { failOnError: true }) {
+function recordingNitro(prerender = { failOnError: true }, dev = false) {
   const hooks = new Map()
   const warnings = []
   const errors = [] // claude 2026-10-19: created: the logger's error lines
@@ -44,7 +47,7 @@ function recordingNitro(prerender = { failOnError: true }) {
     warnings,
     errors, // claude 2026-10-19: created: the logger's error lines
     nitro: {
-      options: { prerender },
+      options: { dev, prerender },
       logger: { warn: message => warnings.push(message), error: message => errors.push(message) }, // claude 2026-10-19: created: also records errors
       hooks: {
         hook(name, callback) {
@@ -58,17 +61,90 @@ function recordingNitro(prerender = { failOnError: true }) {
 
 // claude 2026-10-19: created: runs the module's prerender hooks on recording Nitro instances
 async function prerenderHooks(t, prerender) {
-  const { root, configure, hooks } = await setup(
-    t,
-    { scalaPrerender: 'stub' },
-    {},
-    ['nitro:config', 'nitro:init'],
-  )
+  const { root, configure, init } = await setup(t, { scalaPrerender: 'stub' })
   const main = recordingNitro(prerender)
-  hooks.get('nitro:init')(main.nitro)
+  init(main.nitro)
   const renderer = recordingNitro()
   return { root, configure, main, renderer }
 }
+
+async function manifest(root, output, routes) {
+  await mkdir(join(root, output), { recursive: true })
+  await writeFile(join(root, output, 'h34s-routes.json'), JSON.stringify({ version: 1, routes, declarations: [] }))
+}
+
+test('mounts the routes of each output manifest as lazy Nitro handlers, after existing ones', async (t) => {
+  const { root, configure } = await setup(t)
+  await manifest(root, 'server/.scala', [
+    { module: 'notes-get.js', route: '/api/notes', method: 'get' },
+    { module: 'test.js', route: '/api/test' },
+  ])
+  await manifest(root, 'server/.scala-kyo', [{ module: 'greeting.js', route: '/api/kyo/greeting', method: 'post' }])
+  const existing = { route: '/api/own', handler: join(root, 'server/own.ts') }
+  // A handler you register yourself stays, also when its module is in a Scala.js output.
+  const manual = { route: '/api/manual', handler: join(root, 'server/.scala/manual.js') }
+  const nitro = { dev: false, handlers: [existing, manual] }
+  configure(nitro)
+  assert.deepEqual(nitro.handlers, [
+    existing,
+    manual,
+    { route: '/api/notes', method: 'get', lazy: true, handler: join(root, 'server/.scala/notes-get.js') },
+    { route: '/api/test', lazy: true, handler: join(root, 'server/.scala/test.js') },
+    { route: '/api/kyo/greeting', method: 'post', lazy: true, handler: join(root, 'server/.scala-kyo/greeting.js') },
+  ])
+})
+
+test('rejects a manifest whose module leaves the output directory', async (t) => {
+  const { root, configure } = await setup(t)
+  for (const module of ['../escape.js', '/tmp/x.js', 'nested/x.js', 'x.ts']) {
+    await manifest(root, 'server/.scala', [{ module, route: '/api/x' }])
+    assert.throws(() => configure({ dev: false }), /invalid module/, module)
+  }
+  await manifest(root, 'server/.scala', [{ module: 'x.js', route: 'api/x' }])
+  assert.throws(() => configure({ dev: false }), /must start with/)
+})
+
+test('development replaces its routes when a manifest changes, and keeps them while one is missing', async (t) => {
+  const { root, configure, init } = await setup(t)
+  await manifest(root, 'server/.scala', [{ module: 'a.js', route: '/api/a', method: 'get' }])
+  await manifest(root, 'server/.scala-kyo', [{ module: 'k.js', route: '/api/k' }])
+  const config = { dev: true }
+  configure(config)
+  const reloads = []
+  const closers = []
+  const nitro = {
+    options: { dev: true, handlers: config.handlers.map(handler => ({ ...handler })) },
+    hooks: {
+      hook(name, fn) {
+        assert.equal(name, 'close')
+        closers.push(fn)
+      },
+      async callHook(name) {
+        reloads.push(name)
+      },
+    },
+  }
+  init(nitro)
+  t.after(() => closers.forEach(close => close()))
+  const routes = () => nitro.options.handlers.map(handler => `${handler.method ?? '*'} ${handler.route}`).sort()
+  // The linker deletes the manifest while it links: no reload, the routes stay.
+  await rm(join(root, 'server/.scala/h34s-routes.json'))
+  await delay(1_500)
+  assert.deepEqual(reloads, [])
+  assert.deepEqual(routes(), ['* /api/k', 'get /api/a'])
+  // The same routes again: no reload.
+  await manifest(root, 'server/.scala', [{ module: 'a.js', route: '/api/a', method: 'get' }])
+  await delay(1_500)
+  assert.deepEqual(reloads, [])
+  // A new route: one reload with the new list.
+  await manifest(root, 'server/.scala', [
+    { module: 'a.js', route: '/api/a', method: 'get' },
+    { module: 'b.js', route: '/api/b', method: 'delete' },
+  ])
+  await delay(1_500)
+  assert.deepEqual(reloads, ['rollup:reload'])
+  assert.deepEqual(routes(), ['* /api/k', 'delete /api/b', 'get /api/a'])
+})
 
 test('registers maps, direct loading, output watches and diagnostics in development', async (t) => {
   const { root, configure } = await setup(t)
@@ -157,20 +233,27 @@ test('keeps the application\'s own runtimeConfig.h34s values', async (t) => {
 })
 
 // claude 2026-10-19: created: the prerender hook exists only for scalaPrerender: 'stub' in production builds
+// The development manifest watcher always registers a nitro:init hook; in development it adds a
+// Nitro 'close' hook, which this test calls to stop the watcher.
 test('registers the prerender hook only for scalaPrerender: \'stub\' in production builds', async (t) => {
   const cases = [
-    [undefined, {}, ['nitro:config']],
-    [{}, {}, ['nitro:config']],
-    [{ scalaPrerender: undefined }, {}, ['nitro:config']],
-    [{ scalaPrerender: 'bundle' }, {}, ['nitro:config']],
-    [{ scalaPrerender: 'bundle' }, { dev: true }, ['nitro:config']],
-    [{ scalaPrerender: 'stub' }, { dev: true }, ['nitro:config']],
-    [{ scalaPrerender: 'stub' }, {}, ['nitro:config', 'nitro:init']],
-    [{ scalaPrerender: 'stub' }, { dev: false }, ['nitro:config', 'nitro:init']],
+    [undefined, {}, 1, []],
+    [{}, {}, 1, []],
+    [{ scalaPrerender: undefined }, {}, 1, []],
+    [{ scalaPrerender: 'bundle' }, {}, 1, []],
+    [{ scalaPrerender: 'bundle' }, { dev: true }, 1, ['close']],
+    [{ scalaPrerender: 'stub' }, { dev: true }, 1, ['close']],
+    [{ scalaPrerender: 'stub' }, {}, 2, ['prerender:init', 'prerender:done']],
+    [{ scalaPrerender: 'stub' }, { dev: false }, 2, ['prerender:init', 'prerender:done']],
   ]
-  for (const [options, nuxtOptions, expected] of cases) {
-    const { hooks } = await setup(t, options, nuxtOptions, ['nitro:config', 'nitro:init'])
-    assert.deepEqual([...hooks.keys()].sort(), expected, JSON.stringify({ options, nuxtOptions }))
+  for (const [options, nuxtOptions, inits, expected] of cases) {
+    const context = JSON.stringify({ options, nuxtOptions })
+    const { hooks, init } = await setup(t, options, nuxtOptions)
+    assert.equal(hooks.get('nitro:init').length, inits, context)
+    const nitro = recordingNitro(undefined, nuxtOptions.dev === true)
+    init(nitro.nitro)
+    nitro.hooks.get('close')?.()
+    assert.deepEqual([...nitro.hooks.keys()], expected, context)
   }
 })
 
@@ -203,6 +286,8 @@ test('scalaPrerender: \'stub\' puts the stub plugin first in the prerender Rollu
   const resolve = source => stub.resolveId.handler(source, join(root, 'server/api/route.ts'))
   assert.equal(typeof (await resolve('../.scala/main.js')), 'string', 'the configured ZIO output')
   assert.equal(typeof (await resolve('../.scala-kyo/main')), 'string', 'the configured Kyo output')
+  // claude 2026-10-19: created: the module mounts each route as a Nitro handler with the absolute path of its linked file
+  assert.equal(typeof (await stub.resolveId.handler(join(root, 'server/.scala/main.js'))), 'string', 'an absolute path, as a mounted route imports it')
   assert.equal(await resolve('../.scala-other/main.js'), null, 'an unconfigured directory')
 
   for (const plugins of [undefined, existing]) {

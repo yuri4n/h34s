@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import process from 'node:process'
-import { linkScala, loadConfig } from './build.mjs'
+import { linkScala, loadConfig, watchScala, writeRoutes } from './build.mjs'
 
 const help = `Usage: h34s-scala <build|dev|watch> [--root <directory>] [--config <file>]
 
-build  Clear generated outputs, fullLinkJS, and verify expected entries.
-dev    fastLinkJS and verify expected entries.
-watch  Keep sbt running and fastLinkJS on source changes.
+build  Clear generated outputs, fullLinkJS, verify expected entries, and write
+       the route manifests and TypeScript declarations.
+dev    fastLinkJS, verify expected entries, and write the route manifests and
+       TypeScript declarations.
+watch  Keep sbt running, fastLinkJS on source changes, and write the route
+       manifests and declarations again after each link.
 
 Reads h34s.config.mjs from the app root. Requires Java and sbt on PATH.
 Run Nuxt with --enable-source-maps for original Scala stack traces.`
@@ -35,7 +38,15 @@ try {
       options[key] = args.shift()
     }
     const config = await loadConfig(options)
-    linkScala({ root: options.root, config, mode })
+    if (mode === 'watch') {
+      await watchScala({ root: options.root, config })
+    }
+    else {
+      linkScala({ root: options.root, config, mode })
+      const outputs = await writeRoutes({ root: options.root, config })
+      const routes = outputs.reduce((count, output) => count + output.routes.length, 0)
+      console.log(`[h34s] ${routes} route${routes === 1 ? '' : 's'} in ${outputs.map(output => output.output).join(', ')}`)
+    }
   }
 }
 catch (error) {

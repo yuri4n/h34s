@@ -39,7 +39,8 @@ Request.fake(
 )
 ```
 
-`development`, `debug`, `bodyLimit` and `runtimeConfig` are also available. Body reads follow the same rules as a real request: the content type, the limit, invalid JSON and schema validation behave the same.
+<!-- claude 2026-10-19: changed: `Request.fake` takes `requireJsonContentType` and follows the handler default (issue #41) -->
+`development`, `debug`, `bodyLimit`, `requireJsonContentType` and `runtimeConfig` are also available. Body reads follow the same rules as a real request: the content type, the limit, invalid JSON and schema validation behave the same. Like `HandlerOptions`, `Request.fake` requires a JSON content type by default, so give a fake request with a body that you read with `json[A]` a `content-type` header. Pass `requireJsonContentType = false` to test a handler that turns the option off.
 
 A handler that reads configuration per request with `RuntimeConfig.get(request)` (Kyo) or `ZRuntimeConfig.get(request)` (ZIO) needs the config in the fake request, as JSON text:
 
@@ -53,6 +54,7 @@ Without `runtimeConfig`, those reads fail with `ConfigError("h34s Nitro plugin i
 
 Run the program with an empty head and a scope. This is the core's own test (`HandlerBoundarySuite`):
 
+<!-- claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41) -->
 ```scala
 val handler: Request => Greeting < HandlerEffects = request =>
   for
@@ -61,7 +63,7 @@ val handler: Request => Greeting < HandlerEffects = request =>
     _     <- Response.status(Status.Created)
   yield Greeting(s"${first.name} $again")
 
-val request = Request.fake(method = "POST", body = Some("{\"name\":\"Scala\"}"))
+val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = Some("{\"name\":\"Scala\"}"))
 val program = Scope.run(Var.runTuple(ResponseHead.empty)(handler(request)))
 // program: (ResponseHead, Greeting) < (Async & Abort[Throwable])
 ```
@@ -111,7 +113,7 @@ test("create rejects invalid input before the service runs") {
 
 Your clients depend on the JSON shapes, the statuses and the error entries. Pin them in tests:
 
-- **Model shapes.** Convert a value and compare the JSON text with what your TypeScript types expect: `note.toJson` (from `NativeConverter`). A schema type gives the shapes listed in [schemas](schema.md#kyo-wire-shapes).
+- **Model shapes.** Convert a value and compare the JSON text with what your clients expect: `note.toJson` (from `NativeConverter`). For a converter that describes its TypeScript type, also check `converter.wireType.describes(js.JSON.parse(note.toJson))`; see [routes and typed `$fetch`](routes.md#where-the-types-come-from). A schema type gives the shapes listed in [schemas](schema.md#kyo-wire-shapes).
 - **Error entries.** Assert the exact `InvalidInput` entries, as above. They are your 422 contract.
 - **Statuses and headers.** Assert `head.status` and `head.headers` from the run. Remember that on failure the core keeps only `OnFailure.Keep` entries.
 - **The envelope.** `{"data": ...}`, `{"errors": [...]}` and 204 come from the core and are covered by h34s's own tests. Check them end to end with an HTTP request against a running server, for example in a smoke script.

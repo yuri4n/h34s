@@ -55,6 +55,48 @@ object RequestBodySpec extends ZIOSpecDefault:
         for body <- call.invoke(strict)
         yield assertTrue(call.response.status == 415, wire(body) == errors("Request body must be JSON"))
       },
+      // claude 2026-10-19: created: negative control for issue #41 (strict JSON content type by default)
+      test("by default a JSON body without a content type is a 415; requireJsonContentType = false accepts it") {
+        val default = ZHandler.define(_.body.json[Input].map(_.name))
+        val lenient = ZHandler.define(HandlerOptions(requireJsonContentType = false))(_.body.json[Input].map(_.name))
+        def untyped = Call(method = "POST", headers = Seq("content-length" -> "16")).body("{\"name\":\"Scala\"}")
+        val rejected = untyped
+        val accepted = untyped
+        for
+          rejectedBody <- rejected.invoke(default)
+          acceptedBody <- accepted.invoke(lenient)
+        yield assertTrue(
+          rejected.response.status == 415, wire(rejectedBody) == errors("Request body must be JSON"),
+          accepted.response.status == 200, wire(acceptedBody) == "{\"data\":\"Scala\"}",
+        )
+      },
+      // claude 2026-10-19: created: a request without a body needs no content type (issue #41 review)
+      test("by default a request without a body needs no content type: json[Option[A]] is None, a model is 422") {
+        val optional = ZHandler.define(_.body.json[Option[Input]].map(_.fold("none")(_.name)))
+        val model = ZHandler.define(_.body.json[Input].map(_.name))
+        val optionalCall = Call(method = "POST")
+        val modelCall = Call(method = "POST")
+        for
+          optionalBody <- optionalCall.invoke(optional)
+          modelBody <- modelCall.invoke(model)
+        yield assertTrue(
+          optionalCall.response.status == 200, wire(optionalBody) == "{\"data\":\"none\"}",
+          modelCall.response.status == 422, wire(modelBody) == errors(InvalidInput.genericMessage),
+        )
+      },
+      // claude 2026-10-19: created: Request.fake follows the same body rule (issue #41 review)
+      test("Request.fake: no body reads as None; a body without a content type is a 415 unless the option is off") {
+        val body = Some("{\"name\":\"Scala\"}")
+        for
+          absent <- Request.fake(method = "POST").body.json[Option[Input]].either
+          untyped <- Request.fake(method = "POST", body = body).body.json[Input].either
+          lenient <- Request.fake(method = "POST", body = body, requireJsonContentType = false).body.json[Input].either
+        yield assertTrue(
+          absent == Right(None),
+          untyped == Left(HttpError(415, "Request body must be JSON")),
+          lenient == Right(Input("Scala")),
+        )
+      },
       // K15
       test("decodes a JSON body with a NativeConverter") {
         for body <- post("{\"name\":\"Scala\"}").invoke(ZHandler.define(_.body.json[Input].map(input => s"Hello ${input.name}")))

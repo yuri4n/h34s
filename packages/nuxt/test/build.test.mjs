@@ -12,11 +12,14 @@ import { join } from 'node:path'
 // The package uses Node's runner without additional test dependencies.
 // eslint-disable-next-line test/no-import-node-test
 import test from 'node:test'
+import { EventEmitter } from 'node:events'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
   buildScala,
   defineConfig,
   linkScala,
   loadConfig,
+  watchScala,
 } from '../src/build.mjs'
 
 function fixture(t) {
@@ -183,4 +186,41 @@ test('loads explicit configuration relative to the app root and explains missing
     loadConfig({ root: f.root }),
     /Missing h34s config:.*h34s.config.mjs/,
   )
+})
+
+test('entries are optional: the route collection then checks the output', () => {
+  const config = { modules: [{ project: 'server', output: 'server/.scala' }] }
+  assert.equal(defineConfig(config), config)
+})
+
+test('watch keeps sbt linking and collects routes once the linker has written its files', async (t) => {
+  const f = fixture(t)
+  const config = { modules: [{ project: 'server', output: 'server/.scala' }] }
+  const child = new EventEmitter()
+  const collected = []
+  const watching = watchScala({
+    root: f.root,
+    config,
+    quiet: 50,
+    log: { info() {}, error: message => collected.push(message) },
+    start(command, args, options) {
+      assert.ok(['sbt', 'sbt.bat'].includes(command))
+      assert.deepEqual(args, ['-Dsbt.supershell=false', '-batch', '~;server/fastLinkJS'])
+      assert.equal(options.cwd, f.root)
+      return child
+    },
+    async collect(options) {
+      assert.equal(options.config, config)
+      collected.push('collected')
+    },
+  })
+  await delay(50)
+  // The linker writes several modules; one collection follows. Declarations do not trigger one.
+  writeFileSync(join(f.root, 'server/.scala/a.js'), 'a')
+  writeFileSync(join(f.root, 'server/.scala/b.js'), 'b')
+  writeFileSync(join(f.root, 'server/.scala/a.d.ts'), 'types')
+  await delay(400)
+  assert.deepEqual(collected, ['collected'])
+  child.emit('exit', 0, null)
+  await watching
 })

@@ -19,21 +19,17 @@ Import the API with `import dev.yuri4n.exts.zioh3.*`. It re-exports the shared v
 A handler is a function from the request snapshot to a ZIO program that returns the body. This is the demo's database-free route (`examples/nuxt/scala/zio/.../TestHandler.scala`):
 
 ```scala
-import dev.yuri4n.exts.zioh3.{EventHandler, ZHandler}
+import dev.yuri4n.exts.zioh3.{EventHandler, Route, ZHandler}
 import zio.ZIO
 import zio.stream.ZStream
 
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 @JSExportTopLevel("default", "test")
-val handler: EventHandler = ZHandler.define(_ => ZIO.succeed(ZStream("a", "b", "c")))
+val handler: EventHandler = ZHandler.define(_ => ZIO.succeed(ZStream("a", "b", "c"))).at(Route.any("/api/test"))
 ```
 
-The response body is `abc`. Mount the export with a one-line route file, `server/api/test.ts`:
-
-```ts
-export { default } from '../.scala/test.js'
-```
+The response body is `abc`. `.at` mounts the export at `/api/test` for every method: after `h34s-scala` links it, the Nuxt module registers the route, so you write no route file. See [routes and typed `$fetch`](routes.md).
 
 ## Keep handler functions small and testable
 
@@ -55,11 +51,13 @@ object NotesHandler:
       yield NoteView.from(note)
 
 @JSExportTopLevel("default", "notes-get")
-val listNotes: EventHandler = AppHandler.define(NotesHandler.list)
+val listNotes: EventHandler = AppHandler.define(NotesHandler.list).at(Route.get("/api/notes"))
 
 @JSExportTopLevel("default", "notes-post")
-val createNote: EventHandler = AppHandler.define(NotesHandler.create)
+val createNote: EventHandler = AppHandler.define(NotesHandler.create).at(Route.post("/api/notes"))
 ```
+
+Nuxt types `$fetch('/api/notes')` as `{ data: { id: number; text: string }[] }`: `NoteView` derives `NativeSchema`, which describes the JSON it writes.
 
 `Notes`, `Note` (the domain note), `NoteView` (the JSON it sends), `CreateNote` (the JSON it reads) and `AppHandler` are demo code. Define your own.
 

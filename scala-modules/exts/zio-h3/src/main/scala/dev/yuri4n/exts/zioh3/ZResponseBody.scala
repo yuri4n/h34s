@@ -1,5 +1,7 @@
 package dev.yuri4n.exts.zioh3
 
+import dev.yuri4n.exts.h3.WireShape
+import dev.yuri4n.exts.h3.internal.BodyShape
 import dev.yuri4n.exts.kyoh3.ResponseBody
 import dev.yuri4n.exts.zioh3.internal.ZStreamSource
 import kyo.{Frame, Sync, `<`}
@@ -23,10 +25,15 @@ trait ZResponseBody[B]:
     /** Whether the request scope must stay open while the body is sent. */
     private[exts] def streamed: Boolean = false
 
+    /** What the body looks like on the wire, for the route's generated TypeScript declaration. */
+    private[exts] def shape: BodyShape
+
 object ZResponseBody extends StreamZResponseBody:
     given unit: ZResponseBody[Unit]:
         private[exts] def toCore(body: Unit, runtime: Runtime[Any])(using Frame): ResponseBody.Outgoing < Sync =
           ResponseBody.Outgoing.Empty
+
+        private[exts] def shape: BodyShape = BodyShape.Empty
 
     /** Streams that cannot fail, such as `ZStream("a", "b")` (type inference does not pick `Nothing`). */
     given infallibleStream: ZResponseBody[ZStream[Any, Nothing, String]] = streamBody[Nothing]
@@ -35,6 +42,7 @@ object ZResponseBody extends StreamZResponseBody:
     private[exts] def core[B](body: ZResponseBody[B], runtime: Runtime[Any]): ResponseBody[B] =
       new ResponseBody[B]:
           private[exts] def encode(value: B)(using Frame): ResponseBody.Outgoing < Sync = body.toCore(value, runtime)
+          private[exts] def shape: BodyShape                                            = body.shape
 end ZResponseBody
 
 trait StreamZResponseBody extends LowPriorityZResponseBody:
@@ -49,12 +57,17 @@ trait StreamZResponseBody extends LowPriorityZResponseBody:
       new ZResponseBody[ZStream[Any, E, A]]:
           override private[exts] def streamed: Boolean = true
 
+          private[exts] def shape: BodyShape = BodyShape.Text
+
           private[exts] def toCore(body: ZStream[Any, E, A], runtime: Runtime[Any])(using
               Frame,
           ): ResponseBody.Outgoing < Sync =
             ResponseBody.Outgoing.Streamed(ZStreamSource(runtime, body, encode))
 
 trait LowPriorityZResponseBody:
-    given native: [A: NativeConverter] => ZResponseBody[A]:
+    /** `WireShape` finds the TypeScript type of what the converter writes; every type has one. */
+    given native: [A: {NativeConverter, WireShape}] => ZResponseBody[A]:
         private[exts] def toCore(body: A, runtime: Runtime[Any])(using Frame): ResponseBody.Outgoing < Sync =
           Sync.defer(ResponseBody.Outgoing.Value(summon[NativeConverter[A]].toNative(body)))
+
+        private[exts] def shape: BodyShape = BodyShape.Value(() => summon[WireShape[A]].of(summon[NativeConverter[A]]))

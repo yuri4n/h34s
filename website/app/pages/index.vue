@@ -7,11 +7,13 @@ useSeoMeta({
 })
 
 const example = `@JSExportTopLevel("default", "kyo-greeting-post")
-val personalizedGreeting: EventHandler = AppHandler.define: request =>
-  for
-    input    <- request.body.json[GreetingRequest]
-    greeting <- Env.use[Greetings](_.greet(input.name))
-  yield greeting`
+val personalizedGreeting: EventHandler = AppHandler
+  .define: request =>
+    for
+      input    <- request.body.json[GreetingRequest]
+      greeting <- Env.use[Greetings](_.greet(input.name))
+    yield greeting
+  .at(Route.post("/api/kyo/greeting"))`
 const copied = ref(false)
 const copyError = ref('')
 
@@ -158,11 +160,13 @@ const guides = [
           <pre
             class="hero-code"
           ><code><span class="syntax-annotation">@JSExportTopLevel</span>(<span class="syntax-string">"default"</span>, <span class="syntax-string">"kyo-greeting-post"</span>)
-<span class="syntax-keyword">val</span> personalizedGreeting: <span class="syntax-type">EventHandler</span> = <span class="syntax-type">AppHandler</span>.define: request =>
-  <span class="syntax-keyword">for</span>
-    input    &lt;- request.body.json[<span class="syntax-type">GreetingRequest</span>]
-    greeting &lt;- <span class="syntax-type">Env</span>.use[<span class="syntax-type">Greetings</span>](_.greet(input.name))
-  <span class="syntax-keyword">yield</span> greeting</code></pre>
+<span class="syntax-keyword">val</span> personalizedGreeting: <span class="syntax-type">EventHandler</span> = <span class="syntax-type">AppHandler</span>
+  .define: request =>
+    <span class="syntax-keyword">for</span>
+      input    &lt;- request.body.json[<span class="syntax-type">GreetingRequest</span>]
+      greeting &lt;- <span class="syntax-type">Env</span>.use[<span class="syntax-type">Greetings</span>](_.greet(input.name))
+    <span class="syntax-keyword">yield</span> greeting
+  .at(<span class="syntax-type">Route</span>.post(<span class="syntax-string">"/api/kyo/greeting"</span>))</code></pre>
           <div class="code-scope">
             <UIcon name="i-lucide-layers" aria-hidden="true" /> Define
             AppHandler to provide your services

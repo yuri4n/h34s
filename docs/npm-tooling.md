@@ -44,7 +44,7 @@ pnpm add -D /tmp/yuri4n-h34s-nuxt-0.2.0-alpha.1.tgz
 
 The repository example uses the local package. A packed-tarball check verifies that consumers receive the runtime plugin and helpers without referencing files outside the package. A local tarball path is a review setup; use the pinned registry dependency for an independently installable application.
 
-Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, and a production bundle that runs without the original generated files. It also builds the consumer with `scalaPrerender: 'stub'`: the prerender bundle must get the stub, the server output must keep the linked code, and a prerendered route that calls a Scala.js route must stop the build. <!-- claude 2026-10-19: changed: the scalaPrerender checks (review F2) -->
+Run `pnpm test:package` after installing the repository dependencies to verify the archive in an isolated consumer and a real Nuxt development/production server. The HTTP check covers development diagnostics, Scala source maps, relinking, routes mounted from the route manifest (typed, and added while Nuxt runs), and a production bundle that runs without the original generated files. It also builds the consumer with `scalaPrerender: 'stub'`: the prerender bundle must get the stub, the server output must keep the linked code, and a prerendered route that calls a Scala.js route must stop the build. <!-- claude 2026-10-19: changed: the scalaPrerender checks (review F2) -->
 
 For `0.2.0-alpha.1`, the [successful npm release workflow](https://github.com/yuri4n/h34s/actions/runs/39144809255) downloaded the published archive with registry authentication, compared its bytes with the tested tarball, and installed that download offline in a clean consumer. It checked the CLI and all three JavaScript entry points without installing Nuxt as a peer. The [release](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1) attaches the tarball and `registry.json`, which records its stable registry URL and integrity. The [`0.1.0-alpha.1` workflow](https://github.com/yuri4n/h34s/actions/runs/38937318206) ran the same checks for that version.
 
@@ -62,13 +62,14 @@ export default defineConfig({
     {
       project: 'server',
       output: 'server/.scala',
-      entries: ['notes-get.js', 'notes-post.js'],
     },
   ],
 })
 ```
 
-`project` is the sbt project ID, not a filesystem directory. Omit it for a root-project task such as `fullLinkJS`. `output` is the generated directory relative to the application root. `entries` lists the JavaScript files mounted by your routes; the CLI checks that linking produced each file. Add another module for an independent Kyo application if needed. Each module needs its own generated output directory.
+`project` is the sbt project ID, not a filesystem directory. Omit it for a root-project task such as `fullLinkJS`. `output` is the generated directory relative to the application root. Add another module for an independent Kyo application if needed. Each module needs its own generated output directory.
+
+`entries` is optional. Without it, an output must contain at least one h34s handler (a default export from `KHandler.define` or `ZHandler.define`). List `entries: ['notes-get.js']` when an output has only modules that you mount with route files; the CLI then checks that linking produced each file.
 
 Keep only generated files in these directories: the production command removes previous output before linking. Do not point `output` at a source directory or an application root.
 
@@ -98,7 +99,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The module reads the same config, watches the generated output, installs the development loader/source-map integration, and registers the h34s Nitro plugin (`runtime/h34s.mjs`). The plugin gives your Scala handlers, through internal records that requests cannot change:
+The module reads the same config, mounts the routes of each output's route manifest (`h34s-routes.json`) as lazy Nitro handlers, watches the generated output, installs the development loader/source-map integration, and registers the h34s Nitro plugin (`runtime/h34s.mjs`). The plugin gives your Scala handlers, through internal records that requests cannot change:
 
 | Record entry | Used by |
 | --- | --- |
@@ -127,13 +128,15 @@ Add these scripts to `package.json`:
 }
 ```
 
-Run `pnpm dev:scala` for the first link and Nuxt startup. Keep `pnpm scala:watch` in a second terminal while editing Scala. The watcher runs sbt's continuous linking task; it does not start Nuxt. Wait for linking and Nitro's worker restart before requesting edited code.
+Run `pnpm dev:scala` for the first link and Nuxt startup. Keep `pnpm scala:watch` in a second terminal while editing Scala. The watcher runs sbt's continuous linking task and collects the routes again after each link; it does not start Nuxt. Wait for linking and Nitro's worker restart before requesting edited code. When the list of routes changes, Nuxt reloads its server routes without a restart.
 
-For production, `pnpm build` clears each generated output directory, runs `fullLinkJS`, verifies the configured entry files, and only then starts the Nuxt build. A linker failure or missing entry stops the command. The Nuxt module alone does not run a production link; keep that ordering in the application build script.
+After each link, `dev`, `build` and `watch` load the linked modules in a separate Node process, read the route and response types of each h34s handler, and write `h34s-routes.json` and one `.d.ts` per handler module into the output directory. The command prints the number of routes. See [routes and typed `$fetch`](routes.md).
+
+For production, `pnpm build` clears each generated output directory, runs `fullLinkJS`, verifies the configured entry files, writes the route manifests and declarations, and only then starts the Nuxt build. A linker failure, a missing entry, an output without handlers, or two handlers for the same route stops the command. The Nuxt module alone does not run a production link; keep that ordering in the application build script.
 
 The CLI accepts `--root <directory>` and `--config <file>` for projects with a different layout. Configure an alternate file in Nuxt with `modules: [['@yuri4n/h34s-nuxt', { configFile: 'custom.mjs' }]]`. Keep the Nuxt integration and CLI pointed at the same application configuration. sbt must be available on `PATH`.
 
-The `./build` entry point also exports `loadConfig`, `buildScala`, and `linkScala` for custom orchestration. The `./rollup` entry point exports `scalaDevModules`, `scalaSourceMaps` and `scalaPrerenderStub` (the plugin behind `scalaPrerender: 'stub'`) for custom integrations. Ordinary Nuxt applications use the module above; they do not need to wire these helpers individually. <!-- claude 2026-10-19: changed: scalaPrerenderStub export -->
+The `./build` entry point also exports `loadConfig`, `buildScala`, `linkScala`, `watchScala`, `writeRoutes` (collect routes and write the manifests and declarations after your own link step) and `readRoutes` for custom orchestration. The `./rollup` entry point exports `scalaDevModules`, `scalaSourceMaps` and `scalaPrerenderStub` (the plugin behind `scalaPrerender: 'stub'`) for custom integrations. Ordinary Nuxt applications use the module above; they do not need to wire these helpers individually. <!-- claude 2026-10-19: changed: scalaPrerenderStub export -->
 
 Large linked outputs make Nitro's production bundling memory-hungry. When your application prerenders a route, Nitro 2.13.1 bundles the linked Scala.js twice in one build process: once for its prerenderer and once for the server output. The repository demo, which links a Kyo and a ZIO application, sets the `scalaPrerender: 'stub'` option below and still runs `nuxt build` with `node --max-old-space-size=8192`. If your build stops with a JavaScript heap error, raise the limit the same way, try the option, or remove one of the causes in the [development guide](development.md#production-build). <!-- claude 2026-10-19: changed: the scalaPrerender option as a remedy -->
 
@@ -166,11 +169,6 @@ Any other value stops Nuxt with a `TypeError` that names the option. The option 
 
 The npm package owns build orchestration, development loading, source maps, and the Nitro plugin. It has no dependency on a particular effect API.
 
-Configure your own `build.sbt` and Maven credentials. Define models and services in your application, compose their environment in an optional `AppHandler` wrapper, and configure any database resources, migrations, secrets, and deployment policy there. Create one mount per exported route until route generation is implemented:
-
-```ts
-// server/api/notes.get.ts
-export { default } from '../.scala/notes-get.js'
-```
+Configure your own `build.sbt` and Maven credentials. Define models and services in your application, compose their environment in an optional `AppHandler` wrapper, and configure any database resources, migrations, secrets, and deployment policy there. Declare each route in Scala with `.at(Route...)`. A one-line route file (`export { default } from '../.scala/notes-get.js'`) still works when you prefer Nuxt's file layout for a route.
 
 Schema remains optional. Adopting the npm package does not add ZIO, Kyo, or Schema to an application's Scala dependency graph. Nix and other future build profiles should call the same CLI pipeline. Windows, Nix/NixOS, and additional deployment targets still need their own validation.

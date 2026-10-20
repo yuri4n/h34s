@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.ntcvkyoschema
 
-import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput}
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, WireType}
 import dev.yuri4n.exts.ntcvkyoschema.Models.*
 import kyo.{Json, Schema, Span, Yaml}
 import munit.{FunSuite, Location}
@@ -38,6 +38,73 @@ class NativeSchemaSuite extends FunSuite:
       else js.Dynamic.global.Object.is(left, right).asInstanceOf[Boolean]
 
     private def isObject(value: js.Any): Boolean = value != null && js.typeOf(value) == "object"
+
+    private def wireType[A](using converter: NativeConverter[A]): WireType =
+      converter.asInstanceOf[WireType.Described].wireType
+
+    /** The type describes what a client receives for each value. */
+    private def described[A](values: A*)(using converter: NativeConverter[A], location: Location): Unit =
+      values.foreach(value =>
+        assert(wireType[A].describes(js.JSON.parse(js.JSON.stringify(converter.toNative(value)))), s"${wireType[A].render} for $value"),
+      )
+
+    private val decimal = "number | \"NaN\" | \"Infinity\" | \"-Infinity\""
+
+    // ---- TypeScript types ----
+
+    test("TypeScript types of records, options, numbers, scalars and collections follow the encoder") {
+      assertEquals(
+        wireType[Person].render,
+        "{ name: string; age: number; address: { street: string; zip?: string | null }; tags: Array<string>; nickname?: string | null }",
+      )
+      described(Person("Ada", 36, Address("Main", None), Nil, None), Person("Bob", 1, Address("Side", Some("1")), List("x"), Some("b")))
+      assertEquals(
+        wireType[Numbers].render,
+        s"{ int: number; long: number; double: $decimal; float: $decimal; short: number; byte: number }",
+      )
+      described(Numbers(1, 2L, Double.NaN, Float.PositiveInfinity, 3, 4), Numbers(1, 2L, 1.5, -0.5f, 3, 4))
+      assertEquals(wireType[Bigs].render, "{ decimal: string; integer: string }")
+      described(Bigs(BigDecimal("1.5"), BigInt(12)))
+      assertEquals(wireType[Times].render, "{ at: string; took: string }")
+      described(Times(Instant.parse("2026-01-02T03:04:05Z"), Duration.ofSeconds(1)))
+      assertEquals(
+        wireType[Collections].render,
+        "{ list: Array<number>; vector: Array<string>; set: Array<number>; byName: Record<string, number>; byId: Array<{ key: number; value: string }> }",
+      )
+      described(Collections(List(1), Vector("a"), Set(2), Map("k" -> 3), Map(4 -> "v")), Collections(Nil, Vector.empty, Set.empty, Map.empty, Map.empty))
+      assertEquals(wireType[Blob].render, "{ name: string; data: string }")
+      assertEquals(wireType[Renamed].render, "{ full_name: string; age: number }")
+      described(Renamed("Ada", 36))
+    }
+
+    test("TypeScript types of sealed traits and enums: one-key objects, or the @discriminator field") {
+      val empty = "Record<string, never>"
+      val color = s"{ Red: $empty } | { Green: $empty } | { Blue: $empty }"
+      assertEquals(
+        wireType[Drawing].render,
+        s"{ title: string; shapes: Array<{ Circle: { radius: $decimal } } | { Rect: { width: $decimal; height: $decimal } } | { Empty: $empty }>; color: $color; background?: $color | null }",
+      )
+      described(Drawing("plan", List(Shape.Circle(1.5), Shape.Rect(1, 2), Shape.Empty), Color.Red, Some(Color.Blue)))
+      assertEquals(
+        wireType[Event].render,
+        "{ type: \"Joined\"; user: string; seat: number } | { type: \"Left\"; user: string }",
+      )
+      described[Event](Event.Joined("ada", 3), Event.Left("bob"))
+    }
+
+    test("checks, validation and transforms that keep the shape keep the TypeScript type") {
+      assertEquals(wireType[Signup].render, "{ name: string; email: string; age: number }")
+      assertEquals(wireType[Strict].render, "{ name: string }")
+      assertEquals(wireType[Credentials].render, "{ user: string; token: string }")
+      assertEquals(NativeSchema[Message].wireType.render, "{ text: string }")
+    }
+
+    test("a schema whose encoder the structure does not show gets unknown, also when nested") {
+      // The fluent rename writes `road`, not the `street` that the structure lists.
+      assertEquals(NativeSchema[Road].wireType, WireType.Unknown)
+      assertEquals(wireType[Trip], WireType.Unknown)
+      described(Trip("t", Road("Main", None)))
+    }
 
     private def show(value: js.Any): String = js.JSON.stringify(value)
 
