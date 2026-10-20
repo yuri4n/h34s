@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.h3.internal
 
-import dev.yuri4n.exts.h3.{ErrorEnvelope, HandlerOptions, Route, SuccessEnvelope, WireType}
+import dev.yuri4n.exts.h3.{ErrorEnvelope, HandlerOptions, Route, SuccessEnvelope, WireModel, WireType}
 
 import scala.scalajs.js
 
@@ -17,27 +17,63 @@ private[exts] enum BodyShape:
 
 /** The TypeScript response types of one handler definition. */
 private[exts] object RouteTypes:
-    // claude 2026-10-19: changed: a Raw value that converts to null is typed as undefined, what $fetch returns for 204
-    /** The body of a successful response, in the handler's success envelope. */
-    def success(envelope: SuccessEnvelope, body: BodyShape): String = body match
-        case BodyShape.Empty           => "undefined"
-        case BodyShape.Text            => "string"
-        case BodyShape.Value(wireType) =>
-          envelope match
-              case SuccessEnvelope.Data => s"{ data: ${wireType().render} }"
-              case SuccessEnvelope.Raw  => raw(wireType())
-
-    // claude 2026-10-19: created: replaces a top-level null with undefined for Raw bodies
-    /** `Raw` sends a value that converts to `null` as 204 without a body, like `Unit`, and `$fetch`
-      * returns `undefined` for it. Only the top level changes: JSON text keeps a nested `null`.
+    // claude 2026-10-20: created: a success type with references to its named models (ADR-0014)
+    /** A success type that refers to named models: the TypeScript `expression`, the model names it
+      * uses directly, and every model it needs, in dependency order.
       */
-    private def raw(wire: WireType): String =
+    final case class Named(expression: String, uses: List[String], models: List[WireModel])
+
+    // claude 2026-10-20: changed: the inline rendering moved into `declare`, shared with `named`
+    /** The body of a successful response, in the handler's success envelope, with every model
+      * written out.
+      */
+    def success(envelope: SuccessEnvelope, body: BodyShape): String = declare(envelope, body, named = false).expression
+
+    // claude 2026-10-20: created: the body type with references to named models (ADR-0014)
+    /** The body of a successful response, in the handler's success envelope, with references to
+      * its named models.
+      */
+    def named(envelope: SuccessEnvelope, body: BodyShape): Named = declare(envelope, body, named = true)
+
+    // claude 2026-10-20: created: one rendering of the success body, inline or with model names (ADR-0014)
+    private def declare(envelope: SuccessEnvelope, body: BodyShape, named: Boolean): Named =
+      def show(wire: WireType): String = if named then wire.renderNamed else wire.render
+      def of(expression: String, parts: List[WireType]): Named =
+        if named then Named(expression, parts.flatMap(WireType.references).distinct, WireType.modelsOf(parts))
+        else Named(expression, Nil, Nil)
+      body match
+          case BodyShape.Empty           => of("undefined", Nil)
+          case BodyShape.Text            => of("string", Nil)
+          case BodyShape.Value(wireType) =>
+            val wire = wireType()
+            envelope match
+                case SuccessEnvelope.Data => of(s"{ data: ${show(wire)} }", List(wire))
+                case SuccessEnvelope.Raw  =>
+                  val (expression, parts) = raw(wire, named, show)
+                  of(expression, parts)
+
+    // claude 2026-10-20: changed: looks through named models; gives the rendered parts for the model list
+    /** `Raw` sends a value that converts to `null` as 204 without a body, like `Unit`, and `$fetch`
+      * returns `undefined` for it. Only the top level changes: JSON text keeps a nested `null`. A
+      * named model that holds the top-level `null` is written out, so that its `null` can change.
+      * Gives the type and the parts it writes.
+      */
+    private def raw(wire: WireType, named: Boolean, show: WireType => String): (String, List[WireType]) =
+      def reference(model: WireType.Named): Boolean = named && WireType.referenced(model)
+      def nullable(wire: WireType): Boolean = wire match
+          case WireType.NullValue     => true
+          case WireType.OneOf(nested) => nested.exists(nullable)
+          case model: WireType.Named  => nullable(model.target)
+          case _                      => false
       def members(wire: WireType): List[WireType] = wire match
-          case WireType.OneOf(nested) => nested.flatMap(members)
-          case other                  => List(other)
+          case WireType.OneOf(nested)                                         => nested.flatMap(members)
+          case model: WireType.Named if !reference(model) || nullable(model.target) => members(model.target)
+          case other                                                          => List(other)
       val all = members(wire)
-      if !all.contains(WireType.NullValue) || all.contains(WireType.Unknown) then wire.render
-      else (all.filterNot(_ == WireType.NullValue).distinct.map(_.render) :+ "undefined").mkString(" | ")
+      if !all.contains(WireType.NullValue) || all.contains(WireType.Unknown) then (show(wire), List(wire))
+      else
+          val parts = all.filterNot(_ == WireType.NullValue).distinctBy(WireType.strip(_, reference))
+          ((parts.map(show) :+ "undefined").mkString(" | "), parts)
 
     /** One error entry as `Rendering` writes it; `debug` appears only in development or debug mode. */
     val entry: String = "{ message: string; path?: string; debug?: { cause: string } }"
@@ -56,11 +92,38 @@ private[exts] object RouteTypes:
 private[exts] object HandlerMetadata:
     val version: Int = 1
 
-    /** Records the response types of a handler definition. */
+    // claude 2026-10-20: changed: types() also gives the success type with model names and the models (ADR-0014)
+    /** Records the response types of a handler definition.
+      *
+      * `types()` gives `success` and `errors`, with every model written out, and `named`: the
+      * success type with references to its named models (`success`), the names it uses directly
+      * (`uses`), and the models in dependency order (`models`: `name`, `type`, `uses` and, when
+      * known, `scala`, the Scala type's full name). It builds the type once per call.
+      */
     def describe(handler: js.Any, options: HandlerOptions, body: BodyShape): js.Any =
       val types: js.Function0[js.Any] = () =>
-        js.Dynamic.literal(success = RouteTypes.success(options.success, body), errors = RouteTypes.errors(options.errors))
+        val built = body match
+            case BodyShape.Value(wireType) =>
+              val wire = wireType()
+              BodyShape.Value(() => wire)
+            case other => other
+        val named = RouteTypes.named(options.success, built)
+        js.Dynamic.literal(
+          success = RouteTypes.success(options.success, built),
+          errors = RouteTypes.errors(options.errors),
+          named = js.Dynamic.literal(
+            success = named.expression,
+            uses = js.Array(named.uses*),
+            models = js.Array(named.models.map(model)*),
+          ),
+        )
       attach(handler, js.Dynamic.literal(version = version, types = types))
+
+    // claude 2026-10-20: created: one model of the record (ADR-0014)
+    private def model(model: WireModel): js.Any =
+      val record = js.Dictionary[js.Any]("name" -> model.name, "type" -> model.definition, "uses" -> js.Array(model.uses*))
+      model.scalaType.foreach(name => record("scala") = name)
+      record
 
     /** A new native handler that runs `handler` and carries its types and `route`. */
     def mount(handler: js.Any, route: Route): js.Any =
