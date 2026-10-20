@@ -163,9 +163,10 @@ async function routed(url, running, init, expected) {
   throw new Error(`Nuxt did not serve ${expected} at ${url}: ${last}\n${running.log}`)
 }
 
+// claude 2026-10-19: changed: also exports `greeting`, an h3 handler that a route file mounts, the other way to mount a Scala.js handler
 function linkedModule(revision) {
   const output = join(app, 'server/.scala/hello.js')
-  write(`${output}.next`, `export const revision = ${JSON.stringify(revision)}\nexport function probe() { return new Error('h34s source map probe').stack }\nexport const linkedUrl = import.meta.url\n//# sourceMappingURL=hello.js.map\n`)
+  write(`${output}.next`, `export const revision = ${JSON.stringify(revision)}\nexport function probe() { return new Error('h34s source map probe').stack }\nexport const linkedUrl = import.meta.url\nexport function greeting() { return { greeting: 'linked' } }\ngreeting.__is_handler__ = true\n//# sourceMappingURL=hello.js.map\n`)
   renameSync(`${output}.next`, output)
 }
 
@@ -265,15 +266,17 @@ export default defineEventHandler(async (event) => {
     revision, linkedUrl, stack: probe()
   }
 })\n`)
-  // claude 2026-10-19: created: a prerendered route without Scala.js, and a prerendered route that calls the Scala route GET /api/greeting from the manifest and catches the error, as useFetch does
+  // claude 2026-10-19: created: a Scala.js handler mounted by a route file at GET /api/linked, next to the manifest route GET /api/greeting
+  write(join(app, 'server/api/linked.get.ts'), `export { greeting as default } from '../.scala/hello.js'\n`)
+  // claude 2026-10-19: created: a prerendered route without Scala.js, and a prerendered route that calls both Scala routes and catches each error, as useFetch does
   write(join(app, 'server/routes/prerendered.txt.ts'), `export default defineEventHandler((event) => {
   setResponseHeader(event, 'content-type', 'text/plain; charset=utf-8')
   return 'Prerendered without Scala.js\\n'
 })\n`)
   write(join(app, 'server/routes/calls-scala.txt.ts'), `export default defineEventHandler(async (event) => {
   setResponseHeader(event, 'content-type', 'text/plain; charset=utf-8')
-  const status = await event.$fetch('/api/greeting').then(() => 200, (error: any) => error?.statusCode)
-  return \`The Scala.js route answered \${status}\\n\`
+  const answered = (route: string) => event.$fetch(route).then(() => 200, (error: any) => error?.statusCode)
+  return \`The Scala.js routes answered \${await answered('/api/greeting')} and \${await answered('/api/linked')}\\n\`
 })\n`)
   const nuxt = join(app, 'node_modules/nuxt/bin/nuxt.mjs')
   const devPort = await port()
@@ -308,6 +311,9 @@ export default defineEventHandler(async (event) => {
   assert.ok(failing.result && Number.isInteger(failing.result.code) && failing.result.code !== 0, `A prerendered page that calls a Scala.js route must stop the build with scalaPrerender: 'stub': ${JSON.stringify(failing.result)}\n${failing.build.log}`)
   assert.match(failing.build.log, /\[h34s\] GET \/api\/greeting answered 501 while Nuxt prerendered \/calls-scala\.txt/, failing.build.log)
   assert.match(failing.build.log, /scalaPrerender is 'stub'[\s\S]*GET \/api\/greeting, while Nuxt prerendered \/calls-scala\.txt/, failing.build.log)
+  // claude 2026-10-19: created: the stub also answers the handler that a route file mounts
+  assert.match(failing.build.log, /\[h34s\] GET \/api\/linked answered 501 while Nuxt prerendered \/calls-scala\.txt/, failing.build.log)
+  assert.match(failing.build.log, /scalaPrerender is 'stub'[\s\S]*GET \/api\/linked, while Nuxt prerendered \/calls-scala\.txt/, failing.build.log)
   // claude 2026-10-19: created: h3 and Nitro handle the stub's 501, so the build log has no unhandled-error block (review F2)
   assert.doesNotMatch(failing.build.log, /\[request error\]|\[unhandled\]/, failing.build.log)
 
@@ -352,6 +358,10 @@ export default defineEventHandler(async (event) => {
   // claude 2026-10-19: created: the Scala route that the prerender stub answered runs the linked code in the server output
   const bundledGet = await routed(`http://127.0.0.1:${productionPort}/api/greeting`, production, {}, 'get first')
   assert.ok(!bundledGet.linkedUrl.includes('/server/.scala/'), 'Production bundles the Scala route module that the stub replaced for prerendering')
+  // claude 2026-10-19: created: the handler mounted by a route file runs the linked code in the server output
+  const linkedRoute = await fetch(`http://127.0.0.1:${productionPort}/api/linked`, { signal: AbortSignal.timeout(5_000) })
+  assert.equal(linkedRoute.status, 200)
+  assert.deepEqual(await linkedRoute.json(), { greeting: 'linked' })
   await stop(production)
 
   // NUXT_H34S_DEBUG overrides the declared runtimeConfig.h34s.debug at runtime, without a rebuild.
@@ -362,7 +372,7 @@ export default defineEventHandler(async (event) => {
   const debugged = await response(`http://127.0.0.1:${debugPort}/api/probe`, debugging, 'second')
   assert.equal(debugged.development, false, 'The debug flag does not switch on development mode')
   assertRecords(debugged, { debug: true })
-  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, Scala routes from the manifest (typed, added while running), scalaPrerender: 'stub' (prerender bundle, server output, build error, Nitro's own prerender error), production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`) // claude 2026-10-19: changed: names the scalaPrerender checks, including Nitro's own prerender error
+  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, Scala routes from the manifest (typed, added while running), scalaPrerender: 'stub' (manifest and route-file mounts, prerender bundle, server output, build error, Nitro's own prerender error), production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`) // claude 2026-10-19: changed: names the scalaPrerender checks, including Nitro's own prerender error and both mount forms
 }
 finally {
   await Promise.allSettled([...children].map(stop))
