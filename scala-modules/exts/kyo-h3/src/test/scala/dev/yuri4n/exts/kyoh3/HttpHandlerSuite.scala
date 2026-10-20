@@ -444,7 +444,9 @@ class HttpHandlerSuite extends FunSuite:
     }
 
     // Documents Kyo 1.0.0-RC7: `Async.uninterruptible` runs the step on an unscoped fiber. If this
-    // test fails after a Kyo upgrade, revisit KHandler.uninterruptible and docs/lifetimes.md.
+    // test fails after a Kyo upgrade, revisit KHandler.uninterruptible and
+    // docs/content/1.guide/06.lifetimes.md.
+    // claude 2026-10-20: changed: the lifetimes guide's new path
     test("Kyo's Async.uninterruptible alone does not make the request wait for the step") {
       val events = mutable.ListBuffer.empty[String]
       val started = Promise[Unit]()

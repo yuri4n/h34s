@@ -1,8 +1,8 @@
 # Develop the Nuxt/Scala.js example
 
-<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/, and the site's folder (issue #25) -->
 
-Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate `website/` app serves the documentation. To use h34s in your own Nuxt project, follow [adoption guide](content/1.guide/02.adoption.md).
+Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate documentation site in `docs/` renders the guides under `docs/content/`. To use h34s in your own Nuxt project, follow [adoption guide](content/1.guide/02.adoption.md).
 
 <!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
 

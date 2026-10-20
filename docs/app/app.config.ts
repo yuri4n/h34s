@@ -9,7 +9,8 @@ export default defineAppConfig({
   github: {
     url: 'https://github.com/yuri4n/h34s',
     branch: 'main',
-    rootDir: 'website',
+    // claude 2026-10-20: changed: the site and its content live in docs/
+    rootDir: 'docs',
   },
   socials: { github: 'https://github.com/yuri4n/h34s' },
   toc: { title: 'On this page' },

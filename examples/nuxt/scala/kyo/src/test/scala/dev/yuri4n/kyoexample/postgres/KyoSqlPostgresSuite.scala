@@ -8,7 +8,8 @@ import munit.FunSuite
 import scala.concurrent.{ExecutionContext, Future}
 import scala.scalajs.js
 
-// claude 2026-10-19: created: the kyo-sql code of docs/database.md ("Run statements per request"),
+// claude 2026-10-19: created: the kyo-sql code of docs/content/1.guide/08.database.md ("Run statements per request"),
+// claude 2026-10-20: changed: the database guide's new path
 // copied without changes, so that the suite below runs the documented code against PostgreSQL.
 
 /** The domain note. It has no table or wire format. */
@@ -42,7 +43,8 @@ object NotesLive:
     private final case class NoteRow(id: Int, text: String) derives Schema:
         def toNote: Note = Note(id, text)
 
-/** Runs the kyo-sql code of docs/database.md against a real PostgreSQL. Opt-in: the tests run only
+// claude 2026-10-20: changed: the database guide's new path
+/** Runs the kyo-sql code of docs/content/1.guide/08.database.md against a real PostgreSQL. Opt-in: the tests run only
   * when `H34S_POSTGRES_URL` holds a kyo-sql URL, for example
   * `postgres://h34s:<password>@127.0.0.1:5432/h34s`. Without it, munit reports them as skipped,
   * unless `H34S_POSTGRES_REQUIRED=true`: then they fail, so that CI cannot pass by skipping them.
