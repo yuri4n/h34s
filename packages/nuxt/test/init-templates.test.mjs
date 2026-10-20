@@ -23,9 +23,9 @@ const npmTooling = '1.guide/13.npm-tooling.md'
 const releases = '2.reference/2.releases.md'
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
-// claude 2026-10-20: created: the parameters of layout A (ADR-0009)
+// claude 2026-10-20: changed: the parameters of layout A; the resolver and the credentials are two parameters (review P1)
 /** The parameters of the Kyo layout-A rendering, the one the guides show. */
-const layoutA = { api: 'kyo', version, project: 'server', scalaDir: 'scala-server', appDir: '', sbtRoot: '.', sbtFile: 'build.sbt', registry: true, scalaPackage: 'app' }
+const layoutA = { api: 'kyo', version, project: 'server', scalaDir: 'scala-server', appDir: '', sbtRoot: '.', sbtFile: 'build.sbt', resolver: true, credentials: true, scalaPackage: 'app' }
 // claude 2026-10-20: created: the parameters of layout B (ADR-0009)
 /** Layout B: the Nuxt app in web/ below an existing sbt build. */
 const layoutB = { ...layoutA, appDir: 'web', sbtRoot: '..', sbtFile: 'h34s.sbt' }
@@ -117,11 +117,13 @@ test('the scripts equal the npm tooling guide\'s package.json block, and .npmrc 
   )
 })
 
-// claude 2026-10-20: created: the test "the sbt registry block equals the release guide's resolver and ..." (ADR-0009)
-test('the sbt registry block equals the release guide\'s resolver and credentials', () => {
-  assert.equal(
-    extractRegion(sbtBuild.render(layoutA), 'registry', 'build.sbt'),
-    fence(guide(releases), block => block.startsWith('ThisBuild / resolvers'), releases),
-  )
-  assert.equal(sbtBuild.render({ ...layoutA, registry: false }).includes('ThisBuild /'), false)
+// claude 2026-10-20: changed: the test "the sbt registry block equals the release guide's resolver and ..."; each stanza alone equals its part of the guide block (review P1)
+test('the sbt registry block equals the release guide\'s resolver and credentials, and each stanza alone equals its part', () => {
+  const block = fence(guide(releases), block => block.startsWith('ThisBuild / resolvers'), releases)
+  const [resolver, credentials, ...rest] = block.split('\n\n')
+  assert.deepEqual(rest, [], 'the guide block is two stanzas')
+  assert.equal(extractRegion(sbtBuild.render(layoutA), 'registry', 'build.sbt'), block)
+  assert.equal(extractRegion(sbtBuild.render({ ...layoutA, credentials: false }), 'registry', 'build.sbt'), resolver)
+  assert.equal(extractRegion(sbtBuild.render({ ...layoutA, resolver: false }), 'registry', 'build.sbt'), credentials)
+  assert.equal(sbtBuild.render({ ...layoutA, resolver: false, credentials: false }).includes('ThisBuild /'), false)
 })

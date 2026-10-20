@@ -173,7 +173,7 @@ function bareVersion(spec) {
   return String(spec).replace(/^[\^~=v\s]+/, '')
 }
 
-// claude 2026-10-20: changed: also checks the sbt build's h34s.config.mjs, and stops in a directory that holds another project (review S4, S5)
+// claude 2026-10-20: changed: also checks the sbt build's h34s.config.mjs, stops in a directory that holds another project, and adds the sbt resolver and credentials one by one (review S4, S5, P1)
 /**
  * Builds the plan for `directory` (relative to `cwd`): every file to create with its content, every
  * edit with the text it expects and the text it writes, the conflicts that stop init, the steps
@@ -259,11 +259,14 @@ export function planInit({ directory = '.', api = 'kyo', cwd = process.cwd(), ve
     create(gitignorePath, gitignore.render({ sbtAtApp: found.layout === 'A' }))
   }
 
-  // The sbt half.
+  // The sbt half. The resolver and the credentials are two stanzas: h34s.sbt adds the ones the build lacks.
   const sources = buildSources(sbt)
-  const registry = !sources.some(source => source.text.includes(sbtBuild.registryHost))
-  if (!registry)
+  const resolver = !sources.some(source => source.text.includes(sbtBuild.registryHost))
+  const credentials = !sources.some(source => sbtBuild.credentialsPattern.test(source.text))
+  if (!resolver)
     plan.kept.push('the h34s resolver that your sbt build already has')
+  if (!credentials)
+    plan.kept.push('the GitHub Packages credentials that your sbt build already has')
   for (const source of sources) {
     if (new RegExp(`\\bval\\s+${project}\\b`).test(source.text))
       plan.conflicts.push(`${shown(source.path)} already defines an sbt value named ${project}; init adds the sbt project ${project}`)
@@ -271,7 +274,7 @@ export function planInit({ directory = '.', api = 'kyo', cwd = process.cwd(), ve
       plan.conflicts.push(`${shown(source.path)} already uses the directory ${scalaDir}; init puts the Scala sources there`)
   }
   const sbtFile = found.build === 'existing' ? 'h34s.sbt' : 'build.sbt'
-  create(join(sbt, sbtFile), sbtBuild.render({ ...params, sbtFile, registry }))
+  create(join(sbt, sbtFile), sbtBuild.render({ ...params, sbtFile, resolver, credentials }))
   planProject(plan, sbt, sources, { create, shown })
   if (!exists(join(sbt, '.jvmopts')))
     create(join(sbt, '.jvmopts'), jvmopts.render())

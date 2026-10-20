@@ -2,12 +2,16 @@
 // next to an existing build.sbt, which init never edits.
 import { file, region } from './regions.mjs'
 
-// claude 2026-10-20: created: the GitHub Packages resolver and the credentials from environment variables, one block that a public registry deletes (ADR-0009, ADR-0003)
-/** The resolver and credential lines of the release guide. They name environment variables only. */
-export const registryLines = [
+// claude 2026-10-20: changed: the release guide's resolver, a stanza of its own that init adds when the build lacks it (ADR-0009, ADR-0003, review P1)
+/** The resolver lines of the release guide. */
+export const resolverLines = [
   'ThisBuild / resolvers += "h34s GitHub Packages" at',
   '  "https://maven.pkg.github.com/yuri4n/h34s"',
-  '',
+]
+
+// claude 2026-10-20: created: the release guide's credentials from environment variables, a stanza that init adds when the build lacks it (ADR-0009, ADR-0003, review P1)
+/** The credential lines of the release guide. They name environment variables only. */
+export const credentialLines = [
   'ThisBuild / credentials ++= (for {',
   '  user <- sys.env.get("GITHUB_PACKAGES_USER")',
   '  token <- sys.env.get("GITHUB_PACKAGES_TOKEN")',
@@ -23,13 +27,21 @@ export const registryLines = [
 /** The text that tells whether an sbt build already has the h34s resolver. */
 export const registryHost = 'maven.pkg.github.com/yuri4n/h34s'
 
-// claude 2026-10-20: created: the server project in the adoption guide's shape, the registry block and the commented locale exclusion (ADR-0009)
+// claude 2026-10-20: created: the text that marks a build that already has GitHub Packages credentials (review P1)
+/**
+ * Matches an sbt build that already has credentials for GitHub Packages: the token variable that
+ * the credential lines read, or a `Credentials(` call that names the host.
+ */
+export const credentialsPattern = /\bGITHUB_PACKAGES_TOKEN\b|\bCredentials\s*\([^)]*"maven\.pkg\.github\.com"/
+
+// claude 2026-10-20: changed: the server project in the adoption guide's shape, the resolver and the credentials each when the build lacks it, and the commented locale exclusion (ADR-0009, review P1)
 /**
  * Renders the sbt file. `sbtFile` is `build.sbt` or `h34s.sbt`; `appDir` is the Nuxt app's path
  * below the sbt build (`''` in layout A, `'web'` in layout B), where the linker writes
- * `server/.scala`. Without `registry`, the build already has the resolver and init leaves it out.
+ * `server/.scala`. Without `resolver` or without `credentials`, the build already has that stanza
+ * and init leaves it out.
  */
-export function render({ api, version, sbtFile, appDir, project, scalaDir, registry }) {
+export function render({ api, version, sbtFile, appDir, project, scalaDir, resolver, credentials }) {
   const artifact = api === 'zio' ? 'zio-h3-ext' : 'kyo-h3-ext'
   const output = [...appDir.split('/').filter(Boolean), 'server', '.scala']
     .map(part => `"${part}"`)
@@ -52,12 +64,27 @@ export function render({ api, version, sbtFile, appDir, project, scalaDir, regis
     `      (LocalRootProject / baseDirectory).value / ${output},`,
     '  )',
   ])
-  if (registry) {
+  if (resolver && credentials) {
     lines.push(
       '',
       '// The h34s libraries come from GitHub Packages. sbt reads your user name and token from',
       '// these environment variables. Keep the token out of this file.',
-      ...region('registry', registryLines),
+      ...region('registry', [...resolverLines, '', ...credentialLines]),
+    )
+  }
+  else if (resolver) {
+    lines.push(
+      '',
+      '// The h34s libraries come from GitHub Packages. Your build already has the credentials.',
+      ...region('registry', resolverLines),
+    )
+  }
+  else if (credentials) {
+    lines.push(
+      '',
+      '// Your build already has the h34s resolver. sbt reads your GitHub Packages user name and',
+      '// token from these environment variables. Keep the token out of this file.',
+      ...region('registry', credentialLines),
     )
   }
   lines.push(

@@ -429,6 +429,37 @@ test('path 3: a build that keeps its own resolver, .jvmopts and plugins file get
   assert.match(result.stdout, /Kept:\n {2}the h34s resolver that your sbt build already has\n {2}\.jvmopts as it is/)
 })
 
+// claude 2026-10-20: created: the test "path 3: the resolver and the credentials are found ..." (review P1)
+test('path 3: the resolver and the credentials are found independently, and h34s.sbt adds the one the build lacks', (t) => {
+  const resolver = 'ThisBuild / resolvers += "mine" at "https://maven.pkg.github.com/yuri4n/h34s"\n'
+  const credentials = 'ThisBuild / credentials += Credentials("GitHub Package Registry", "maven.pkg.github.com", sys.env("GITHUB_PACKAGES_USER"), sys.env("GITHUB_PACKAGES_TOKEN"))\n'
+  const written = {
+    resolver: 'ThisBuild / resolvers += "h34s GitHub Packages" at\n  "https://maven.pkg.github.com/yuri4n/h34s"\n',
+    credentials: 'ThisBuild / credentials ++= (for {\n  user <- sys.env.get("GITHUB_PACKAGES_USER")\n  token <- sys.env.get("GITHUB_PACKAGES_TOKEN")\n} yield Credentials(\n  "GitHub Package Registry",\n  "maven.pkg.github.com",\n  user,\n  token,\n)).toSeq\n',
+  }
+  const keptResolver = 'the h34s resolver that your sbt build already has'
+  const keptCredentials = 'the GitHub Packages credentials that your sbt build already has'
+  for (const item of [
+    { name: 'the resolver only', files: { 'build.sbt': `${resolver}lazy val core = project\n` }, adds: ['credentials'], kept: [keptResolver] },
+    { name: 'the credentials only', files: { 'build.sbt': `${credentials}lazy val core = project\n` }, adds: ['resolver'], kept: [keptCredentials] },
+    { name: 'both', files: { 'build.sbt': `${resolver}${credentials}lazy val core = project\n` }, adds: [], kept: [keptResolver, keptCredentials] },
+    { name: 'neither', files: { 'build.sbt': 'lazy val core = project\n' }, adds: ['resolver', 'credentials'], kept: [] },
+    // The template's own credentials stanza, in another sbt file of the build.
+    { name: 'both, in two files', files: { 'build.sbt': `${resolver}lazy val core = project\n`, 'credentials.sbt': written.credentials }, adds: [], kept: [keptResolver, keptCredentials] },
+  ]) {
+    const root = temporary(t)
+    write(root, { ...sbtBuild, ...item.files })
+    const result = init(root)
+    assert.equal(result.status, 0, `${item.name}\n${result.output}`)
+    const sbt = tree(root)['h34s.sbt']
+    for (const stanza of ['resolver', 'credentials'])
+      assert.equal(sbt.includes(written[stanza]), item.adds.includes(stanza), `${item.name}: h34s.sbt ${item.adds.includes(stanza) ? 'adds' : 'does not add'} the ${stanza}\n${sbt}`)
+    assert.equal((sbt.match(/ThisBuild \//g) ?? []).length, item.adds.length, `${item.name}: no other ThisBuild setting`)
+    for (const line of [keptResolver, keptCredentials])
+      assert.equal(result.stdout.includes(`  ${line}\n`), item.kept.includes(line), `${item.name}: ${line}\n${result.stdout}`)
+  }
+})
+
 // claude 2026-10-20: created: the test "path 3: a build that already defines the server project ..." (ADR-0009)
 test('path 3: a build that already defines the server project or uses scala-server is a conflict', (t) => {
   const root = temporary(t)
