@@ -1,11 +1,11 @@
 package dev.yuri4n.exts.ntcvzioschema
 
-import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, WireType}
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, WireModel, WireType}
 import org.getshaka.nativeconverter.NativeConverter
 import zio.*
 import zio.schema.annotation.{fieldName, fieldNameAliases, rejectExtraFields, transientField, validate}
 import zio.schema.validation.Validation
-import zio.schema.{DeriveSchema, Schema, StandardType, derived}
+import zio.schema.{DeriveSchema, Schema, StandardType, TypeId, derived}
 import zio.test.*
 
 import scala.scalajs.js
@@ -61,7 +61,45 @@ object NativeSchemaSpec extends ZIOSpecDefault:
     given Schema[Hidden] = DeriveSchema.gen[Hidden]
     given Schema[NestedDefault] = DeriveSchema.gen[NestedDefault]
 
+    /** A generic record: ZIO's `TypeId` of `Page[Pair]` has no type arguments. */
+    final case class Page[A](items: List[A], total: Int)
+    sealed trait Shape
+    final case class Circle(radius: Double) extends Shape
+
     def spec = suite("optional native schema bridge")(
+      // claude 2026-10-20: created: the audit of ZIO's TypeId and the named models of the bridge (ADR-0014)
+      test("records are named models after their TypeId; a recursive record refers to its name") {
+        val pair = Schema[Pair].asInstanceOf[Schema.Record[Pair]].id
+        val tree = NativeSchema(Schema[Tree]).converter
+        val page = NativeSchema(DeriveSchema.gen[Page[Pair]]).converter
+        val team = wireType[Team] match
+            case WireType.Named(name, _, scalaType) => Some((name, scalaType))
+            case _                                  => None
+        assertTrue(
+          pair == TypeId.Nominal(Chunk("dev", "yuri4n", "exts", "ntcvzioschema"), Chunk("NativeSchemaSpec"), "Pair"),
+          pair.asInstanceOf[TypeId.Nominal].fullyQualified == "dev.yuri4n.exts.ntcvzioschema.NativeSchemaSpec.Pair",
+          team == Some(("Team", Some("dev.yuri4n.exts.ntcvzioschema.NativeSchemaSpec.Team"))),
+          wireType[Team].renderNamed == "Team",
+          wireType[Team].models.map(model => (model.name, model.definition)) == List(
+            "Member" -> "{ name: string; age: number; tags: Array<string> }",
+            "Team"   -> "{ lead: Member; members: Array<Member> }",
+          ),
+          tree.wireType.models == List(WireModel(
+            "Tree",
+            "{ value: number; children: Array<Tree> }",
+            Some("dev.yuri4n.exts.ntcvzioschema.NativeSchemaSpec.Tree"),
+            List("Tree"),
+          )),
+          // ZIO's TypeId has no type arguments, so the generic record is named after its class.
+          page.wireType.renderNamed == "Page",
+          page.wireType.models.map(_.definition) == List("{ first: string; second: string }", "{ items: Array<Pair>; total: number }"),
+        )
+      },
+      // claude 2026-10-20: created: Schema.Enum stays unsupported (ADR-0014)
+      test("sealed traits and enums stay unsupported") {
+        for result <- ZIO.attempt(NativeSchema(DeriveSchema.gen[Shape])).exit
+        yield assertTrue(result.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[NativeSchema.UnsupportedSchema]))
+      },
       test("the converter's TypeScript type follows the encoder: records, lists, options, nesting") {
         val team = Team(Member("Ada", 36, List("lead")), List(Member("Bob", 30, Nil)))
         val member = "{ name: string; age: number; tags: Array<string> }"
