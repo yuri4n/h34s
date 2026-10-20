@@ -2,6 +2,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 // claude 2026-10-20: created: the remark plugin that maps guide links to routes
 import remarkMdLinks from './remark/md-links.mjs'
+// claude 2026-10-20: created: the code of the homepage and the tour (#52)
+import { h34sSnippets } from './snippets/vite-plugin.mjs'
 
 const description = 'Use h34s to write Nuxt server routes in Scala.js: '
   + 'a Kyo core, a first-class ZIO adapter, optional bridges, and build tooling.'
@@ -40,6 +42,8 @@ export default defineNuxtConfig({
   image: {
     provider: process.env.NITRO_PRESET === 'vercel' ? 'vercel' : undefined,
   },
+  // claude 2026-10-20: created: serves virtual:h34s-snippets (#52)
+  vite: { plugins: [h34sSnippets()] },
   app: {
     head: {
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],

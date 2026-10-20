@@ -189,29 +189,3 @@ test('relative Markdown links resolve to a file and a heading', async () => {
   }
   assert.deepEqual(problems, [])
 })
-
-test('landing snippet matches the application source', async () => {
-  const homepage = await readFile(
-    resolve(root, 'app/pages/index.vue'),
-    'utf8',
-  )
-  const match = /const example = `([^`]+)`/.exec(homepage)
-  assert.ok(match, 'Copyable handler example must be present')
-  // The Kyo and ZIO demo applications.
-  const sourceRoot = resolve(root, '../examples/nuxt/scala')
-  const appFiles = (await filesUnder(sourceRoot))
-    .filter(file => file.endsWith('.scala'))
-  const sources = await Promise.all(
-    appFiles.map(file => readFile(file, 'utf8')),
-  )
-  const normalized = value => value
-    .trim()
-    .split('\n')
-    .map(line => line.trim())
-    .join('\n')
-  const example = normalized(match[1])
-  assert.ok(
-    sources.some(source => normalized(source).includes(example)),
-    'Homepage example must match a real Scala handler',
-  )
-})
