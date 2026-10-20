@@ -65,7 +65,7 @@ The investigation found facts that force the design (memo, sections 1 and 2):
 - **Question 4, (b) once per checkout, through `.nuxtrc`.** Not chosen: it re-runs on every fresh clone and in CI, and it records a skip as done.
 - **Question 5, (a) pnpm only, or (c) pnpm, npm and Yarn, all tested.** Not chosen: option (b) costs nothing extra and claims nothing untested. The memo gives no other reason.
 - **Question 6, (a) keep layout C unsupported and write layout B as two configs** (`h34s.config.mjs` plus a rebased `h34s.build.config.mjs`, and scripts with `--root .. --config web/h34s.build.config.mjs`). Not chosen: it costs one more file and an untested flag combination. The `sbtRoot` key is small (about one day), removes the second config and the cross-directory flags, makes layout C work, and lets the example drop `examples/nuxt/h34s.build.config.mjs`.
-- **Question 8, (b) delegate to Nuxt's starter, then run `init` as path 2.** Not chosen as the default: the Nuxt version the starter installs is unverified. The guide documents it as the alternative for authors who want Nuxt's starter.
+- **Question 8, (b) delegate to Nuxt's starter, then run `init` as path 2.** Not chosen as the default. The memo gives no explicit reason against it. It notes that the Nuxt version the starter installs is unverified, and it recommends documenting (b) as the alternative for authors who want Nuxt's starter.
 - **Question 9.** The memo proposes the defaults and asks to accept them or name what to change. It gives no alternative set.
 
 ### Layouts (memo, section 4)

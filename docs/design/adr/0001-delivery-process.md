@@ -4,7 +4,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-20
-- **Decided by:** the maintainer, by accepting the recommendation ("just take the recommended decisions", 2026-10-20). The orchestrating session wrote the rule from the maintainer's words quoted under Context.
+- **Decided by:** the orchestrating session, from the maintainer's words quoted under Context ("the user does not want to review PRs", 2026-10-19; "just take the recommended decisions", 2026-10-20). The sources gave no recommendation for this question.
 - **Source:** [issue #51](https://github.com/yuri4n/h34s/issues/51), "Still open for the maintainer", process bullet; the [spike memo](https://github.com/yuri4n/h34s/blob/341b6f68b53fe051fd93731b149f894e6dbfe63b/docs/design/spike-sendstream-fetch.md), section 7, item 1; `AGENTS.md`, "Change discipline and delivery workflow".
 
 ## Context
@@ -26,9 +26,9 @@ On 2026-10-20 the maintainer wrote: "just take the recommended decisions and rec
 1. A pull request stays the unit of change. Its gates are CI, the Codex review bot (`chatgpt-codex-connector[bot]`) and the Vercel preview (`vercel[bot]`).
 2. The orchestrating session merges a pull request once CI is green and every bot finding is resolved. It does not wait for the maintainer's review. It squash-merges, with the repository's existing commit title style `<title> (#N)`.
 3. The maintainer reviews after the fact, on merged history, and can revert any merge.
-4. A change to this rule updates `AGENTS.md` in the same pull request.
+4. This pull request updates `AGENTS.md`; a later change to this rule does the same.
 5. The maintainer can reinstate gated review with one word. From then on, the orchestrating session waits for the maintainer's approval again.
-6. Unchanged: release tags and the Vercel CLI stay on the maintainer's Mac, with explicit approval. Nobody force-pushes, rewrites shared history or deletes branches.
+6. Unchanged: release tags and the Vercel CLI stay on the maintainer's Mac, with explicit approval. Force-pushing, rewriting shared history and deleting branches still need explicit authorization.
 
 ## Options considered
 
@@ -52,5 +52,5 @@ On 2026-10-20 the maintainer wrote: "just take the recommended decisions and rec
 <!-- claude 2026-10-20: created: follow-ups -->
 
 - `AGENTS.md`, "Change discipline and delivery workflow": the sentences that required the maintainer's review and authorization before a merge now state this rule (same pull request as this record).
-- `docs/design/kyo-core.md`, section 1, "Recorded before the refactor", still says "Nothing is merged, force-pushed or published without the user's explicit approval." Update that bullet, or mark it as superseded by this record, in the next change to the design record.
+- `docs/design/kyo-core.md`, section 1, "Recorded before the refactor", still says "Nothing is merged, force-pushed or published without the user's explicit approval." The bullet stays as written. The "Decision records" paragraph at the top of the design record says that this record replaces the bullet's merge rule, and that force-pushes and publication still need explicit approval (same pull request as this record).
 - Comment on issue #51 that its process question is answered here, and on the tracking issue #17.

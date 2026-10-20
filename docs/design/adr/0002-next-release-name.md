@@ -4,7 +4,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-20
-- **Decided by:** the maintainer, by accepting the recommendation ("just take the recommended decisions", 2026-10-20)
+- **Decided by:** the orchestrating session, from the maintainer's words ("just take the recommended decisions", 2026-10-20) and the reasons in the spike memo, section 7, item 2. The memo gives those reasons and asks to "Pick one name", without an explicit recommendation.
 - **Source:** [issue #51](https://github.com/yuri4n/h34s/issues/51), "Still open for the maintainer", version bullet; the [spike memo](https://github.com/yuri4n/h34s/blob/341b6f68b53fe051fd93731b149f894e6dbfe63b/docs/design/spike-sendstream-fetch.md), section 7, item 2; GitHub milestone 1, "0.3.0-alpha.1".
 
 ## Context
@@ -13,7 +13,7 @@
 
 Two names for the next release were in use. The maintainer's handoff of 2026-10-19 calls it `0.2.0-alpha.2`. GitHub milestone 1 is "0.3.0-alpha.1", with a provisional scope, and pull requests #47, #48 and #49 also say `0.3.0-alpha.1`. `version.sbt` still says `0.2.0-alpha.1`, the published release.
 
-The next release contains breaking changes. Decision 1 of issue #51 (streams are sent, not returned, see [ADR-0004](0004-streams-are-sent.md)) makes a returned stream a compile error. The milestone's provisional scope also names the public rename, with breaking coordinates.
+The next release contains breaking changes. Decision 1 of issue #51 (streams are sent, not returned, see [ADR-0004](0004-streams-are-sent.md)) makes a returned stream a compile error. The milestone's provisional scope also names "the public rename if the maintainer accepts it (breaking coordinates)".
 
 ## Decision
 

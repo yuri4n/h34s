@@ -8,18 +8,18 @@ An architecture decision record (ADR) records one decision: its context, the dec
 
 <!-- claude 2026-10-20: created: index -->
 
-| Number                                                   | Title                                                                    | Status   | Date       | Source issue |
-| -------------------------------------------------------- | ------------------------------------------------------------------------ | -------- | ---------- | ------------ |
-| [ADR-0001](0001-delivery-process.md)                     | Delivery process: the orchestrating session merges green pull requests   | accepted | 2026-10-20 | #51          |
-| [ADR-0002](0002-next-release-name.md)                    | The next release is 0.3.0-alpha.1                                        | accepted | 2026-10-20 | #51          |
-| [ADR-0003](0003-registries-stay-private.md)              | The package registries stay private this round                           | accepted | 2026-10-20 | #54, #21     |
-| [ADR-0004](0004-streams-are-sent.md)                     | Streams are sent with `Response.sendStream`, not returned                | accepted | 2026-10-20 | #51          |
-| [ADR-0005](0005-fetch-in-handlers.md)                    | `$fetch` in handlers: Nitro's `event.fetch`, in-process credentials only | accepted | 2026-10-20 | #51          |
-| [ADR-0006](0006-handler-environment-and-test-helpers.md) | One merged handler environment, and public test helpers                  | accepted | 2026-10-20 | #51          |
-| [ADR-0007](0007-server-sent-events.md)                   | Server-sent events through an h34s helper over `sendStream`              | accepted | 2026-10-20 | #51          |
-| [ADR-0008](0008-streaming-support-limits.md)             | Streaming support limits                                                 | accepted | 2026-10-20 | #51, #36     |
-| [ADR-0009](0009-scaffolding-adoption-paths.md)           | Scaffold the three adoption paths with `h34s-scala init`                 | accepted | 2026-10-20 | #54          |
-| [ADR-0010](0010-homepage-mini-project-view.md)           | Homepage mini-project view                                               | accepted | 2026-10-20 | #52          |
+| Number                                                   | Title                                                                                  | Status   | Date       | Source issue |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------- | ---------- | ------------ |
+| [ADR-0001](0001-delivery-process.md)                     | Delivery process: the orchestrating session merges green pull requests                 | accepted | 2026-10-20 | #51          |
+| [ADR-0002](0002-next-release-name.md)                    | The next release is 0.3.0-alpha.1                                                      | accepted | 2026-10-20 | #51          |
+| [ADR-0003](0003-registries-stay-private.md)              | The package registries stay private this round                                         | accepted | 2026-10-20 | #54, #21     |
+| [ADR-0004](0004-streams-are-sent.md)                     | Streams are sent with `Response.sendStream`, not returned                              | accepted | 2026-10-20 | #51          |
+| [ADR-0005](0005-fetch-in-handlers.md)                    | `$fetch` in handlers: Nitro's `event.fetch`, in-process credentials only               | accepted | 2026-10-20 | #51          |
+| [ADR-0006](0006-handler-environment-and-test-helpers.md) | One merged handler environment, and public test helpers                                | accepted | 2026-10-20 | #51          |
+| [ADR-0007](0007-server-sent-events.md)                   | Server-sent events through an h34s helper over `sendStream`                            | accepted | 2026-10-20 | #51          |
+| [ADR-0008](0008-streaming-support-limits.md)             | Streaming support limits: document, list tested presets only, check the h3 copy        | accepted | 2026-10-20 | #51, #36     |
+| [ADR-0009](0009-scaffolding-adoption-paths.md)           | Scaffold the three adoption paths with `h34s-scala init`                               | accepted | 2026-10-20 | #54          |
+| [ADR-0010](0010-homepage-mini-project-view.md)           | Homepage mini-project view: an in-place Kyo \| ZIO toggle and a project tour component | accepted | 2026-10-20 | #52          |
 
 ## When to write an ADR
 
