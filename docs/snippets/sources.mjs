@@ -32,11 +32,12 @@ export const greeting = {
   zio: region(`${zio}/handlers/GreetingHandler.scala`, 'greeting-handler'),
 }
 
-// claude 2026-10-20: created: layout A (ADR-0009, decision 7) (#52)
+// claude 2026-10-20: changed: layout A (ADR-0009, decision 7), with the ZIO handler's real name (#52)
 /**
  * The tree of a new project in layout A. An entry with an `id` is a file
  * that the tour can open; the others show structure only. `generated` marks
- * output that a build writes.
+ * output that a build writes. `zioPath` is the entry's path when the tour
+ * shows ZIO, because the ZIO demo keeps that file under another name.
  */
 export const tree = [
   { path: 'build.sbt', id: 'build.sbt' },
@@ -47,6 +48,7 @@ export const tree = [
   { path: 'scala-server/src/main/scala/', directory: true },
   {
     path: 'scala-server/src/main/scala/Handlers.scala',
+    zioPath: 'scala-server/src/main/scala/GreetingHandler.scala',
     id: 'Handlers.scala',
   },
   {
@@ -112,6 +114,17 @@ export const files = {
     ],
   },
   'package.json': { lang: 'json', both: guide(npmTooling, 'package.json') },
+}
+
+// claude 2026-10-20: created: every source that the site reads (#52)
+/** Gives every region and guide marker that the site shows, flattened. */
+export function allSources() {
+  const parts = source => (Array.isArray(source) ? source : [source])
+  return [
+    ...Object.values(greeting),
+    ...Object.values(files).flatMap(entry =>
+      [entry.both, entry.kyo, entry.zio].filter(Boolean)),
+  ].flatMap(parts)
 }
 
 // claude 2026-10-20: created: reads one source (#52)

@@ -1,6 +1,7 @@
 // claude 2026-10-20: created: tests of the shown code's extraction (#52)
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
+import { join, relative } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -8,15 +9,19 @@ import {
   extractRegion,
   joinRanges,
   lineDiff,
+  regionNames,
   SnippetError,
+  tourMarkers,
   zioBuild,
 } from '../snippets/extract.mjs'
 import {
+  allSources,
   files,
   greeting,
   loadSnippets,
   readRepositoryFile,
   readSource,
+  repositoryRoot,
   tree,
 } from '../snippets/sources.mjs'
 
@@ -36,6 +41,23 @@ test('a region is the slice between its markers, minus nested markers', () => {
   assert.equal(
     extractRegion(source, 'outer', 'A.scala'),
     'val a = 1\n  val b = 2',
+  )
+})
+
+// claude 2026-10-20: created: annotations never reach the site (#52)
+test('a region drops whole-line change annotations', () => {
+  const source = lines([
+    '// #region r',
+    '// claude 2026-10-20: changed: the value (#52)',
+    'val a = 1',
+    '  # claude 2026-10-20: created: a key (#52)',
+    '  b: 2',
+    'val c = "claude 2026-10-20: created: kept, not a whole line"',
+    '// #endregion r',
+  ])
+  assert.equal(
+    extractRegion(source, 'r', 'A.scala'),
+    'val a = 1\n  b: 2\nval c = "claude 2026-10-20: created: kept, not a whole line"',
   )
 })
 
@@ -94,6 +116,21 @@ test('a marked fence gives its body without the fence indentation', () => {
     ),
     /g\.md: marker .* is not followed by a code fence/,
   )
+})
+
+// claude 2026-10-20: created: a marker must stand right above its fence (#52)
+test('a tour marker followed by a heading or a list is rejected', () => {
+  for (const next of ['## Heading', '- item', '1. step', '<!-- other -->']) {
+    assert.throws(
+      () => extractMarkedFence(
+        `<!-- tour: x -->\n\n${next}\n\n\`\`\`js\na\n\`\`\``,
+        'x',
+        'g.md',
+      ),
+      /g\.md: marker .* is not followed by a code fence/,
+      next,
+    )
+  }
 })
 
 test('the line diff marks the lines outside the common subsequence', () => {
@@ -169,4 +206,54 @@ test('the homepage and the tour hold no hand-typed code', async () => {
     assert.ok(source.includes('virtual:h34s-snippets'), `${name} reads it`)
     assert.ok(!handTyped.test(source), `${name} holds hand-typed code`)
   }
+})
+
+// claude 2026-10-20: created: no marker without a reader (#52)
+/** Every file below `dir`, as repository paths, without build output. */
+async function walk(dir) {
+  const skip = new Set([
+    'node_modules', 'target', '.nuxt', '.output', '.data', '.scala', 'vendor',
+  ])
+  const found = []
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (skip.has(entry.name))
+      continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory())
+      found.push(...await walk(path))
+    else
+      found.push(relative(repositoryRoot, path))
+  }
+  return found
+}
+
+test('every region and tour marker is read by sources.mjs', async () => {
+  const used = new Set(allSources().map(item =>
+    `${item.kind} ${item.file} ${item.name}`))
+  const orphans = []
+  for (const file of await walk(join(repositoryRoot, 'examples/nuxt'))) {
+    if (!/\.(?:scala|ts|mjs|js|vue)$/.test(file))
+      continue
+    for (const name of regionNames(readRepositoryFile(file))) {
+      if (!used.has(`region ${file} ${name}`))
+        orphans.push(`${file}: #region ${name}`)
+    }
+  }
+  for (const file of await walk(join(repositoryRoot, 'docs/content'))) {
+    if (!file.endsWith('.md'))
+      continue
+    for (const name of tourMarkers(readRepositoryFile(file))) {
+      if (!used.has(`guide ${file} ${name}`))
+        orphans.push(`${file}: <!-- tour: ${name} -->`)
+    }
+  }
+  assert.deepEqual(orphans, [], 'markers that no source in sources.mjs reads')
+})
+
+test('the orphan check finds region and tour marker names', () => {
+  assert.deepEqual(
+    regionNames('// #region a\nx\n  # #region b\n// #endregion a'),
+    ['a', 'b'],
+  )
+  assert.deepEqual(tourMarkers('text\n  <!-- tour: x.sbt -->\n'), ['x.sbt'])
 })

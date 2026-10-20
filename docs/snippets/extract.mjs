@@ -2,6 +2,8 @@
 // not read files: the callers pass the text, so the tests use plain strings.
 
 const REGION = /^\s*(?:\/\/|#|<!--)\s*#(region|endregion)\s+(\S+)/
+// claude 2026-10-20: created: a whole-line change annotation (#52)
+const ANNOTATION = /^\s*(?:\/\/|#|<!--)\s*claude \d{4}-\d{2}-\d{2}: (?:created|changed):/
 
 // claude 2026-10-20: created: the error for a missing source range (#52)
 export class SnippetError extends Error {
@@ -20,10 +22,11 @@ export function dedent(lines) {
   return lines.map(line => line.slice(cut))
 }
 
-// claude 2026-10-20: created: the lines of one named region (#52)
+// claude 2026-10-20: changed: the lines of one named region, without annotations (#52)
 /**
  * Gives the text between `// #region <name>` and `// #endregion <name>`,
- * without the marker lines of nested regions and without the common
+ * without the marker lines of nested regions, without whole-line
+ * `// claude <date>: created|changed:` annotations, and without the common
  * indentation. Throws a `SnippetError` that names the file and the region
  * when a marker is missing or repeated.
  */
@@ -47,7 +50,7 @@ export function extractRegion(text, name, file) {
     throw fail('ends before it starts')
   const body = lines
     .slice(starts[0] + 1, ends[0])
-    .filter(line => !REGION.test(line))
+    .filter(line => !REGION.test(line) && !ANNOTATION.test(line))
   if (body.every(line => line.trim() === ''))
     throw fail('is empty')
   return dedent(body).join('\n')
@@ -158,4 +161,22 @@ export function lineDiff(left, right) {
   const changed = (lines, kept) =>
     lines.flatMap((_, index) => (kept.has(index) ? [] : [index + 1]))
   return { left: changed(a, keptA), right: changed(b, keptB) }
+}
+
+// claude 2026-10-20: created: the marker names of a file, for the orphan check (#52)
+/** Gives the names of every `#region <name>` line in a source file. */
+export function regionNames(text) {
+  return text.split('\n').flatMap((line) => {
+    const marker = REGION.exec(line)
+    return marker && marker[1] === 'region' ? [marker[2]] : []
+  })
+}
+
+// claude 2026-10-20: created: the tour marker names of a guide (#52)
+/** Gives the names of every `<!-- tour: <name> -->` line in a Markdown file. */
+export function tourMarkers(markdown) {
+  return markdown.split('\n').flatMap((line) => {
+    const marker = /^\s*<!-- tour: (.+?) -->\s*$/.exec(line)
+    return marker ? [marker[1]] : []
+  })
 }
