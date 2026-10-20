@@ -134,49 +134,76 @@ function usedBy(output, record) {
   return record.route ? describeRoute(record) : `${output}/${record.file}`
 }
 
-// claude 2026-10-20: created: the clash message names every Scala type and the routes that use it (ADR-0014)
+// claude 2026-10-20: changed: names a type without a Scala name plainly and counts the Scala types (ADR-0014)
+/** The clash message: every structure of `name`, with its Scala type and the routes that use it. */
 function clash(scope, name, variants) {
   const described = variants.map(variant =>
-    `${variant.scala ?? 'a hand-written WireType.Named'} (used by ${[...variant.users].join(', ')})`,
+    `${variant.scala ?? 'a type without a known Scala name'} (used by ${variant.users.join(', ')})`,
   )
-  const listed = described.length === 2 ? described.join(' and ') : `${described.slice(0, -1).join(', ')} and ${described.at(-1)}`
+  const listed = `${described.slice(0, -1).join(', ')} and ${described.at(-1)}`
+  // A variant without a Scala name counts as its own Scala type.
+  const count = new Set(variants.map((variant, index) => variant.scala ?? index)).size
   return new Error(
-    `${scope}: two Scala types have the TypeScript name ${name} and different structures: ${listed}. `
-    + 'Rename one of the Scala types, so that each TypeScript name means one structure.',
+    `${scope}: ${count === 2 ? 'two' : 'several'} Scala types have the TypeScript name ${name} and different structures: ${listed}. `
+    + `Rename ${count === 2 ? 'one of the Scala types' : 'the Scala types'}, so that each TypeScript name means one structure.`,
   )
 }
 
-// claude 2026-10-20: created: merges the models of one output directory (ADR-0014)
+// claude 2026-10-20: created: one Scala type with several structures is a generic (ADR-0014)
+function generic(variants) {
+  return variants.every(variant => typeof variant.scala === 'string' && variant.scala === variants[0].scala)
+}
+
+// claude 2026-10-20: changed: merges the models of every output together, because #h34s/models exports them together (ADR-0014)
 /**
- * Merges the named models of one output's declarations. A model with the same name and the same
- * structure is declared once. The same name with different structures fails the generation, unless
- * every one of them comes from the same Scala type: that is a generic type (ZIO's `TypeId` has no
- * type arguments), and it is written out where it is used, with every model that uses it and every
- * route whose type refers to one of them. Gives the models to declare in dependency order and the
- * declarations with the `success` type and the `imports` to write.
+ * Merges the named models of the declarations of every output (`[{ output, declarations }]`).
+ * `#h34s/models` exports the models of every output, so a TypeScript name means one structure in
+ * all of them. A model with the same name and the same structure is declared once. The same name
+ * with different structures fails the generation, unless every one of them comes from the same
+ * Scala type: that is a generic type (ZIO's `TypeId` has no type arguments), and it is written out
+ * where it is used, in every output, with every model that uses it and every route whose type
+ * refers to one of them. Gives, for each output in order, the models to declare in dependency order
+ * and the declarations with the `success` type and the `imports` to write.
  */
-export function mergeModels(output, declarations) {
+export function mergeModels(outputs) {
+  // Each structure of a name is one variant, with the outputs and the routes that use it.
   const byName = new Map()
-  for (const record of declarations) {
-    for (const model of record.named?.models ?? []) {
-      const variants = byName.get(model.name) ?? []
-      let variant = variants.find(other => other.type === model.type)
-      if (!variant) {
-        variant = { name: model.name, type: model.type, scala: model.scala, uses: model.uses, users: new Set() }
-        variants.push(variant)
-        byName.set(model.name, variants)
+  for (const { output, declarations } of outputs) {
+    for (const record of declarations) {
+      for (const model of record.named?.models ?? []) {
+        const variants = byName.get(model.name) ?? []
+        let variant = variants.find(other => other.type === model.type)
+        if (!variant) {
+          variant = { name: model.name, type: model.type, scala: model.scala, uses: model.uses, users: new Map() }
+          variants.push(variant)
+          byName.set(model.name, variants)
+        }
+        const users = variant.users.get(output) ?? new Set()
+        users.add(usedBy(output, record))
+        variant.users.set(output, users)
       }
-      variant.users.add(usedBy(output, record))
     }
   }
   const written = new Set()
   for (const [name, variants] of byName) {
     if (variants.length === 1)
       continue
-    if (variants.every(variant => typeof variant.scala === 'string' && variant.scala === variants[0].scala))
+    if (generic(variants)) {
       written.add(name)
-    else
-      throw clash(output, name, variants)
+      continue
+    }
+    // A clash inside one output names that output; otherwise it names the outputs of each route.
+    for (const { output } of outputs) {
+      const local = variants.filter(variant => variant.users.has(output))
+      if (local.length > 1 && !generic(local))
+        throw clash(output, name, local.map(variant => ({ ...variant, users: [...variant.users.get(output)] })))
+    }
+    throw clash('#h34s/models exports the models of every output', name, variants.map(variant => ({
+      ...variant,
+      users: [...variant.users].flatMap(([output, users]) =>
+        [...users].map(user => user.startsWith(`${output}/`) ? user : `${output}: ${user}`),
+      ),
+    })))
   }
   // A model that uses a written-out model is written out too, until nothing changes.
   for (let grown = written.size > 0; grown;) {
@@ -188,15 +215,18 @@ export function mergeModels(output, declarations) {
       }
     }
   }
-  // Each declaration lists its models in dependency order, so the first appearance keeps that order.
-  const models = [...byName.entries()].filter(([name]) => !written.has(name)).map(([, [model]]) => model)
-  const typed = declarations.map((record) => {
-    const named = record.named
-    if (!named || named.models.some(model => written.has(model.name)))
-      return { ...record, imports: [] }
-    return { ...record, success: named.success, imports: named.uses }
+  return outputs.map(({ declarations }) => {
+    // Each declaration lists its models in dependency order, so the first appearance keeps that order.
+    const names = new Set(declarations.flatMap(record => (record.named?.models ?? []).map(model => model.name)))
+    const models = [...names].filter(name => !written.has(name)).map(name => byName.get(name)[0])
+    const typed = declarations.map((record) => {
+      const named = record.named
+      if (!named || named.models.some(model => written.has(model.name)))
+        return { ...record, imports: [] }
+      return { ...record, success: named.success, imports: named.uses }
+    })
+    return { models, declarations: typed }
   })
-  return { models, declarations: typed }
 }
 
 // claude 2026-10-20: created: the content of the models file (ADR-0014)
@@ -229,31 +259,19 @@ function readManifestFile(path) {
   return manifest
 }
 
-// claude 2026-10-19: changed: checks every output before it writes any file, so a failure keeps all manifests as they were
+// claude 2026-10-20: changed: also writes the models file of each output, after it merges the models of every output (ADR-0014)
 /**
  * Loads and checks the linked modules of every configured output, then writes a `.d.ts` file
- * next to each module whose default export is an h34s handler, and the route manifest of each
- * output. A module without `entries` must contain at least one h34s handler. When any output
- * fails, no file of any output changes.
+ * next to each module whose default export is an h34s handler, the models file
+ * (`h34s-models.d.ts`) and the route manifest of each output. A module without `entries` must
+ * contain at least one h34s handler. When any output fails, no file of any output changes.
  */
 export async function writeRoutes({ root = process.cwd(), config, load = loadRecords }) {
   const seen = new Map()
   const outputs = []
-  const exported = new Map() // claude 2026-10-20: created: the models of every output, which #h34s/models exports together (ADR-0014)
   for (const module of config.modules) {
     const directory = resolve(root, module.output)
-    const read = readRecords(module.output, await load(directory))
-    const { routes } = read
-    // claude 2026-10-20: created: merges the models of the output, then checks them against the other outputs (ADR-0014)
-    const { models, declarations } = mergeModels(module.output, read.declarations)
-    for (const model of models) {
-      const users = [...model.users].map(user => user.startsWith(`${module.output}/`) ? user : `${module.output}: ${user}`)
-      const previous = exported.get(model.name)
-      if (previous && previous.type !== model.type)
-        throw clash('#h34s/models exports the models of every output', model.name, [previous, { ...model, users }])
-      if (!previous)
-        exported.set(model.name, { ...model, users })
-    }
+    const { routes, declarations } = readRecords(module.output, await load(directory))
     if (!module.entries && declarations.length === 0) {
       throw new Error(
         `Scala.js output ${module.output} has no h34s handlers. Export a handler as a module default, or list entries in the h34s config`,
@@ -267,11 +285,13 @@ export async function writeRoutes({ root = process.cwd(), config, load = loadRec
       seen.set(key, `${module.output}/${route.module}`)
     }
     const manifestPath = resolve(directory, manifestFile)
-    outputs.push({ module, directory, manifestPath, previous: readManifestFile(manifestPath), routes, declarations, models })
+    outputs.push({ module, directory, manifestPath, previous: readManifestFile(manifestPath), routes, declarations })
   }
+  const merged = mergeModels(outputs.map(({ module, declarations }) => ({ output: module.output, declarations })))
   // Every output is valid: only now replace its files. Nuxt never sees a mix of old and new routes.
   const results = []
-  for (const { module, directory, manifestPath, previous, routes, declarations, models } of outputs) {
+  for (const [index, { module, directory, manifestPath, previous, routes }] of outputs.entries()) {
+    const { models, declarations } = merged[index]
     mkdirSync(directory, { recursive: true })
     // claude 2026-10-20: created: the models file, also when it is empty, so that #h34s/models resolves (ADR-0014)
     writeAtomically(resolve(directory, modelsFile), modelsDeclaration(models))

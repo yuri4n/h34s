@@ -231,6 +231,53 @@ test('a name with different structures in two outputs stops the generation; the 
   assert.deepEqual(results.map(result => result.models.names), [['Note'], ['Note']])
 })
 
+// claude 2026-10-20: created: a generic with one structure in each of two outputs is written out in both (ADR-0014)
+test('one Scala type with a different structure in each output is a generic: every output writes it out', async (t) => {
+  const root = fixture(t)
+  mkdirSync(join(root, 'server/.scala-kyo'), { recursive: true })
+  const config = { modules: [{ output: 'server/.scala' }, { output: 'server/.scala-kyo' }] }
+  const user = { name: 'User', type: '{ name: string }', uses: [], scala: 'app.User' }
+  const page = (type, used) => ({ name: 'Page', type, uses: [used], scala: 'app.Page' })
+  const zio = [
+    routeWith('notes-get.js', '/api/notes', { success: '{ data: Page }', uses: ['Page'], models: [note, page('{ items: Array<Note> }', 'Note')] }, '{ data: { items: Array<{ id: number; text: string }> } }'),
+    routeWith('note-get.js', '/api/note', { success: '{ data: Note }', uses: ['Note'], models: [note] }),
+  ]
+  const kyo = [routeWith('users-get.js', '/api/users', { success: '{ data: Page }', uses: ['Page'], models: [user, page('{ items: Array<User> }', 'User')] }, '{ data: { items: Array<{ name: string }> } }')]
+  const results = await writeRoutes({ root, config, load: async directory => relative(root, directory) === 'server/.scala' ? zio : kyo })
+  assert.deepEqual(results.map(result => result.models.names), [['Note'], ['User']])
+  for (const output of ['server/.scala', 'server/.scala-kyo'])
+    assert.doesNotMatch(readFileSync(join(root, output, 'h34s-models.d.ts'), 'utf8'), /Page/)
+  const notes = readFileSync(join(root, 'server/.scala/notes-get.d.ts'), 'utf8')
+  assert.match(notes, /export type SuccessBody = \{ data: \{ items: Array<\{ id: number; text: string \}> \} \}/)
+  assert.doesNotMatch(notes, /h34s-models/)
+  assert.match(readFileSync(join(root, 'server/.scala-kyo/users-get.d.ts'), 'utf8'), /export type SuccessBody = \{ data: \{ items: Array<\{ name: string \}> \} \}/)
+  assert.match(readFileSync(join(root, 'server/.scala/note-get.d.ts'), 'utf8'), /import type \{ Note \}/)
+})
+
+// claude 2026-10-20: created: the clash message with more than two structures and a type without a Scala name (ADR-0014)
+test('a clash names each structure, also one without a Scala name, and counts the Scala types', async (t) => {
+  const root = fixture(t)
+  const config = { modules: [{ output: 'server/.scala' }] }
+  const variant = (file, scala, type) =>
+    routeWith(file, `/api/${file.replace(/-get\.js$/, '')}`, { success: '{ data: Note }', uses: ['Note'], models: [{ name: 'Note', type, uses: [], ...(scala ? { scala } : {}) }] })
+  await assert.rejects(
+    writeRoutes({ root, config, load: async () => [
+      variant('a-get.js', 'app.Note', '{ id: number }'),
+      variant('b-get.js', 'app.Note', '{ id: string }'),
+      variant('c-get.js', undefined, '{ text: string }'),
+    ] }),
+    /server\/\.scala: two Scala types have the TypeScript name Note and different structures: app\.Note \(used by GET \/api\/a\), app\.Note \(used by GET \/api\/b\) and a type without a known Scala name \(used by GET \/api\/c\)\. Rename one of the Scala types/,
+  )
+  await assert.rejects(
+    writeRoutes({ root, config, load: async () => [
+      variant('a-get.js', 'app.Note', '{ id: number }'),
+      variant('b-get.js', 'memo.Note', '{ id: string }'),
+      variant('c-get.js', undefined, '{ text: string }'),
+    ] }),
+    /server\/\.scala: several Scala types have the TypeScript name Note and different structures: app\.Note \(used by GET \/api\/a\), memo\.Note \(used by GET \/api\/b\) and a type without a known Scala name \(used by GET \/api\/c\)\. Rename the Scala types/,
+  )
+})
+
 // claude 2026-10-20: created: invalid named types and the reserved module ID (ADR-0014)
 test('rejects a module named like the models file and named types without their shape', async (t) => {
   const root = fixture(t)
