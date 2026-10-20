@@ -127,14 +127,25 @@ class RequestBodySuite extends FunSuite:
       assert(!BodyDecoding.acceptsJson(Some("text/plain"), requireContentType = true))
     }
 
+    // claude 2026-10-19: changed: `requireContentType` is passed explicitly; it has no default now (issue #41 review)
     test("JSON is accepted only for absent or JSON media types") {
-      assert(BodyDecoding.acceptsJson(None))
-      assert(BodyDecoding.acceptsJson(Some("application/json")))
-      assert(BodyDecoding.acceptsJson(Some("Application/JSON; charset=utf-8")))
-      assert(BodyDecoding.acceptsJson(Some("application/problem+json")))
-      assert(!BodyDecoding.acceptsJson(Some("application/x-www-form-urlencoded")))
-      assert(!BodyDecoding.acceptsJson(Some("text/plain")))
-      assert(!BodyDecoding.acceptsJson(Some("text/json")))
+      assert(BodyDecoding.acceptsJson(None, requireContentType = false))
+      assert(BodyDecoding.acceptsJson(Some("application/json"), requireContentType = false))
+      assert(BodyDecoding.acceptsJson(Some("Application/JSON; charset=utf-8"), requireContentType = false))
+      assert(BodyDecoding.acceptsJson(Some("application/problem+json"), requireContentType = false))
+      assert(!BodyDecoding.acceptsJson(Some("application/x-www-form-urlencoded"), requireContentType = false))
+      assert(!BodyDecoding.acceptsJson(Some("text/plain"), requireContentType = false))
+      assert(!BodyDecoding.acceptsJson(Some("text/json"), requireContentType = false))
+    }
+
+    // claude 2026-10-19: created: the after-read check (issue #41 review)
+    test("after the read, a request without a body needs no content type; a body without one does") {
+      assert(BodyDecoding.acceptsJsonBody(None, requireContentType = true, text = None))
+      assert(BodyDecoding.acceptsJsonBody(None, requireContentType = true, text = Some("")))
+      assert(!BodyDecoding.acceptsJsonBody(None, requireContentType = true, text = Some("{}")))
+      assert(BodyDecoding.acceptsJsonBody(None, requireContentType = false, text = Some("{}")))
+      assert(BodyDecoding.acceptsJsonBody(Some("application/json"), requireContentType = true, text = Some("{}")))
+      assert(!BodyDecoding.acceptsJsonBody(Some("text/plain"), requireContentType = true, text = None))
     }
 
     test("JSON parsing is strict and drops __proto__ keys") {

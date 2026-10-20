@@ -11,14 +11,20 @@ private[exts] object BodyDecoding:
     val unsupportedMediaType: HttpError = HttpError(415, "Request body must be JSON")
     val invalidJson: HttpError          = HttpError(400, "Request body is not valid JSON")
 
+    // claude 2026-10-19: changed: `requireContentType` has no default (issue #41 review)
     /** JSON is accepted for `application/json` or a `+json` application subtype, and when the
       * content type is absent unless `requireContentType` is set (`HandlerOptions.requireJsonContentType`).
       */
-    def acceptsJson(contentType: Option[String], requireContentType: Boolean = false): Boolean =
+    def acceptsJson(contentType: Option[String], requireContentType: Boolean): Boolean =
       contentType.map(_.split(';').head.trim.toLowerCase).filter(_.nonEmpty) match
           case None            => !requireContentType
           case Some(mediaType) =>
             mediaType == "application/json" || (mediaType.startsWith("application/") && mediaType.endsWith("+json"))
+
+    // claude 2026-10-19: created: the after-read check; a request without a body needs no content type (issue #41 review)
+    /** After the read: a request without a body (absent or empty text) needs no content type. */
+    def acceptsJsonBody(contentType: Option[String], requireContentType: Boolean, text: Option[String]): Boolean =
+      acceptsJson(contentType, requireContentType && text.exists(_.nonEmpty))
 
     /** Strict `JSON.parse`. A missing body becomes native `undefined`. `__proto__` keys are dropped. */
     def parseJson(text: Option[String]): Either[HttpError, js.Any] =

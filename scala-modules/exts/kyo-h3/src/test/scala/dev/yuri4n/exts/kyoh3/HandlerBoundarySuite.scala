@@ -533,7 +533,9 @@ class HandlerBoundarySuite extends FunSuite:
       def handlerOf(read: Request => String < HandlerEffects) = KHandler.define(options)(read)
       def result(read: Request => String < HandlerEffects): Future[(Int, String)] =
         // Request.fake carries the same default limit that the snapshot of `options` carries.
-        run(Scope.run(Var.run(ResponseHead.empty)(Abort.run[HttpError | InvalidInput](read(Request.fake(method = "POST", body = large, bodyLimit = options.bodyLimit))))))
+        // claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41)
+        val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = large, bodyLimit = options.bodyLimit)
+        run(Scope.run(Var.run(ResponseHead.empty)(Abort.run[HttpError | InvalidInput](read(request)))))
           .map(_.getOrThrow.fold(value => 200 -> value, error => error.status -> error.message, error => throw error))
       val small = Call()
       small.invoke(handlerOf(_.body.text())).flatMap { smallBody =>
@@ -560,7 +562,8 @@ class HandlerBoundarySuite extends FunSuite:
           again <- request.body.text()
           _ <- Response.status(Status.Created)
         yield Greeting(s"${first.name} $again")
-      val request = Request.fake(method = "POST", body = Some("{\"name\":\"Scala\"}"))
+      // claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41)
+      val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = Some("{\"name\":\"Scala\"}"))
       run(Scope.run(Var.runTuple(ResponseHead.empty)(handler(request)))).map { result =>
         val (head, greeting) = result.getOrThrow
         assertEquals(head.status, Some(Status.Created))

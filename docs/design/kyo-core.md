@@ -151,11 +151,13 @@ The body type needs a `ResponseBody[B]` (Kyo) or `ZResponseBody[B]` (ZIO) instan
 
 ### 4.3 Body reading
 
+<!-- claude 2026-10-19: changed: the rows for a JSON read without a content type, with and without a body (issue #41) -->
 | Input | Result |
 | --- | --- |
 | Body larger than the limit (checked from `Content-Length`, then counted while reading) | `HttpError` 413. h34s never buffers more than the limit |
 | `json[A]` with a content type that is not JSON | `HttpError` 415 |
-| `json[A]` without a content type | Accepted, unless `HandlerOptions.requireJsonContentType` is true (then 415) |
+| `json[A]` with a body but without a content type | `HttpError` 415, unless `HandlerOptions.requireJsonContentType` is false (then accepted). The default is `true` since `0.3.0-alpha.1`. The check runs after the read, so such a body is buffered up to the limit first |
+| `json[A]` without a body (no bytes) and without a content type | Decodes like JSON `null`: a model is 422, `Option[A]` is `None` |
 | Invalid JSON | `HttpError` 400 |
 | A shape the converter rejects, or a schema check that fails | `InvalidInput` 422 |
 | Any other exception from a decoder | A defect: opaque 500 |
@@ -176,7 +178,8 @@ Inside the program, recovering from a failure does not roll the head back. This 
 
 ### 4.6 HandlerOptions and the wire format
 
-`HandlerOptions(success, errors, defaults, bodyLimit, requireJsonContentType)`; `HandlerOptions.default` is `Data`, `List`, no defaults, 1 MiB, `false`.
+<!-- claude 2026-10-19: changed: `requireJsonContentType` defaults to `true` (issue #41) -->
+`HandlerOptions(success, errors, defaults, bodyLimit, requireJsonContentType)`; `HandlerOptions.default` is `Data`, `List`, no defaults, 1 MiB, `true`.
 
 | Outcome | Status | Body with the default options |
 | --- | --- | --- |
@@ -302,10 +305,12 @@ Each item says what differs from the first plan and why. Superseded items are fo
 
 ### 9.2 Request and body reading
 
+<!-- claude 2026-10-19: changed: the "Strict JSON content type is the default" item: the strict JSON content type became the default (issue #41) -->
+
 - **Snapshot details** *(dev. 10)*. `Request.toString` is redacted. The first body read fixes the outcome: a body above a limit stays rejected, and a later read with a smaller limit also gets 413. An absent body is `""` for `text()`. `JSON.parse` drops `__proto__` keys.
 - **Body limit plumbing** *(dev. 18)*. `RequestBody.defaultLimit` (`private[exts]`) carries `HandlerOptions.bodyLimit`; `json[A]` uses it and `text(limit = body.defaultLimit)`. `Request.fake` gained `debug` and `bodyLimit` parameters, appended so positional calls keep working.
 - **An absent JSON body decodes like JSON `null`** *(D-5, R2)*. Passing `undefined` to a derived converter made native-converter's error path fail with a fatal `UndefinedBehaviorError` in fastLink builds (Kyo answered 500, ZIO hung). Now products fail with a normal 422 and `Option[A]` decodes to `None`. A `VirtualMachineError` from a converter becomes an `IllegalStateException` defect, so it can never hang a ZIO request.
-- **Strict JSON content type is opt-in** *(D-6, SEC-8)*. `HandlerOptions.requireJsonContentType` defaults to `false` and keeps the agreed "JSON or absent" rule. Turn it on for cookie-authenticated routes that change state: browsers send some cross-site requests without a content type and without a CORS preflight.
+- **Strict JSON content type is the default** *(D-6, SEC-8, issue #41)*. In `0.2.0-alpha.1`, `HandlerOptions.requireJsonContentType` defaulted to `false` and kept the agreed "JSON or absent" rule. Since `0.3.0-alpha.1` it defaults to `true`, a decision the maintainer delegated ("do what you think best", 2026-10-19): browsers send some cross-site requests without a content type and without a CORS preflight, and a safe default protects cookie-authenticated routes that change state without any setup. `HandlerOptions(requireJsonContentType = false)` restores the old rule for one handler. `Request.fake` follows the same default and has the same parameter, so a unit test sees the rule that production applies. A request without a body needs no content type (orchestrator decision, 2026-10-19): `BodyDecoding.acceptsJsonBody` checks a missing content type after the read, so `json[Option[A]]` of a bodiless request stays `None`. A present non-JSON content type still fails before the read.
 - **`Request.fake(runtimeConfig = Some(json))`** *(D-15, AD-8)* lets tests decode runtime config without `js.*`.
 - **A request stream that already ended** *(R8)*. The body reader fails at once when `readableEnded` or `destroyed` is true, instead of waiting forever. It does not use `req.complete`, which is also true on a fresh request whose small body already arrived.
 
@@ -390,7 +395,7 @@ PR #14 went through a four-part adversarial review (runtime, security, API and d
 | Area | Findings | Outcome |
 | --- | --- | --- |
 | Runtime | R1 `Async.uninterruptible` did not delay the settle; R2 absent body was fatal in fastLink builds; R3 forked cleanup; R4 ZIO stream scope leak; R5 KV converter `InvalidInput` approved; R6 non-string stream elements; R7 `close` during acquisition; R8 ended request stream hung | All fixed except R3, which a test disproved (see 9.6) |
-| Security | SEC-1 KV decode errors logged stored data; SEC-2 Nuxt `debug` never enabled diagnostics; SEC-3 raw values reached h3's sniffing; SEC-4 unbounded big numbers; SEC-5 `Secret` decode messages; SEC-6 cookie deletion without `Secure`; SEC-7 unpinned dependencies with a token; SEC-8 bodies without a content type | All fixed; SEC-8 as the opt-in `requireJsonContentType` plus a "cross-site requests" note |
+| Security | SEC-1 KV decode errors logged stored data; SEC-2 Nuxt `debug` never enabled diagnostics; SEC-3 raw values reached h3's sniffing; SEC-4 unbounded big numbers; SEC-5 `Secret` decode messages; SEC-6 cookie deletion without `Secure`; SEC-7 unpinned dependencies with a token; SEC-8 bodies without a content type | All fixed; SEC-8 as `requireJsonContentType` (opt-in in `0.2.0-alpha.1`, on by default since `0.3.0-alpha.1`, issue #41) plus a "cross-site requests" note |
 | API and docs | AD-1 to AD-13: stream element types, `nuxt dev` evidence, `Schema[Secret]`, npm version, validation timing, cookie options, the Kyo demo, `Request.fake` config, `failWith`, uninterruptible docs, `Secret` decode messages in KV logs, models at boundaries, the disconnect rule in `AGENTS.md` | All fixed; AD-9 fixed for Kyo, kept for ZIO by design |
 | Build | B1 release notes checked late; B2 npm version; B3 stale "not verified" rows; B4 `scala:types`; B5 stale Bruno collection; B6 missing redirect; B7 locale database size | B1-B5 fixed; B6 and B7 refuted (no deployed site; Skunk's minimal locale database shadows the full one in the ZIO demo) |
 
