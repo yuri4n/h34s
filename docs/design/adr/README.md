@@ -20,6 +20,8 @@ An architecture decision record (ADR) records one decision: its context, the dec
 | [ADR-0008](0008-streaming-support-limits.md)             | Streaming support limits: document, list tested presets only, check the h3 copy        | accepted | 2026-10-20 | #51, #36     |
 | [ADR-0009](0009-scaffolding-adoption-paths.md)           | Scaffold the three adoption paths with `h34s-scala init`                               | accepted | 2026-10-20 | #54          |
 | [ADR-0010](0010-homepage-mini-project-view.md)           | Homepage mini-project view: an in-place Kyo \| ZIO toggle and a project tour component | accepted | 2026-10-20 | #52          |
+| [ADR-0011](0011-no-content-body-typing.md)               | A no-content body keeps the 204 rule and the `undefined` type                          | accepted | 2026-10-20 | #46          |
+| [ADR-0012](0012-inner-scope-finalizer-semantics.md)      | Finalizer failures in a handler's own scopes follow each runtime's rules               | accepted | 2026-10-20 | #50, #40     |
 
 ## When to write an ADR
 
