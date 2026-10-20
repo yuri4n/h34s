@@ -268,6 +268,30 @@ class HttpStreamSuite extends FunSuite:
       }
     }
 
+    // claude 2026-10-20: created: in Kyo, only a scope inside the handler sees a stream failure; the request scope's finalizers get Absent (ADR-0004, Q3)
+    test("after a stream failure, a finalizer of the request scope gets Absent, and one of a Scope.run around sendStream gets the failure") {
+      val call = Call("/stream")
+      val failure = new Exception("the second element failed")
+      var inRequestScope: Option[String] = None
+      var inInnerScope: Option[String] = None
+      val stream = Stream.init(Seq("one")).concat(Stream[String, Abort[Exception]](Abort.fail(failure)))
+      val handler = KHandler.define { _ =>
+        Scope.ensure((outcome: Maybe[Result.Error[Any]]) => Sync.defer { inRequestScope = Some(outcome.fold("Absent")(_.toString)) })
+          .andThen(
+            Scope.run(
+              Scope.ensure((outcome: Maybe[Result.Error[Any]]) => Sync.defer { inInnerScope = Some(outcome.fold("Absent")(_.toString)) })
+                .andThen(Response.sendStream(stream)),
+            ),
+          )
+      }
+      consoleErrors(call.invoke(handler)).map { (body, _) =>
+        assert(js.isUndefined(body))
+        assertEquals(call.response.chunks.toList, List("one"))
+        assert(inInnerScope.exists(_.contains("the second element failed")), inInnerScope.toString)
+        assertEquals(inRequestScope, Some("Absent"), "h34s closes the request scope after the program, without its outcome")
+      }
+    }
+
     // claude 2026-10-20: created: a Scope.run around sendStream keeps the disconnect order (ADR-0004, Q3 guidance)
     test("a disconnect waits for the asynchronous finalizers of a Scope.run around sendStream before the request settles") {
       var events = Vector.empty[String]

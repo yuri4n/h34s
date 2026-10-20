@@ -50,7 +50,7 @@ object Response:
       }(_.redirect(location, status))
 
     // claude 2026-10-19: created: sendStream, the way to stream (decision 1); its Sent value is the handler's result
-    // claude 2026-10-20: changed: the head is written at the call (ADR-0004, Q1); a stream failure fails this step (Q3)
+    // claude 2026-10-20: changed: the head is written at the call (ADR-0004, Q1); a stream failure fails this step (Q3), seen by a Scope.run in the handler, not by the request scope
     /** Sends the head set so far and then `stream`, and gives `Sent`. Make it the handler's last
       * step: return its `Sent` as the body.
       *
@@ -64,7 +64,9 @@ object Response:
       * interrupts the stream's producer and waits for its finalizers. A failure of the stream ends
       * the response: h34s closes the connection, so the client cannot take the partial body for a
       * complete one, and this step fails with the stream's error. Your program, and a `Scope.run` or
-      * a transaction around this step, see the failure and can roll back. The core logs it once
+      * a transaction around this step, see the failure and can roll back. A finalizer that you add
+      * to the request scope itself gets `Absent`, because h34s closes that scope after the program,
+      * without its outcome: write the `Scope.run` inside the handler. The core logs the failure once
       * and writes nothing more.
       *
       * The stream may use at most `Async & Abort[Throwable] & Scope`: it runs in its own fiber.

@@ -164,6 +164,44 @@ object HttpStreamSpec extends ZIOSpecDefault:
           call.response.destroyed, !call.response.ended, call.response.writes == 0,
         )
       },
+      // claude 2026-10-20: created: the request Scope sees a stream failure in ZIO, as the streaming guide says (ADR-0004, Q3)
+      test("a stream failure after the head: a finalizer of the request Scope sees the failure") {
+        val call = Call("/stream")
+        val failure = new Exception("the second element failed")
+        for
+          seen <- Promise.make[Nothing, Exit[Any, Any]]
+          handler = ZHandler.define { _ =>
+            ZIO.addFinalizerExit(exit => seen.succeed(exit)) *> Response.sendStream(ZStream("one") ++ ZStream.fail(failure))
+          }
+          body <- call.invoke(handler)
+          seenExit <- seen.await
+        yield assertTrue(
+          js.isUndefined(body),
+          seenExit.causeOption.flatMap(_.failureOption).contains(failure),
+          call.response.chunks.toList == List("one"), call.response.destroyed,
+        )
+      },
+      // claude 2026-10-20: created: a stream failure on the socketless path errors the caller's reads and fails the effect (ADR-0004, Q3)
+      test("without a Node socket, a stream failure after the head errors the caller's reads and fails the sendStream effect") {
+        val call = Call("/stream", withSocket = false)
+        val failure = new Exception("the second element failed")
+        for
+          step <- Promise.make[Nothing, Exit[Throwable, Sent]]
+          handler = ZHandler.define { _ =>
+            Response.sendStream(ZStream("one") ++ ZStream.fail(failure)).exit.tap(step.succeed(_)).flatMap(ZIO.done(_))
+          }
+          body <- call.invoke(handler)
+          reader = call.response.native._data.getReader()
+          first <- ZIO.fromPromiseJS(reader.read().asInstanceOf[js.Promise[js.Dynamic]])
+          second <- ZIO.fromPromiseJS(reader.read().asInstanceOf[js.Promise[js.Dynamic]]).exit
+          stepExit <- step.await
+        yield assertTrue(
+          js.isUndefined(body),
+          decode(first.value) == "one",
+          second.isFailure,
+          stepExit.causeOption.flatMap(_.failureOption).contains(failure),
+        )
+      },
       // claude 2026-10-20: created: a head that cannot be written fails the effect before the stream starts; the failure rule answers (ADR-0004, Q1)
       test("a head that cannot be written fails the sendStream effect before the stream starts, and the failure rule answers") {
         var started = false
@@ -226,6 +264,10 @@ object HttpStreamSpec extends ZIOSpecDefault:
         )
       },
     ) @@ TestAspect.timeout(45.seconds)
+
+    // claude 2026-10-20: created: decodes one UTF-8 chunk of a socketless stream
+    private def decode(value: js.Any): String =
+      js.Dynamic.newInstance(js.Dynamic.global.TextDecoder)().decode(value).asInstanceOf[String]
 
     // claude 2026-10-19: created: reads a Web stream of UTF-8 chunks to its end
     private def readText(stream: js.Dynamic): Task[String] =
