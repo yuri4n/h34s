@@ -106,7 +106,7 @@ const guides = [
   <div class="home-page">
     <section class="home-hero" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <NuxtLink class="preview-note" to="/reference/status">
+        <NuxtLink class="preview-note" to="/reference/releases">
           <span class="status-dot" aria-hidden="true" />
           Kyo-core preview
           <UIcon name="i-lucide-arrow-up-right" aria-hidden="true" />
@@ -277,7 +277,7 @@ const guides = [
           adds a ZIO adapter, Scala configuration, shared resources and one
           schema per model. Route generation and packaging remain planned.
         </p>
-        <NuxtLink class="text-link" to="/reference/status"
+        <NuxtLink class="text-link" to="/reference/releases"
           >What works today
           <UIcon name="i-lucide-arrow-right" aria-hidden="true"
         /></NuxtLink>
