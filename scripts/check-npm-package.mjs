@@ -5,12 +5,13 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
-} from 'node:fs'
+} from 'node:fs' // claude 2026-10-20: changed: readdirSync for the init tree
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path' // claude 2026-10-20: changed: relative and sep for the init tree
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
@@ -101,6 +102,34 @@ try {
   }
   const cli = join(app, 'node_modules/.bin/h34s-scala')
   assert.match(run(cli, ['--help'], { cwd: app }), /Usage: h34s-scala/)
+  // claude 2026-10-20: created: the packed CLI runs init from a clean directory, pins its own version, and stops on a second run (ADR-0009)
+  const scaffold = join(temporary, 'scaffold')
+  mkdirSync(scaffold)
+  const initialized = run(cli, ['init', 'my-app'], { cwd: scaffold })
+  assert.match(initialized, /a new project \(path 1, layout A\)/)
+  const created = readdirSync(join(scaffold, 'my-app'), { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => relative(join(scaffold, 'my-app'), join(entry.parentPath, entry.name)).split(sep).join('/'))
+    .sort()
+  assert.deepEqual(created, [
+    '.gitignore',
+    '.jvmopts',
+    '.npmrc',
+    'app/app.vue',
+    'build.sbt',
+    'h34s.config.mjs',
+    'nuxt.config.ts',
+    'package.json',
+    'pnpm-workspace.yaml',
+    'project/build.properties',
+    'project/plugins.sbt',
+    'scala-server/src/main/scala/myapp/Hello.scala',
+    'tsconfig.json',
+  ])
+  const packedVersion = JSON.parse(readFileSync(join(app, 'node_modules/@yuri4n/h34s-nuxt/package.json'), 'utf8')).version
+  assert.equal(JSON.parse(readFileSync(join(scaffold, 'my-app/package.json'), 'utf8')).devDependencies['@yuri4n/h34s-nuxt'], packedVersion)
+  assert.ok(readFileSync(join(scaffold, 'my-app/build.sbt'), 'utf8').includes(`"dev.yuri4n" %%% "kyo-h3-ext" % "${packedVersion}"`))
+  assert.match(run(cli, ['init', 'my-app'], { cwd: scaffold }), /Already set up: my-app\/h34s\.config\.mjs exists/)
   writeFileSync(
     join(app, 'h34s.config.mjs'),
     `import { defineConfig } from '@yuri4n/h34s-nuxt/build'
@@ -189,7 +218,7 @@ assert.ok(dev.externals.inline[0].includes('node_modules/@yuri4n/h34s-nuxt/'))
     .update(readFileSync(tarball))
     .digest('base64')
   console.log(
-    `Verified ${pkg.name}@${pkg.version}: ${files.length} packed files, isolated install, exports, CLI and Nuxt hooks; sha512-${integrity}`,
+    `Verified ${pkg.name}@${pkg.version}: ${files.length} packed files, isolated install, exports, CLI, init and Nuxt hooks; sha512-${integrity}`, // claude 2026-10-20: changed: names init
   )
 }
 finally {
