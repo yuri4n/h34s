@@ -15,8 +15,10 @@ assistance under the maintainer's direction, and errors are tracked as
   collection, so only GitHub shows them.
 - `app/`, `nuxt.config.ts`, `remark/`, `test/` and `vendor/` are the site.
 
+<!-- claude 2026-10-20: changed: the libraries sit in scala-modules/ (#23) -->
+
 The site is separate from the Scala.js/Nuxt demo in `examples/nuxt/` and
-the reusable libraries in `scala-modules/exts/`. It is a Nuxt application
+the reusable libraries in `scala-modules/`. It is a Nuxt application
 built on the shared
 [`@yuri4n/nuxt-docs` layer](https://github.com/yuri4n/yuri4nized-nuxt/tree/v0.1.0/layers/docs).
 The repository is `yuri4nized-nuxt`; its packages use the `yuri4n.dev` name.
