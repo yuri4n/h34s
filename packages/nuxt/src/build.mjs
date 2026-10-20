@@ -105,8 +105,9 @@ export async function loadConfig({
   configFile = 'h34s.config.mjs',
 } = {}) {
   const path = resolve(root, configFile)
+  // claude 2026-10-20: changed: the error carries a code, so that the Nuxt module can add the init hint (ADR-0009, decision 11)
   if (!statSync(path, { throwIfNoEntry: false })?.isFile())
-    throw new Error(`Missing h34s config: ${path}`)
+    throw Object.assign(new Error(`Missing h34s config: ${path}`), { code: 'H34S_CONFIG_MISSING' })
   const config = defineConfig((await import(pathToFileURL(path).href)).default)
   // claude 2026-10-20: changed: resolves sbtRoot against the config file's directory, default '.' (ADR-0009)
   const loaded = { ...config, sbtRoot: resolve(dirname(path), config.sbtRoot ?? '.') }

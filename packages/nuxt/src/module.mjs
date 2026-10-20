@@ -5,13 +5,17 @@ import { loadConfig } from './build.mjs'
 import { scalaDevModules, scalaPrerenderStub, scalaSourceMaps } from './rollup.mjs' // claude 2026-10-19: changed: imports scalaPrerenderStub
 import { manifestFile, modelsFile, readRoutes } from './routes.mjs' // claude 2026-10-20: changed: imports modelsFile
 import { recordStubCalls, stubCallReport, takeStubCalls } from './scala-prerender-stub.mjs' // claude 2026-10-19: created: the stub's request report (review F1)
+import { packageVersion } from './version.mjs' // claude 2026-10-20: created: the version that the init hint names (ADR-0009)
 
 // A standard Nuxt module function. No runtime dependency on an effect library,
 // Nuxt kit, or a particular project's generated handlers.
 export default async function h34sNuxt(options, nuxt) {
   const scalaPrerender = scalaPrerenderOption(options?.scalaPrerender) // claude 2026-10-19: created: validated before any other work
   const root = nuxt.options.rootDir
-  const config = await loadConfig({ root, configFile: options?.configFile })
+  // claude 2026-10-20: changed: a missing h34s.config.mjs names the init command (ADR-0009, decision 11)
+  const config = await loadConfig({ root, configFile: options?.configFile }).catch((error) => {
+    throw initHint(error, root, options?.configFile)
+  })
   const outputs = config.modules.map(module => module.output)
   registerModels(nuxt, root, outputs) // claude 2026-10-20: created: the #h34s/models alias (ADR-0014)
   // claude 2026-10-19: created: 'stub' replaces the linked Scala.js in Nitro's prerender bundle only, in production builds, and reports the requests that reached the stub (review F1)
@@ -155,6 +159,20 @@ function identity({ route, method, lazy, handler }) {
 /** Compares handler lists in a stable order. */
 function key(handlers) {
   return JSON.stringify(handlers.map(identity).sort())
+}
+
+// claude 2026-10-20: created: the error hint that names init with this package's version (ADR-0009, decision 11)
+/**
+ * Adds the init command to the error of a missing `h34s.config.mjs`. A custom `configFile` keeps
+ * the plain error: init writes `h34s.config.mjs`, not that file.
+ */
+function initHint(error, root, configFile = 'h34s.config.mjs') {
+  if (error?.code !== 'H34S_CONFIG_MISSING' || resolve(root, configFile) !== resolve(root, 'h34s.config.mjs'))
+    return error
+  return Object.assign(
+    new Error(`${error.message}. Run pnpm dlx @yuri4n/h34s-nuxt@${packageVersion()} init in ${root} to set up h34s.`, { cause: error }),
+    { code: error.code },
+  )
 }
 
 /** The Nitro handlers of the linked routes. A missing manifest is reported, not fatal. */

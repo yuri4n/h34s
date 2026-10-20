@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import process from 'node:process'
 import { linkScala, loadConfig, watchScala, writeRoutes } from './build.mjs'
+import { runInit } from './init/init.mjs' // claude 2026-10-20: created: the init command (ADR-0009)
 
-// claude 2026-10-20: changed: the help names sbtRoot (ADR-0009)
+// claude 2026-10-20: changed: the help names sbtRoot and the init command (ADR-0009)
 const help = `Usage: h34s-scala <build|dev|watch> [--root <directory>] [--config <file>]
+       h34s-scala init [directory] [--zio] [--dry-run]
 
 build  Clear generated outputs, fullLinkJS, verify expected entries, and write
        the route manifests and TypeScript declarations.
@@ -11,6 +13,8 @@ dev    fastLinkJS, verify expected entries, and write the route manifests and
        TypeScript declarations.
 watch  Keep sbt running, fastLinkJS on source changes, and write the route
        manifests and declarations again after each link.
+init   Set up h34s once in a new project, an existing Nuxt app or an existing
+       sbt build. Run h34s-scala init --help for the details.
 
 Reads h34s.config.mjs from the app root (--root, default: the current
 directory) and runs sbt in the config's sbtRoot (default: the config file's
@@ -21,6 +25,10 @@ try {
   const args = process.argv.slice(2)
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     console.log(help)
+  }
+  // claude 2026-10-20: created: init has its own arguments and exit code (ADR-0009)
+  else if (args[0] === 'init') {
+    process.exitCode = runInit(args.slice(1))
   }
   else {
     const mode = args.shift()
