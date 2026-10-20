@@ -1,3 +1,5 @@
+// claude 2026-10-20: created: the region that the project tour shows (issue #52)
+// #region tour
 package dev.yuri4n.kyoexample
 
 import dev.yuri4n.exts.kyoh3.{EventHandler, HandlerEffects, HandlerOptions, KHandler, Request, ResponseBody, ResponseHead, RuntimeConfig, Shared}
@@ -21,3 +23,4 @@ object AppHandler:
         program: Request => B < (HandlerEffects & Env[Greetings]),
     )(using Frame): EventHandler =
       KHandler.define(options)(request => Services.greetings.get.map(greetings => Env.run(greetings)(program(request))))
+// #endregion tour

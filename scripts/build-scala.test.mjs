@@ -58,8 +58,9 @@ test('production linking clears both development outputs before linking the two 
     for (const name of ['.scala', '.scala-kyo']) {
       assert.equal(existsSync(join(root, 'examples/nuxt/server', name)), false)
       mkdirSync(join(root, 'examples/nuxt/server', name), { recursive: true })
+      // claude 2026-10-20: changed: the ZIO greeting module (issue #52)
       const files = name === '.scala'
-        ? ['test.js', 'notes-get.js', 'notes-post.js']
+        ? ['test.js', 'notes-get.js', 'notes-post.js', 'zio-greeting-post.js']
         : ['kyo-greeting-get.js', 'kyo-greeting-post.js']
       for (const filename of files) {
         writeFileSync(
