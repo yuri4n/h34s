@@ -371,7 +371,7 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
           seen.remaining == List(3, 2, 1),
           seen.producedAtHead == 0,
           seen.headAt < seen.times.head,
-          seen.times.last >= 550,
+          seen.times.zip(seen.times.tail).forall((earlier, later) => later - earlier >= 150),
         )
       },
       // claude 2026-10-20: created: a JavaScript route with h3's createEventStream read by the untyped $fetch.events (ADR-0007; the content-type path of ADR-0005, Q2)

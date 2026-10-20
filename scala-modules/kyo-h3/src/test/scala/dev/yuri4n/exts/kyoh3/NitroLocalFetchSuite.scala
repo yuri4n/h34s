@@ -671,7 +671,8 @@ class NitroLocalFetchSuite extends FunSuite:
     test("sendEvents in-process: $fetch.events[E] returns head-first and decodes the typed events as they arrive") {
       var produced = 0
       val app = NitroLocal.App()
-      val ticks = Stream.init(Seq(3, 2, 1)).map { remaining =>
+      // One element per chunk: Stream.map emits a chunk when all of its elements are mapped.
+      val ticks = Stream.init(Seq(3, 2, 1), chunkSize = 1).map { remaining =>
         Async.sleep(200.millis).andThen(Sync.defer { produced += 1; ServerEvent.json(Tick(remaining), event = Some("tick")) })
       }
       app.route("/api/ticks", KHandler.define(_ => Response.sendEvents(ticks)))
@@ -693,7 +694,7 @@ class NitroLocalFetchSuite extends FunSuite:
         assertEquals(list(seen.remaining).map(_.asInstanceOf[Int]), List(3, 2, 1))
         assertEquals(seen.producedAtHead.asInstanceOf[Int], 0, "the head arrived before the first event")
         assert(headAt < times.head, s"head after $headAt ms, events at $times ms")
-        assert(times.last >= 550, s"events at $times ms")
+        assert(times.zip(times.tail).forall((earlier, later) => later - earlier >= 150), s"each event as it is sent: $times ms")
       }
     }
 

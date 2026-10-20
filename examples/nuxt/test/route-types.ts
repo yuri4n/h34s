@@ -23,6 +23,9 @@ export async function checks(): Promise<void> {
 
   // A stream is sent as text.
   const stream: string = await $fetch('/api/test')
+  // claude 2026-10-20: created: an event stream is sent as text too (ADR-0007)
+  const events: string = await $fetch('/api/kyo/countdown')
+  const zioEvents: string = await $fetch('/api/zio/countdown')
 
   const errors: ErrorBody = { errors: [{ message: 'must have at least 1 character', path: 'text' }] }
   // @ts-expect-error an entry needs a message
@@ -52,6 +55,7 @@ export async function checks(): Promise<void> {
   const { data: loaded } = await useNotes()
   const list: NoteView[] | undefined = loaded.value
 
-  console.warn(message, wrong, extra, id, texts, stream, errors, missing, listed, badList)
+  // claude 2026-10-20: changed: also the event streams (ADR-0007)
+  console.warn(message, wrong, extra, id, texts, stream, events, zioEvents, errors, missing, listed, badList)
   console.warn(fetched, first, hello, noText, list)
 }
