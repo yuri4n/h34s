@@ -1,8 +1,8 @@
 package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.{H3, H3Event, HandlerMetadata, Nitro}
-import dev.yuri4n.exts.kyoh3.internal.{Interop, NitroFetch, Rendering, RequestLifecycle, Supervised}
-import kyo.{Abort, Async, Env, Fiber, Frame, Result, Scope, Sync, Var, `<`}
+import dev.yuri4n.exts.kyoh3.internal.{EventStreams, Interop, NitroFetch, Rendering, RequestLifecycle, Supervised}
+import kyo.{Abort, Async, Env, Fiber, Frame, Result, Scope, Stream, Sync, Tag, Var, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 
 import scala.scalajs.js
@@ -88,7 +88,7 @@ object KHandler:
       }
 
     // claude 2026-10-19: created: the $fetch accessor (decision 2) over the request's Env[Fetch]
-    // claude 2026-10-20: changed: the Scaladoc states the base URL, the context, the typed body errors and the raw verbs (ADR-0005, decision 1, Q14 and Q15)
+    // claude 2026-10-20: changed: the Scaladoc states the base URL, the context, the typed body errors and the raw verbs (ADR-0005, decision 1, Q14 and Q15), and names events (ADR-0007)
     /** The server-side `$fetch` of the current request.
       *
       *   - **In-process paths.** A path that starts with `/` is answered in-process by Nitro, and
@@ -107,6 +107,10 @@ object KHandler:
       *     h34s route with the default options answers `{"data": ...}`, so model the envelope, for
       *     example `final case class GreetingData(data: Greeting)`. The typed route call (issue
       *     #46) will remove the envelope for you, because only the route knows its options.
+      *
+      *   - **Server-sent events.** `events[E]` reads a `text/event-stream` response as a stream of
+      *     `E`, each event's `data` decoded as JSON; `events(request)` gives the `ServerEvent`
+      *     values themselves.
       *
       * `raw` returns as soon as the head arrives. `text`, `as`, `get` and `post` read the whole body
       * and fail with `FetchError.Status` unless the status is 2xx. A `FetchError` is not a
@@ -157,6 +161,54 @@ object KHandler:
             Frame,
         ): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
           as[A](url, "POST", headers, Some(body))
+
+        // claude 2026-10-20: created: typed server-sent events, the caller side of sendEvents (ADR-0007)
+        /** Sends the request with `accept: text/event-stream` (unless `headers` names `accept`) and
+          * gives its server-sent events as a stream of `E`, as soon as the head arrives. Each
+          * event's `data` is decoded as JSON with the `NativeConverter`, whatever its type: read a
+          * stream that mixes other data with `events(request)`.
+          *
+          * The response must be 2xx (else `FetchError.Status`, with the body of a plain response)
+          * with the content type `text/event-stream` (else `FetchError.NotEvents`, without reading
+          * the body). The stream fails with `FetchError.Decode`, which names the event by its
+          * position and type, at the first event whose `data` is not JSON for `E`, and with
+          * `FetchError.BodyFailed` when the body breaks. The body lives in the current `Scope`, as
+          * the body of `raw` does: when the scope closes, h34s cancels a body that you did not read
+          * to its end.
+          */
+        def events[E: {NativeConverter, Tag}](
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        )(using Frame): Stream[E, Async & Scope & Abort[FetchError]] < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          opened(FetchRequest(url, method, headers, body)).map((status, events) => EventStreams.typed[E, Async & Scope & Abort[FetchError]](status, events))
+
+        // claude 2026-10-20: created: untyped server-sent events, for a route without a model such as a JavaScript route (ADR-0007)
+        /** Sends `request` (with `accept: text/event-stream` unless it names `accept`) and gives its
+          * server-sent events as `ServerEvent` values, with the rules of `events[E]` but without
+          * decoding `data`. Use it for a route that has no model, for example a JavaScript route
+          * that uses h3's `createEventStream`.
+          */
+        def events(request: FetchRequest)(using Frame): Stream[ServerEvent, Async & Scope & Abort[FetchError]] < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          opened(request).map((_, events) => events)
+
+        /** The response's status and its decoded events, or the reason it is not an event stream. */
+        private def opened(request: FetchRequest)(using
+            Frame,
+        ): (Int, Stream[ServerEvent, Async & Scope & Abort[FetchError]]) < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          Env.use[Fetch](_.raw(EventStreams.request(request))).map { response =>
+            val plainText = response match
+                case FetchResponse.Plain(_, _, text) => Some(text)
+                case _: FetchResponse.Streamed       => None
+            EventStreams.refused(response.status, response.headers, plainText) match
+                case Some(error) => Abort.fail(error)
+                case None        =>
+                  val text = response match
+                      case FetchResponse.Plain(_, _, text)    => Stream.init(Seq(text))
+                      case FetchResponse.Streamed(_, _, body) => body
+                  (response.status, EventStreams.decode(text))
+          }
 
         // claude 2026-10-20: changed: a streamed body fails with a typed FetchError (ADR-0005, Q14)
         private def bodyText(response: FetchResponse)(using Frame): String < (Async & Scope & Abort[FetchError]) = response match

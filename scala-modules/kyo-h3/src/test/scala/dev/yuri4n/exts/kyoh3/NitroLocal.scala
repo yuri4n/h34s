@@ -121,6 +121,14 @@ private[exts] object NitroLocal:
           router.use(path, h3.defineEventHandler(handler))
           this
 
+        // claude 2026-10-20: created: a JavaScript route that sends server-sent events with nitropack's own h3 createEventStream (ADR-0007)
+        /** A JavaScript route that answers with h3's `createEventStream`, as a handler in
+          * `server/api` would: it pushes `messages` (h3's message objects, or strings) one after the
+          * other, then closes the stream.
+          */
+        def routeEventStream(path: String, messages: js.Array[js.Any]): App =
+          routeNative(path, eventStreamHandler(h3, messages).asInstanceOf[js.Function1[js.Dynamic, js.Any]])
+
         /** An in-process request from outside any handler, as `localFetch("/path", init)`. */
         def fetch(path: String, init: js.Dynamic = js.Dynamic.literal()): Future[js.Dynamic] =
           localFetch(path, init).toFuture
@@ -155,6 +163,21 @@ private[exts] object NitroLocal:
     def installBaseURL(baseURL: String): Unit =
       val config: js.Function0[js.Any] = () => js.Dynamic.literal(app = js.Dynamic.literal(baseURL = baseURL))
       NitroGlobal.install(js.Dynamic.literal(version = 1, development = false, debug = false, runtimeConfig = config))
+
+    // claude 2026-10-20: created: the JavaScript source of routeEventStream (ADR-0007)
+    /** `(h3, messages) => handler`, written in JavaScript as an application route would be. */
+    private lazy val eventStreamHandler: js.Dynamic = js.Dynamic.newInstance(js.Dynamic.global.Function)(
+      "h3",
+      "messages",
+      """return (event) => {
+        |  const stream = h3.createEventStream(event)
+        |  setTimeout(async () => {
+        |    for (const message of messages) await stream.push(message)
+        |    await stream.close()
+        |  }, 0)
+        |  return stream.send()
+        |}""".stripMargin,
+    )
 
     final case class Server(native: js.Dynamic, port: Int):
         def url(path: String): String = s"http://127.0.0.1:$port$path"

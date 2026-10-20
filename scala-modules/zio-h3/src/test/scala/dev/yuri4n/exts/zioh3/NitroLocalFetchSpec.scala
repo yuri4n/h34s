@@ -40,6 +40,21 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
     private def closing[A](server: NitroLocal.Server)(test: Task[A]): Task[A] =
       test.onExit(_ => ZIO.fromFuture(_ => server.close()).orDie)
 
+    // claude 2026-10-20: created: the typed event of the server-sent event tests and what a caller saw (ADR-0007)
+    final case class Tick(remaining: Int) derives NativeConverter
+    final case class TicksSeen(remaining: List[Int], times: List[Double], headAt: Double, producedAtHead: Int) derives NativeConverter
+
+    /** An event as text, for the callers' JSON bodies: `type|id|data`. */
+    private def shown(event: ServerEvent): String = s"${event.event.getOrElse("message")}|${event.id.getOrElse("-")}|${event.data}"
+
+    /** A failure as text, for the callers' JSON bodies. */
+    private def failure(result: Either[FetchError, Any]): String = result match
+        case Right(_)                                        => "ended"
+        case Left(FetchError.NotEvents(status, contentType)) => s"NotEvents($status, ${contentType.getOrElse("-")})"
+        case Left(FetchError.Status(status, body))           => s"Status($status, $body)"
+        case Left(FetchError.Decode(status, reason))         => s"Decode($status, $reason)"
+        case Left(other)                                     => other.getClass.getSimpleName
+
     def spec = suite("ZHandler.$fetch through Nitro's local fetch")(
       test("a streamed ZIO route in-process: raw returns head-first, and the body is a ZStream pulled on demand") {
         var produced = 0
@@ -330,6 +345,107 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
           )
           data <- ok[String](app, "/api/caller")
         yield assertTrue(data == "failed")
+      },
+      // claude 2026-10-20: created: a ZIO callee's sendEvents read by $fetch.events[E] in-process, head-first (ADR-0007)
+      test("sendEvents in-process: $fetch.events[E] returns head-first and decodes the typed events as they arrive") {
+        var produced = 0
+        val app      = NitroLocal.App()
+        val ticks    = ZStream(3, 2, 1).mapZIO(remaining =>
+          ZIO.sleep(200.millis) *> ZIO.succeed { produced += 1; ServerEvent.json(Tick(remaining), event = Some("tick")) },
+        )
+        app.route("/api/ticks", ZHandler.define(_ => Response.sendEvents(ticks)))
+        app.route(
+          "/api/caller",
+          ZHandler.define { _ =>
+            val start = js.Date.now()
+            for
+              events <- ZHandler.$fetch.events[Tick]("/api/ticks")
+              headAt = js.Date.now() - start
+              producedAtHead = produced
+              seen <- events.map(tick => (tick.remaining, js.Date.now() - start)).runCollect
+            yield TicksSeen(seen.map(_._1).toList, seen.map(_._2).toList, headAt, producedAtHead)
+          },
+        )
+        for seen <- ok[TicksSeen](app, "/api/caller")
+        yield assertTrue(
+          seen.remaining == List(3, 2, 1),
+          seen.producedAtHead == 0,
+          seen.headAt < seen.times.head,
+          seen.times.last >= 550,
+        )
+      },
+      // claude 2026-10-20: created: a JavaScript route with h3's createEventStream read by the untyped $fetch.events (ADR-0007; the content-type path of ADR-0005, Q2)
+      test("a JavaScript route with h3's createEventStream: the untyped $fetch.events reads its events by the content type") {
+        val app = NitroLocal.App()
+        app.routeEventStream("/api/js-clock", js.Array(js.Dynamic.literal(event = "tick", id = "1", data = "one"), "two"))
+        // The route sets no x-h34s-stream marker: only its content type makes it an event stream. The
+        // test reads the body to its end: a cancel of h3's createEventStream body leaks unhandled
+        // rejections in-process (ADR-0007).
+        app.route(
+          "/api/caller",
+          ZHandler.define(_ => ZHandler.$fetch.events(FetchRequest("/api/js-clock")).flatMap(_.runCollect).map(_.map(shown).mkString(" ; "))),
+        )
+        for data <- ok[String](app, "/api/caller")
+        yield assertTrue(data == "tick|1|one ; message|-|two")
+      },
+      // claude 2026-10-20: created: events refuses a response that is not an event stream with a typed FetchError (ADR-0007)
+      test("events of a route that is not an event stream fails with FetchError.NotEvents; an error status with FetchError.Status") {
+        val app = NitroLocal.App()
+        app.route("/api/greeting", ZHandler.define(_ => ZIO.succeed(Greeting("hi"))))
+        app.route("/api/missing", ZHandler.define(_ => ZHandler.failWith(404, "No such stream").as(())))
+        app.route(
+          "/api/caller",
+          ZHandler.define { _ =>
+            for
+              json <- ZHandler.$fetch.events[Tick]("/api/greeting").either
+              missing <- ZHandler.$fetch.events(FetchRequest("/api/missing")).either
+            yield s"${failure(json)} | ${failure(missing)}"
+          },
+        )
+        for data <- ok[String](app, "/api/caller")
+        yield assertTrue(data == "NotEvents(200, application/json) | Status(404, {\"errors\":[{\"message\":\"No such stream\"}]})")
+      },
+      // claude 2026-10-20: created: an event whose data is not JSON for E fails the stream with FetchError.Decode, after the events before it (ADR-0007)
+      test("a typed event whose data is not JSON for E fails the stream with FetchError.Decode, which names the event") {
+        val app = NitroLocal.App()
+        app.route(
+          "/api/mixed",
+          ZHandler.define(_ => Response.sendEvents(ZStream(ServerEvent.json(Tick(3)), ServerEvent("not json", event = Some("oops")), ServerEvent.json(Tick(1))))),
+        )
+        app.route(
+          "/api/caller",
+          ZHandler.define { _ =>
+            for
+              seen <- Ref.make(Vector.empty[Int])
+              events <- ZHandler.$fetch.events[Tick]("/api/mixed")
+              result <- events.foreach(tick => seen.update(_ :+ tick.remaining)).either
+              values <- seen.get
+            yield s"${values.mkString(",")} ${failure(result)}"
+          },
+        )
+        for data <- ok[String](app, "/api/caller")
+        yield assertTrue(data == "3 Decode(200, the data of event 2 (\"oops\") is not valid JSON)")
+      },
+      // claude 2026-10-20: created: frames split across chunks over real HTTP decode the same; events sends accept: text/event-stream (ADR-0007)
+      test("over real HTTP (absolute URL), events split inside lines and inside a CRLF decode to the same typed events") {
+        val app   = NitroLocal.App()
+        val split = ZStream("data: {\"remain", "ing\":2}\r", "\n\r\nda", "ta: {\"remaining\":1}\n", "\n", ": done\n")
+        app.route(
+          "/api/split",
+          ZHandler.define { request =>
+            if request.header("accept").contains("text/event-stream") then
+                Response.header("content-type", "text/event-stream") *> Response.sendStream(split)
+            else ZHandler.failWith(406, "events only")
+          },
+        )
+        for
+          server <- ZIO.fromFuture(_ => app.listen())
+          _ = app.route(
+            "/api/caller",
+            ZHandler.define(_ => ZHandler.$fetch.events[Tick](server.url("/api/split")).flatMap(_.runCollect).map(_.map(_.remaining).mkString(","))),
+          )
+          data <- closing(server)(ok[String](app, "/api/caller"))
+        yield assertTrue(data == "2,1")
       },
       // Sequential: the base URL test installs the plugin's startup record, a global that every
       // in-process call of the other tests reads.
