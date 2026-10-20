@@ -148,11 +148,16 @@ check it:
   `pnpm install --frozen-lockfile` on Node 24, after checkout initializes
   the pinned public submodule.
 
+<!-- claude 2026-10-20: changed: the repository visibility is an open question, not a fact (review; ADR-0003) -->
+
 The site and the Scala packages have separate release requirements.
 Building this site does not establish that h34s artifacts or the example
-application are production ready. Source and edit links require access
-to the private repository. `github.branch` in `app/app.config.ts` targets
-`main`.
+application are production ready. Source and edit links open
+`github.com/yuri4n/h34s`, and `github.branch` in `app/app.config.ts`
+targets `main`. While the repository is private, those links need access
+to it. On 2026-10-20 the GitHub API reports the repository as public; the
+maintainer has not confirmed the intended visibility yet
+([ADR-0003](design/adr/0003-registries-stay-private.md)).
 
 Before you merge a change to the site itself, check its preview: routes,
 search, mobile navigation, light and dark themes, `/llms.txt`,
