@@ -107,6 +107,8 @@ try {
 export default defineConfig({ modules: [{ output: 'server/.scala', entries: ['hello.js'] }] })
 `,
   )
+  // claude 2026-10-20: created: the app root is the sbt build, as sbtRoot's default needs (ADR-0009)
+  writeFileSync(join(app, 'build.sbt'), '')
   const bin = join(temporary, 'bin')
   mkdirSync(bin)
   const sbt = join(bin, 'sbt')
@@ -157,6 +159,7 @@ import h34sNuxt from '@yuri4n/h34s-nuxt'
 import { loadConfig } from '@yuri4n/h34s-nuxt/build'
 import { scalaDevModules, scalaPrerenderStub, scalaSourceMaps } from '@yuri4n/h34s-nuxt/rollup'
 assert.equal((await loadConfig()).modules.length, 1)
+assert.equal((await loadConfig()).sbtRoot, process.cwd()) // claude 2026-10-20: created: the packed loadConfig resolves the default sbtRoot (ADR-0009)
 assert.equal(typeof scalaSourceMaps, 'function')
 const resolved = await scalaDevModules(process.cwd()).resolveId.handler(process.cwd() + '/server/.scala/hello.js')
 assert.equal((await import(resolved.id)).hello, 42)

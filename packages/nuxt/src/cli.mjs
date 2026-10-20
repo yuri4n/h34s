@@ -2,6 +2,7 @@
 import process from 'node:process'
 import { linkScala, loadConfig, watchScala, writeRoutes } from './build.mjs'
 
+// claude 2026-10-20: changed: the help names sbtRoot (ADR-0009)
 const help = `Usage: h34s-scala <build|dev|watch> [--root <directory>] [--config <file>]
 
 build  Clear generated outputs, fullLinkJS, verify expected entries, and write
@@ -11,7 +12,9 @@ dev    fastLinkJS, verify expected entries, and write the route manifests and
 watch  Keep sbt running, fastLinkJS on source changes, and write the route
        manifests and declarations again after each link.
 
-Reads h34s.config.mjs from the app root. Requires Java and sbt on PATH.
+Reads h34s.config.mjs from the app root (--root, default: the current
+directory) and runs sbt in the config's sbtRoot (default: the config file's
+directory). The outputs stay under the app root. Requires Java and sbt on PATH.
 Run Nuxt with --enable-source-maps for original Scala stack traces.`
 
 try {

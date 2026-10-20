@@ -90,6 +90,7 @@ The investigation found facts that force the design (memo, sections 1 and 2):
 
 <!-- claude 2026-10-20: created: follow-ups -->
 
-- Deliver the plan in five reviewable pull requests (memo, section 7): (1) the prompt page, delivered by PR #56; (2) `sbtRoot` and the error hint; (3) `init` with templates and unit tests; (4) the end-to-end check from a clean directory with real sbt and the published packages; (5) the docs switch to `init`. The memo estimates about 11 to 16 implementer days plus 5 to 6 days of review and fixes.
-- Fix the adoption guide's prose ("Add an sbt build next to it") together with the layout change (memo, section 4).
+- Deliver the plan in five reviewable pull requests (memo, section 7): (1) the prompt page, delivered by PR #56; (2) `sbtRoot` and the error hint; (3) `init` with templates and unit tests; (4) the end-to-end check from a clean directory with real sbt and the published packages; (5) the docs switch to `init`. The memo estimates about 11 to 16 implementer days plus 5 to 6 days of review and fixes. <!-- claude 2026-10-20: changed: item 2 delivered, the hint moves to item 3 -->
+  - Item 2's `sbtRoot` key is delivered by the pull request of branch `feat/sbt-root`: the CLI runs sbt in `sbtRoot`, the module embeds the Scala sources from it, the example drops its second, rebased config, and the adoption guide's path 3 uses layout B. The module error hint is not in it: the hint names `init`, which does not exist before item 3, so it ships with item 3.
+- Fix the adoption guide's prose ("Add an sbt build next to it") together with the layout change (memo, section 4). Done in the same pull request as item 2. <!-- claude 2026-10-20: changed: the prose fix is done -->
 - Comment on issue #54 with the answers and a link to this record.

@@ -26,7 +26,9 @@ Request `http://localhost:3000/api/kyo/greeting` for a Kyo greeting. The respons
 
 The ZIO Notes routes (`/api/notes`) and the `/notes` page need PostgreSQL to store notes; invalid input is rejected with a 422 before any database work. Copy `.env.example` to `.env` in this directory and set your own `NUXT_DATABASE_PASSWORD`. Nitro maps the `NUXT_DATABASE_*` variables to `runtimeConfig.database` in `nuxt.config.ts`; Docker Compose reads the same names. For PostgreSQL setup, development linking, and production builds, follow the [development guide](../../docs/development.md). <!-- claude 2026-10-20: changed: the /notes page (ADR-0014) -->
 
-Configure the example in `h34s.config.mjs`. The Nuxt module resolves paths relative to this application. `h34s.build.config.mjs` adapts those paths for the shared sbt build at the repository root. Root `pnpm dev`, `build`, `generate`, and `preview` commands delegate to this application; the production output is `.output/` here.
+<!-- claude 2026-10-20: changed: one config, with sbtRoot at the repository build (ADR-0009) -->
+
+Configure the example in `h34s.config.mjs`. Its output paths are relative to this application, and `sbtRoot: '../..'` makes `h34s-scala` run the shared sbt build at the repository root. Root `pnpm dev`, `build`, `generate`, `preview` and `scala:*` commands delegate to this application; the production output is `.output/` here.
 
 ## Use h34s in your application
 

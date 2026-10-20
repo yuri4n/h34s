@@ -10,7 +10,21 @@ export interface ScalaModule {
   entries?: string[]
 }
 export interface H34sConfig {
+  // claude 2026-10-20: created: the sbtRoot key, kept outside the outputs (ADR-0009, #77 review)
+  /**
+   * The directory of the sbt build, where the CLI runs sbt. A relative path is relative to the
+   * config file's directory, for example `'..'` when the Nuxt app is in `web/` below the sbt
+   * build. The default, `'.'`, is the config file's directory. The directory must hold `build.sbt`
+   * or a `project/` directory, and must not be an output or lie inside one, because a production
+   * build removes the outputs. The outputs stay relative to the application root.
+   */
+  sbtRoot?: string
   modules: ScalaModule[]
+}
+// claude 2026-10-20: created: the config that loadConfig returns (ADR-0009)
+/** A config read by `loadConfig`: `sbtRoot` is absolute, resolved against the config file's directory. */
+export interface LoadedConfig extends H34sConfig {
+  sbtRoot: string
 }
 export interface ConfigLocation {
   root?: string
@@ -18,10 +32,12 @@ export interface ConfigLocation {
 }
 export interface BuildOptions {
   root?: string
+  // claude 2026-10-20: changed: how a relative sbtRoot resolves here (ADR-0009)
+  /** A relative `sbtRoot` in a config that `loadConfig` did not read is relative to `root`. */
   config: H34sConfig
 }
 export function defineConfig<T extends H34sConfig>(config: T): T
-export function loadConfig(options?: ConfigLocation): Promise<H34sConfig>
+export function loadConfig(options?: ConfigLocation): Promise<LoadedConfig> // claude 2026-10-20: changed: gives the absolute sbtRoot (ADR-0009)
 export function verifyScalaOutputs(options: BuildOptions): void
 export function buildScala(options: BuildOptions): void
 export function linkScala(
