@@ -1,0 +1,71 @@
+# Set up h34s with a coding assistant
+
+<!-- claude 2026-10-20: created: lead -->
+
+Copy the prompt below into your coding assistant: it performs the steps of the [adoption guide](adoption.md) on any of its three paths. Before you start, create a classic GitHub personal access token with `read:packages` and set `GITHUB_PACKAGES_USER` and `GITHUB_PACKAGES_TOKEN` in your shell or secret manager, as described in [Authenticate package reads](releases.md#authenticate-package-reads) and [Install the tooling](npm-tooling.md#install-the-tooling). Start the assistant from that shell, and never paste the token into the chat.
+
+## The prompt
+
+<!-- claude 2026-10-20: created: the prompt -->
+
+> You are adding h34s 0.2.0-alpha.1 (Scala.js server handlers for Nuxt) to this project. Follow the
+> guides `docs/adoption.md`, `docs/releases.md` and `docs/npm-tooling.md` in the `yuri4n/h34s`
+> GitHub repository, and these rules. If you cannot read a guide, ask me to paste the section.
+>
+> 1. Ask me three things first, and wait for my answers: the effect API (Kyo or ZIO; default Kyo),
+>    the Scala package (default: the project directory's name in lower case, letters and digits
+>    only) and the Scala directory (default `scala-server`).
+> 2. Never write, print or commit a token, including one you find in a file. Use only
+>    environment-variable references: `${GITHUB_PACKAGES_TOKEN}` in `.npmrc`, and
+>    `sys.env.get("GITHUB_PACKAGES_USER")` and `sys.env.get("GITHUB_PACKAGES_TOKEN")` in sbt.
+>    Check whether a variable is set without printing it, for example `test -n "$GITHUB_PACKAGES_USER"`.
+>    If one is not set, tell me its name and continue; skip the steps that download packages.
+> 3. Detect the path in the directory I name (default: this one). The first match wins:
+>    - `h34s.config.mjs` exists: stop. The project is already set up.
+>    - The directory is missing, empty, or holds only `.git`: a new project. Create a minimal
+>      Nuxt 4 app with `nuxt` pinned to 4.3.1 or 4.4.2, then add the sbt build in it.
+>    - `nuxt.config.*` exists: an existing Nuxt app. Add the sbt build at the Nuxt root. If
+>      `build.sbt` exists there too, put the h34s settings in a new `h34s.sbt`.
+>    - `build.sbt` exists and no `nuxt.config.*`: an existing sbt build. Create a minimal Nuxt 4 app
+>      at the sbt root, and put the h34s settings in a new `h34s.sbt` next to `build.sbt`.
+>    - Anything else: stop and ask me.
+> 4. Never overwrite a file. Create missing files, and change an existing file only by adding lines
+>    or entries. Never edit an existing `build.sbt`. If a new file you need, such as
+>    `server/api/hello.get.ts`, already exists, ask me.
+> 5. Use these versions: JDK 25 to run sbt, sbt 1.11.7, Scala 3.9.0, `sbt-scalajs` 1.22.0,
+>    `"dev.yuri4n" %%% "kyo-h3-ext" % "0.2.0-alpha.1"` (for ZIO, `zio-h3-ext`), Node 24, pnpm 10,
+>    `@yuri4n/h34s-nuxt@0.2.0-alpha.1`, `h3@1.15.4`, and Nuxt 4.3.1 or 4.4.2. If `java -version`
+>    or the Nuxt version differs, tell me.
+> 6. Take the sbt files and the server project from "Configure the Scala.js module" in the adoption
+>    guide, with my Scala directory. Add the resolver and credentials block from "Authenticate
+>    package reads" in the release guide. If `project/` sets another `sbt.version` or `sbt-scalajs`
+>    version, or the build already has a project named `server`, ask me.
+> 7. Add the two `.npmrc` lines from "Install the tooling" in the npm tooling guide.
+> 8. Do not run `nuxi module add`. Run `pnpm add -D @yuri4n/h34s-nuxt@0.2.0-alpha.1` and
+>    `pnpm add h3@1.15.4`.
+> 9. Write `h34s.config.mjs` from "Write, mount and run a handler" before you add
+>    `'@yuri4n/h34s-nuxt'` to `modules` in the Nuxt config. The module stops Nuxt when that file
+>    is missing. Edit the Nuxt config yourself.
+> 10. Add the missing scripts from "Add the Nuxt module and scripts" in the npm tooling guide. Do not
+>     replace an existing `dev` or `build` script; show me the change instead, because `build` must
+>     run `pnpm run scala:full` before `nuxt build`.
+> 11. Write the handler from "Write, mount and run a handler" in my package, as `Hello.scala` in
+>     `src/main/scala/` of my Scala directory, and its route file `server/api/hello.get.ts`.
+>     For ZIO, import `dev.yuri4n.exts.zioh3.*` instead of `dev.yuri4n.exts.kyoh3.*`, add
+>     `import zio.ZIO`, and define the handler as
+>     `ZHandler.define(_ => ZIO.succeed(Greeting("Hello from Scala")))`.
+> 12. Keep `server/.scala` for generated files only: a production build deletes it. If it already
+>     holds files, ask me. Add the missing `.gitignore` entries: `server/.scala/`, `target/`,
+>     `project/target/`, `project/project/`, `.bsp/` and `.metals/`, and for a new Nuxt app also
+>     `.nuxt/`, `.output/` and `node_modules/`.
+> 13. Verify: run `pnpm install`, start `pnpm dev:scala` in the background, wait until Nuxt
+>     listens, request `http://127.0.0.1:3000/api/hello` (or the port Nuxt prints), then stop the
+>     server. Expect `{"data":{"message":"Hello from Scala"}}`.
+> 14. Do not commit. Report the result, every file you created or changed, and every step you
+>     skipped or that I must do myself.
+
+## If something fails
+
+<!-- claude 2026-10-20: created: If something fails -->
+
+Start with the recovery notes at the end of [Write, mount and run a handler](adoption.md#write-mount-and-run-a-handler): they cover a 404, an `h3` that Nitro cannot resolve, and a missing linked module. If Nuxt stops with `Missing h34s config`, create `h34s.config.mjs` next to `package.json`, as in the adoption guide. For HTTP 401 or 403 from a registry, check the token and its access in [Authenticate package reads](releases.md#authenticate-package-reads). For a 500 or a stack trace, see [debugging](debugging.md). [What is verified](adoption.md#what-is-verified) says which parts of this setup have been tested.
