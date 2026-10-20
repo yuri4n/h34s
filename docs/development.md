@@ -4,9 +4,9 @@
 
 Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate documentation site in `docs/` renders the guides under `docs/content/`. To use h34s in your own Nuxt project, follow [adoption guide](content/1.guide/02.adoption.md).
 
-<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25); the Maven coordinates are no longer called private (ADR-0013) -->
 
-The demo builds the h34s libraries from this repository's sources (version `0.2.0-alpha.1` in `version.sbt`), not from published packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [Releases](content/2.reference/2.releases.md) for the published private Maven coordinates.
+The demo builds the h34s libraries from this repository's sources (version `0.2.0-alpha.1` in `version.sbt`), not from published packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [Releases](content/2.reference/2.releases.md) for the published Maven coordinates.
 
 <!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
 

@@ -132,9 +132,10 @@ const guides = [
             Explore the handler API
           </UButton>
         </div>
+        <!-- claude 2026-10-20: changed: the release is no longer called private (ADR-0013) -->
         <p class="hero-footnote">
-          Release 0.2.0-alpha.1 is a private alpha. The repository demo is
-          optional.
+          Release 0.2.0-alpha.1 is an alpha on GitHub Packages. The repository
+          demo is optional.
         </p>
       </div>
 
