@@ -63,17 +63,14 @@ private[exts] object StreamResponse:
       }
 
     // claude 2026-10-19: changed: the former send body (lazy head, request-scope cancel, failure split), now ending in Sent
-    // claude 2026-10-20: changed: the head is written and flushed at the call; a failure after it ends the connection (ADR-0004, Q1) and fails the call (Q3)
+    // claude 2026-10-20: changed: the head is written and flushed at the call; a failure after it ends the connection (ADR-0004, Q1) and fails the call (Q3); the producer starts after the head, owned by the scope from its first step
     private def throughSocket(transport: HandlerTransport, streamHead: ResponseHead, chunks: Stream[js.Any, StreamEffects])(using
         Frame,
         AllowUnsafe,
     ): Sent < (Async & Abort[Throwable] & Scope) =
-      val event  = transport.event
-      val bridge = new Bridge(chunks, bytes = false, afterCancel = None)
+      val event = transport.event
       commit(transport, streamHead, flush = true).andThen(
-        // Registered in the request scope: a disconnect or failure cancels the producer and waits for
-        // its finalizers before the request scope continues closing.
-        Scope.ensure(bridge.cancelAndAwait).andThen(
+        bridged(chunks, bytes = false, afterCancel = None).map(bridge =>
           Abort.run[Throwable](Interop.await(H3.sendStream(event, bridge.readable))).map(_.foldError(
             _ => Sync.defer(sentBy(transport)),
             // The Web stream only carries a Throwable; the producer's own result says whether it was
@@ -95,15 +92,14 @@ private[exts] object StreamResponse:
     end throughSocket
 
     // claude 2026-10-19: created: the socketless path: eager head, early settle, wait for the caller to finish or cancel
-    // claude 2026-10-20: changed: a stream failure after the head fails the call instead of being logged here (ADR-0004, Q3)
+    // claude 2026-10-20: changed: a stream failure after the head fails the call instead of being logged here (ADR-0004, Q3); the producer starts after the head, owned by the scope from its first step
     private def socketless(transport: HandlerTransport, streamHead: ResponseHead, chunks: Stream[js.Any, StreamEffects])(using
         Frame,
         AllowUnsafe,
     ): Sent < (Async & Abort[Throwable] & Scope) =
-      val event  = transport.event
-      val bridge = new Bridge(chunks, bytes = true, afterCancel = Some(() => transport.finished))
+      val event = transport.event
       commit(transport, streamHead, flush = false).andThen(
-        Scope.ensure(bridge.cancelAndAwait).andThen(
+        bridged(chunks, bytes = true, afterCancel = Some(() => transport.finished)).map(bridge =>
           Abort.run[Throwable](Interop.await(H3.sendStream(event, bridge.readable))).map(_.foldError(
             _ =>
               Sync.defer(transport.settleEarly()).andThen(bridge.completion).map { result =>
@@ -170,6 +166,19 @@ private[exts] object StreamResponse:
                   transport.state = HandlerTransport.State.Open
               Some(error)
       }.map(_.fold(Kyo.unit)(error => Abort.panic(error)))
+
+    // claude 2026-10-20: created: the producer is created only after the head is out, and its release joins the scope in the step that creates it
+    /** Creates the bridge, and with it the producer fiber, in the step that registers its release in
+      * the current scope. An interrupt cannot land between the two, and a head that could not be
+      * written leaves no producer behind, because `commit` runs first. The release cancels the
+      * producer and waits for its finalizers, so a disconnect or a failure that closes the scope (the
+      * request scope, or a `Scope.run` around `sendStream`) waits for the stream's cleanup.
+      */
+    private def bridged(chunks: Stream[js.Any, StreamEffects], bytes: Boolean, afterCancel: Option[() => js.Promise[Unit]])(using
+        Frame,
+        AllowUnsafe,
+    ): Bridge < (Sync & Scope) =
+      Scope.acquireRelease(new Bridge(chunks, bytes, afterCancel))(_.cancelAndAwait)
 
     private def sentBy(transport: HandlerTransport): Sent =
       transport.state = HandlerTransport.State.Sent

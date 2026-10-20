@@ -164,6 +164,20 @@ object HttpStreamSpec extends ZIOSpecDefault:
           call.response.destroyed, !call.response.ended, call.response.writes == 0,
         )
       },
+      // claude 2026-10-20: created: a head that cannot be written fails the effect before the stream starts; the failure rule answers (ADR-0004, Q1)
+      test("a head that cannot be written fails the sendStream effect before the stream starts, and the failure rule answers") {
+        var started = false
+        val call = Call("/stream")
+        val handler = ZHandler.define { _ =>
+          Response.header("x-sent", "1") *> Response.cookie(SetCookie("session", "abc", domain = Some("bad\ndomain"))) *>
+            Response.sendStream(ZStream.fromZIO(ZIO.succeed { started = true; "never" }))
+        }
+        for body <- call.invoke(handler)
+        yield assertTrue(
+          wire(body) == opaque, call.response.status == 500, call.response.header("x-sent").isEmpty,
+          call.response.header("x-h34s-stream").isEmpty, !started, !call.response.destroyed, call.response.chunks.isEmpty,
+        )
+      },
       test("a stream without a content type is sent as text/plain with nosniff") {
         val call = Call("/stream")
         for _ <- call.invoke(ZHandler.define(_ => Response.sendStream(ZStream("a"))))

@@ -195,6 +195,52 @@ class HttpStreamSuite extends FunSuite:
       }
     }
 
+    // claude 2026-10-20: created: a head that cannot be written fails the step before a producer exists; the failure rule answers (ADR-0004, Q1)
+    test("a head that cannot be written fails the sendStream step before the stream starts, and the failure rule answers") {
+      val call = Call("/stream")
+      var started = false
+      val stream = Stream[String, Async](Sync.defer { started = true }.andThen(Emit.value(Chunk("never"))))
+      val handler = KHandler.define { _ =>
+        Response.header("x-sent", "1")
+          .andThen(Response.cookie(SetCookie("session", "abc", domain = Some("bad\ndomain"))))
+          .andThen(Response.sendStream(stream))
+      }
+      consoleErrors(call.invoke(handler)).map { (body, logged) =>
+        assertOpaque(body)
+        assertEquals(call.response.status, 500)
+        assertEquals(call.response.header("x-sent"), None)
+        assertEquals(call.response.header("x-h34s-stream"), None)
+        assertEquals(call.response.header("set-cookie"), None)
+        assert(!started, "the stream never started")
+        assert(!call.response.destroyed, "the connection stays usable for the error response")
+        assertEquals(call.response.chunks.toList, Nil)
+        assert(!call.response.hasListener)
+        assert(logged.exists(_.contains("option domain is invalid")), logged.toString)
+      }
+    }
+
+    // claude 2026-10-20: created: a head that fails after part of it left closes the connection; no producer is left (ADR-0004, Q1)
+    test("a head that fails after part of it left closes the connection, and the stream never starts") {
+      val call = Call("/stream")
+      var started = false
+      call.response.native.headersSent = true
+      call.response.native.updateDynamic("setHeader")(((_: String, _: js.Any) =>
+        throw js.JavaScriptException(js.Dynamic.newInstance(js.Dynamic.global.Error)("Cannot set headers after they are sent to the client"))
+      ): js.Function2[String, js.Any, js.Dynamic])
+      val stream = Stream[String, Async](Sync.defer { started = true }.andThen(Emit.value(Chunk("never"))))
+      consoleErrors(call.invoke(KHandler.define(_ => Response.sendStream(stream)))).map { (body, logged) =>
+        assert(js.isUndefined(body))
+        assert(call.response.destroyed, "the connection is closed")
+        assert(!call.response.ended, "the response is not ended like a complete one")
+        assertEquals(call.response.writes, 0)
+        assertEquals(call.response.chunks.toList, Nil)
+        assert(!started, "the stream never started")
+        assert(!call.response.hasListener)
+        assert(call.handled)
+        assertEquals(logged.count(_.contains("Cannot set headers after they are sent")), 1, logged.toString)
+      }
+    }
+
     // claude 2026-10-20: created: a stream failure after the head fails the sendStream step; a Scope around it sees the failure (ADR-0004, Q3)
     test("a stream failure after two elements fails the sendStream step; a Scope finalizer around it sees the failure") {
       val call = Call("/stream")
