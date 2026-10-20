@@ -15,6 +15,23 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
 
     private def status(call: Call): Int = call.response.status
 
+    // claude 2026-10-19: created: one capture at a time, because tests in this spec run concurrently (issue #40 review)
+    private val consoleLock = Unsafe.unsafely(Semaphore.unsafe.make(1))
+
+    // claude 2026-10-19: created: captures console.error lines (the adapter's logging seam) while `program` runs; changed: under consoleLock (review)
+    private def consoleErrors[R, E, A](program: ZIO[R, E, A]): ZIO[R, E, (A, List[String])] =
+      consoleLock.withPermit(ZIO.acquireReleaseWith(ZIO.succeed {
+        val console  = js.Dynamic.global.console
+        val original = console.error
+        val lines    = scala.collection.mutable.ListBuffer.empty[String]
+        val capture: js.Function2[js.Any, js.Any, Unit] =
+          (first, second) => lines += List(first, second).filterNot(js.isUndefined).map(String.valueOf).mkString(" ")
+        console.error = capture
+        (original, lines)
+      })((original, _) => ZIO.succeed(js.Dynamic.global.console.error = original))((_, lines) =>
+        program.map(result => (result, lines.toList)),
+      ))
+
     def spec = suite("ZHandler.define")(
       // Z1, C2
       test("converts a model and passes the request snapshot to the handler function") {
@@ -143,7 +160,8 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
         )
       },
       // Z9
-      test("a finalizer defect wins over a safe failure and over a success") {
+      // claude 2026-10-19: changed: a finalizer defect no longer wins; it is logged, also in development mode (issue #40)
+      test("a finalizer defect keeps a safe failure and a success, in development and production") {
         def handler(outcome: IO[Rejected, String]) = ZHandler.define[String](_ =>
           ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("cleanup defect"))) *> outcome,
         )
@@ -155,10 +173,83 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
           productionBody <- production.invoke(handler(ZIO.fail(Rejected("Invalid name"))))
           succeededBody <- succeeded.invoke(handler(ZIO.succeed("ok")))
         yield assertTrue(
-          status(development) == 500, cause(developmentBody).contains("cleanup defect"),
-          status(production) == 500, wire(productionBody) == opaque,
-          status(succeeded) == 500, wire(succeededBody) == opaque,
+          status(development) == 422, wire(developmentBody) == errors("Invalid name"),
+          status(production) == 422, wire(productionBody) == errors("Invalid name"),
+          status(succeeded) == 200, wire(succeededBody) == "{\"data\":\"ok\"}",
         )
+      },
+      // claude 2026-10-19: created: negative control for issue #40 (ZIO follows Kyo on finalizer failures); changed: a 204 case and the discarded header on the 422 (review)
+      test("a dying request-scope finalizer is logged and keeps the computed response: value, Unit and safe failure") {
+        def handler[B: ZResponseBody](outcome: ZIO[HandlerEnv, Throwable, B]) = ZHandler.define[B](_ =>
+          ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("logged cleanup defect"))) *>
+            Response.status(Status.Created) *> Response.header("x-kept", "yes") *> outcome,
+        )
+        val value = Call()
+        val empty = Call()
+        val rejected = Call()
+        val noContent = Call()
+        for
+          captured <- consoleErrors(
+            for
+              valueBody <- value.invoke(handler(ZIO.succeed(Greeting("ok"))))
+              _ <- empty.invoke(handler(ZIO.unit))
+              rejectedBody <- rejected.invoke(handler[String](ZIO.fail(Rejected("Invalid name"))))
+              noContentBody <- noContent.invoke(ZHandler.define(_ =>
+                ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("logged cleanup defect"))).unit,
+              ))
+            yield (valueBody, rejectedBody, noContentBody),
+          )
+          ((valueBody, rejectedBody, noContentBody), logged) = captured
+        yield assertTrue(
+          status(value) == 201, wire(valueBody) == "{\"data\":{\"message\":\"ok\"}}",
+          value.response.header("x-kept").contains("yes"),
+          status(empty) == 201, empty.response.header("x-kept").contains("yes"),
+          status(rejected) == 422, wire(rejectedBody) == errors("Invalid name"),
+          rejected.response.header("x-kept").isEmpty,
+          status(noContent) == 204, noContentBody == null,
+          logged.count(line => line.contains("h34s: a ZIO finalizer failed") && line.contains("logged cleanup defect")) == 4,
+        )
+      },
+      // claude 2026-10-19: created: unusual finalizer failures stay logged and keep the response (issue #40 review)
+      test("a finalizer whose defect cannot be rendered, one that ends in interruption, and a streaming handler that fails before its stream") {
+        final class Unrenderable extends Exception:
+          override def getMessage: String = throw new IllegalStateException("no message")
+        val interrupter = FiberId.Runtime(424242, 0L, Trace.empty)
+        def created(finalizer: UIO[Any]) = ZHandler.define(_ =>
+          ZIO.acquireRelease(ZIO.unit)(_ => finalizer) *> Response.status(Status.Created).as(Greeting("ok")),
+        )
+        val unrenderable = Call()
+        val interrupted = Call()
+        val streaming = Call()
+        val failsBeforeStream = ZHandler.define(_ =>
+          ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("stream handler cleanup defect"))) *>
+            ZIO.fail(Rejected("Invalid name")).as(zio.stream.ZStream.empty: zio.stream.ZStream[Any, Nothing, String]),
+        )
+        for
+          captured <- consoleErrors(
+            for
+              _ <- unrenderable.invoke(created(ZIO.die(new Unrenderable)))
+              _ <- interrupted.invoke(created(ZIO.interruptAs(interrupter)))
+              streamingBody <- streaming.invoke(failsBeforeStream)
+            yield streamingBody,
+          )
+          (streamingBody, logged) = captured
+          finalizerLines = logged.filter(_.contains("h34s: a ZIO finalizer failed"))
+        yield assertTrue(
+          status(unrenderable) == 201, finalizerLines.count(_.contains("could not be rendered")) == 1,
+          status(interrupted) == 201, finalizerLines.count(_.contains("424242")) == 1,
+          status(streaming) == 422, wire(streamingBody) == errors("Invalid name"),
+          finalizerLines.count(_.contains("stream handler cleanup defect")) == 1,
+        )
+      },
+      // claude 2026-10-19: created: documents that the #40 rule covers the request scope only (Codex review on #49)
+      test("a release that dies inside the handler's own scope follows the runtime's own rules") {
+        val call = Call()
+        val handler = ZHandler.define(_ =>
+          ZIO.scoped(ZIO.addFinalizer(ZIO.die(new Exception("inner scope defect"))) *> ZIO.succeed("ok")),
+        )
+        for body <- call.invoke(handler)
+        yield assertTrue(status(call) == 500, wire(body) == opaque)
       },
       // Z10, K9
       test("request resources close once on success, typed failure and defect") {
@@ -249,6 +340,36 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
         yield assertTrue(
           pending.isEmpty, js.isUndefined(body), count == 1, again == 1, !call.response.hasListener, call.handled,
           call.response.writes == 0, call.response.headerNames.isEmpty,
+        )
+      },
+      // claude 2026-10-19: created: a dying finalizer during a disconnect is logged, and the core still writes nothing (issue #40 review)
+      test("disconnect: a dying asynchronous finalizer is logged; the request settles after it and writes nothing") {
+        for
+          acquired <- Promise.make[Nothing, Unit]
+          finalizing <- Promise.make[Nothing, Unit]
+          release <- Promise.make[Nothing, Unit]
+          call = Call()
+          handler = ZHandler.define[String](_ =>
+            ZIO.acquireRelease(acquired.succeed(()))(_ =>
+              finalizing.succeed(()) *> release.await *> ZIO.die(new Exception("disconnect cleanup defect")),
+            ) *> ZIO.never,
+          )
+          captured <- consoleErrors(
+            for
+              running <- call.invoke(handler).fork
+              _ <- acquired.await
+              _ <- ZIO.succeed(call.response.disconnect())
+              _ <- finalizing.await
+              _ <- turns(3)
+              pending <- running.poll
+              _ <- release.succeed(())
+              body <- running.join
+            yield (pending, body),
+          )
+          ((pending, body), logged) = captured
+        yield assertTrue(
+          pending.isEmpty, js.isUndefined(body), call.handled, call.response.writes == 0, call.response.headerNames.isEmpty,
+          logged.count(line => line.contains("h34s: a ZIO finalizer failed") && line.contains("disconnect cleanup defect")) == 1,
         )
       },
       test("ZIO.uninterruptible: after a disconnect the step ends, then request finalizers run, then the request settles") {

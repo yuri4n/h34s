@@ -43,7 +43,8 @@ val layer: ZLayer[SessionPool & Scope, Nothing, Notes] =
 
 `NotesHandlerSpec` checks this with a pool whose database is down: invalid input takes no session and is a 422; valid input takes one session and fails.
 
-A failing finalizer behaves differently per runtime. Kyo 1.0.0-RC7 logs a failing `Scope` finalizer and keeps the response. A ZIO finalizer that dies turns a value or `Unit` response into a 500. Do work that must affect the response in the program, not in a finalizer.
+<!-- claude 2026-10-19: changed: both runtimes log a failing finalizer and keep the response (issue #40) -->
+A failing finalizer is logged on the server and does not change the response, in both runtimes. Kyo 1.0.0-RC7 logs a failing `Scope` finalizer. The ZIO adapter logs a dying ZIO finalizer as `h34s: a ZIO finalizer failed`. Do work that must affect the response in the program, not in a finalizer: the client never learns that a finalizer failed.
 
 ## When the client disconnects
 
