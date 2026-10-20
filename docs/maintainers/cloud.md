@@ -239,7 +239,9 @@ A cloud VM has about 4 vCPUs, 16 GB of memory, and 30 GB of disk. h34s builds ar
 
 ## What does not work in cloud sessions
 
-- **Tags and releases.** The GitHub proxy accepts pushes of branches only. A tag push fails, so the release workflow, which starts from a tag, cannot start from a cloud session. Make releases from your own machine, as [releases.md](../releases.md) describes.
+<!-- claude 2026-10-20: changed: links to the maintainer release guide (issue #25) -->
+
+- **Tags and releases.** The GitHub proxy accepts pushes of branches only. A tag push fails, so the release workflow, which starts from a tag, cannot start from a cloud session. Make releases from your own machine, as [releases.md](releases.md) describes.
 - **Branch deletion.** The GitHub proxy also rejects pushes that delete a branch. Delete branches on GitHub instead.
 - **`gh pr` and `gh issue`.** These commands use GitHub's GraphQL API, which the proxy rejects with a 403. Use the REST API through `gh api`, or the **Create PR** button in the Claude Code interface. For example:
 

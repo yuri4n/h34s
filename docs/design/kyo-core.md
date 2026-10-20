@@ -32,7 +32,9 @@ These are binding. The lasting ones are also in `AGENTS.md`; the release steps a
 
 ### Recorded before the refactor
 
-- The project is named **h34s**. It is a toolbox: the application owns its models, services, databases and deployment. The repository root holds reusable libraries; `examples/nuxt/` is a runnable demo and `website/` is the documentation site. Neither is the product.
+<!-- claude 2026-10-20: changed: docs/ holds the guides and the site (issue #25) -->
+
+- The project is named **h34s**. It is a toolbox: the application owns its models, services, databases and deployment. The repository root holds reusable libraries; `examples/nuxt/` is a runnable demo and `docs/` holds the guides and the documentation site. Neither is the product.
 - The repository [yuri4n/h34s](https://github.com/yuri4n/h34s) stays private. Releases go to private GitHub Packages (Maven and npm) under `dev.yuri4n`, starting with `0.1.0-alpha.1`, with a matching Git tag and GitHub prerelease.
 - Developer experience is the highest priority, next to type safety and efficiency.
 - The user chose current Kyo (1.0.0-RC7) with the tooling updates it needs over an older Kyo that would have kept the old compiler pin.
@@ -68,7 +70,7 @@ These are binding. The lasting ones are also in `AGENTS.md`; the release steps a
 16. **The public coordinates are renamed** ([#22](https://github.com/yuri4n/h34s/issues/22)): artifact ids `h34s-*` (the converter modules become `h34s-zio-converters` and `h34s-zio-json`), Scala packages `h34s.*`, and sbt project ids to match. There are no deprecated forwarders: the `dev.yuri4n.exts.*` packages and the `CommonEvHandler` alias are deleted, because nothing is deprecated before a non-alpha release. <!-- claude 2026-10-19: created: the coordinate rename decision (#22) -->
 17. **The `exts` level goes** ([#23](https://github.com/yuri4n/h34s/issues/23)): the modules move to `scala-modules/<module>`, and the root keeps the name `scala-modules/`. <!-- claude 2026-10-19: created: the module layout decision (#23) -->
 18. **`zio-migrations` moves under `examples/`** ([#24](https://github.com/yuri4n/h34s/issues/24)) and follows the examples' conventions: unpublished and compiled by CI. <!-- claude 2026-10-19: created: the zio-migrations decision (#24) -->
-19. **The documentation moves** ([#25](https://github.com/yuri4n/h34s/issues/25)): `website/` becomes `docs/`, the guides move into `docs/content/`, and the maintainer documents (such as `docs/design/` and `docs/maintainers/`) stay outside the content collection. <!-- claude 2026-10-19: created: the docs move decision (#25) -->
+19. **The documentation moves** ([#25](https://github.com/yuri4n/h34s/issues/25)): `website/` becomes `docs/`, the guides move into `docs/content/`, and the maintainer documents (such as `docs/design/` and `docs/maintainers/`) stay outside the content collection. <!-- claude 2026-10-19: created: the docs move decision (#25) --> Done in the move pull request: a remark plugin in `docs/nuxt.config.ts` maps the guides' relative links to site routes, the site's status page and the consumer part of the release guide became the Releases page, and the release procedure moved to `docs/maintainers/releases.md`. <!-- claude 2026-10-20: changed: the move is done -->
 20. **TypeScript generation uses the converter-driven generator of PR [#15](https://github.com/yuri4n/h34s/pull/15)**, not scala-ts, because scala-ts describes Scala types, not what a `NativeConverter` writes. PR #15 ships in `0.3.0-alpha.1` ([#27](https://github.com/yuri4n/h34s/issues/27)). <!-- claude 2026-10-19: created: the generator decision (#27) -->
 21. **The Kyo API names are final** ([#28](https://github.com/yuri4n/h34s/issues/28)): `KHandler`, `Response`, `RuntimeConfig`, `Shared` and `KHubKv` stay. There is no "KIO" rename. <!-- claude 2026-10-19: created: the Kyo API naming decision (#28) -->
 22. **CI gets a PostgreSQL 16 job** ([#29](https://github.com/yuri4n/h34s/issues/29)). PR [#45](https://github.com/yuri4n/h34s/pull/45) adds a `postgres` job that runs the Kyo example's `KyoSqlPostgresSuite` and the database part of `scripts/smoke.mjs`. <!-- claude 2026-10-19: created: the PostgreSQL CI job decision (#29) -->
@@ -109,7 +111,9 @@ h3-ext                                 native layer, no effect library
 - Not published: `zio-migrations-ext` (an experiment that still compiles on 3.9.0 and stays in the `exts` aggregate), the examples and the aggregates.
 - Two checks enforce the direction. `scripts/check-release.mjs` reads the generated POMs: a Kyo artifact must not depend on ZIO, `h3-ext` must not depend on any effect runtime, a ZIO converter must not depend on Kyo, and only schema bridges may depend on a schema library. `scripts/check-consumers.mjs` builds four fresh consumers (Kyo, ZIO, Kyo Schema, ZIO Schema), serves real h3 requests through a preemptive router as Nitro does, and fails when a Kyo consumer resolves any `dev.zio` artifact.
 
-[Architecture](../architecture.md) has the full table of what each module offers.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+[Architecture](../content/2.reference/1.architecture.md) has the full table of what each module offers.
 
 ## 3. Layers
 
@@ -261,7 +265,9 @@ The `@yuri4n/h34s-nuxt` module registers `runtime/h34s.mjs` (`runtime/developmen
 - Encoding goes straight to native JavaScript values. There is no JSON text round trip, and tests replace `JSON.stringify` and `JSON.parse` with throwing functions to prove it.
 - Wire shapes match the JSON library: the Kyo bridge output equals `JSON.parse(Json.encode(x))` for records, options, enums, sealed traits and the other tested shapes.
 
-[Schema](../schema.md) documents the user-facing rules.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+[Schema](../content/1.guide/07.schema.md) documents the user-facing rules.
 
 ## 7. The ZIO bridge
 
@@ -291,7 +297,9 @@ Both break the disconnect rule, so they are not used on request paths. The oppos
 - **Needs a real socket.** A stream over Nitro's in-process local fetch (for example a server-side `$fetch` to your own route) is rejected before any stream resource is acquired: an opaque 500.
 - A disconnect interrupts the producer and waits for its cleanup, then releases the request scope.
 
-[Streaming](../streaming.md) has the user guide.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+[Streaming](../content/1.guide/09.streaming.md) has the user guide.
 
 ## 9. Implementation deviations
 
@@ -393,9 +401,11 @@ Each item says what differs from the first plan and why. Superseded items are fo
 
 ### 9.12 Examples
 
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
 - **ZIO example** *(dev. 33, D-17, F1, AD-12)*. A Skunk pool (`Session.Builder.pooled(4)`, explicit `Network.forAsync`) lives in a `ZShared` layer. Each request takes one pooled session for its request scope on first use (memoized in the request scope), so input validation runs before a database session is needed. Settings come from `runtimeConfig.database` (`NUXT_DATABASE_*`, the password a `Secret`, empty means none). Models are split: `NoteRow` (private SQL row), `Note` (domain), `NoteView` (wire). `server/plugins/skunk-node-crypto.ts` sets `globalThis.require` because Skunk's SCRAM code calls `require('crypto')` from ES module output.
 - **Kyo example** *(D-17, AD-7)*. It reads `runtimeConfig.greeting` with `RuntimeConfig.load` inside a `Shared`, and `GreetingRequest` validates "not blank, at most 80 characters" in its schema.
-- **Build heap.** The example links a Kyo and a ZIO application, and the scripts pass `--max-old-space-size=8192`. Measured on 2026-10-19 ([#30](https://github.com/yuri4n/h34s/issues/30)): Nitro 2.13.1 bundles the linked Scala.js and its source maps twice in one process, once for the prerendered Nuxt Content route and once for the server. Without the prerendered route, without server source maps, or with one application, the build passed with a 4096 MiB heap limit (peak RSS 3.4 to 4.5 GiB); with all three it needs more than 4 GiB (6144 MiB passed once). The maintainer delegated the remedy. The decision: an opt-in option of the Nuxt module, `scalaPrerender: 'stub'`, which resolves every import of a configured Scala.js output to one stub in Nitro's prerender Rollup build only (`nitro:init`, then `prerender:init`, then `rollup:before`). The stub's exports are h3 handlers that answer 501, so the option is opt-in (they throw an error class with h3's `__h3_error__` marker, so h3 and Nitro treat the 501 as a handled error and keep its message): a page that calls a Scala.js route while Nuxt prerenders it gets that 501. A page that catches it, as `useFetch` does, still prerenders with status 200, so Nitro's check of failed routes passes. The stub therefore logs each request and records it in a process-global list (Nitro imports the prerender bundle into the build process); the module opens the list at `prerender:init` and, at `prerender:done`, stops the build with the list when `prerender.failOnError` is on (Nuxt's default) or warns otherwise. Nitro 2.13.1 calls `prerender:done` before its own check of failed routes, so when that check is about to stop the build, the module logs the list as an error and lets Nitro throw with its summary. `scripts/check-npm-nuxt.mjs` checks the option in a real build of the packed module. The default, `'bundle'`, keeps the earlier behavior. The example uses `'stub'`: its build then passed with a 4096 MiB heap limit (peak RSS 4.05 and 4.07 GiB in two builds). With an equivalent temporary hook, it ran out of memory at Node's 2240 MiB default on a 15.7 GiB cloud VM. See [compatibility](../compatibility.md#heap-measurement-2026-10-19). <!-- claude 2026-10-19: changed: the measured cause of the build heap, the scalaPrerender decision, the request report and the real-build check (review F1, F2, F3); the handled 501 and Nitro's own failure (second review F1, F2) -->
+- **Build heap.** The example links a Kyo and a ZIO application, and the scripts pass `--max-old-space-size=8192`. Measured on 2026-10-19 ([#30](https://github.com/yuri4n/h34s/issues/30)): Nitro 2.13.1 bundles the linked Scala.js and its source maps twice in one process, once for the prerendered Nuxt Content route and once for the server. Without the prerendered route, without server source maps, or with one application, the build passed with a 4096 MiB heap limit (peak RSS 3.4 to 4.5 GiB); with all three it needs more than 4 GiB (6144 MiB passed once). The maintainer delegated the remedy. The decision: an opt-in option of the Nuxt module, `scalaPrerender: 'stub'`, which resolves every import of a configured Scala.js output to one stub in Nitro's prerender Rollup build only (`nitro:init`, then `prerender:init`, then `rollup:before`). The stub's exports are h3 handlers that answer 501, so the option is opt-in (they throw an error class with h3's `__h3_error__` marker, so h3 and Nitro treat the 501 as a handled error and keep its message): a page that calls a Scala.js route while Nuxt prerenders it gets that 501. A page that catches it, as `useFetch` does, still prerenders with status 200, so Nitro's check of failed routes passes. The stub therefore logs each request and records it in a process-global list (Nitro imports the prerender bundle into the build process); the module opens the list at `prerender:init` and, at `prerender:done`, stops the build with the list when `prerender.failOnError` is on (Nuxt's default) or warns otherwise. Nitro 2.13.1 calls `prerender:done` before its own check of failed routes, so when that check is about to stop the build, the module logs the list as an error and lets Nitro throw with its summary. `scripts/check-npm-nuxt.mjs` checks the option in a real build of the packed module. The default, `'bundle'`, keeps the earlier behavior. The example uses `'stub'`: its build then passed with a 4096 MiB heap limit (peak RSS 4.05 and 4.07 GiB in two builds). With an equivalent temporary hook, it ran out of memory at Node's 2240 MiB default on a 15.7 GiB cloud VM. See [compatibility](../content/2.reference/3.compatibility.md#heap-measurement-2026-10-19). <!-- claude 2026-10-19: changed: the measured cause of the build heap, the scalaPrerender decision, the request report and the real-build check (review F1, F2, F3); the handled 501 and Nitro's own failure (second review F1, F2) -->
 
 ## 10. Review findings and their outcome
 

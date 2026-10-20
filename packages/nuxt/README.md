@@ -8,7 +8,9 @@ Requires Node >=22.18, Nuxt 4.3.1 or 4.4.2, and sbt/Java on the build machine. T
 
 ## Configure
 
-Install as a dev dependency. Private registry installs use `https://npm.pkg.github.com` for the `@yuri4n` scope and a classic PAT with `read:packages` plus private package access. Never commit a token value. See the repository's `docs/npm-tooling.md` guide for authentication and local tarball installation.
+<!-- claude 2026-10-20: changed: the guides' new paths under docs/content/ (issue #25) -->
+
+Install as a dev dependency. Private registry installs use `https://npm.pkg.github.com` for the `@yuri4n` scope and a classic PAT with `read:packages` plus private package access. Never commit a token value. See the repository's `docs/content/1.guide/13.npm-tooling.md` guide for authentication and local tarball installation.
 
 Create `h34s.config.mjs` at the application root:
 
@@ -62,8 +64,10 @@ The CLI accepts `--root <directory>` and `--config <file>`. Point the CLI and th
 
 The Nuxt module accepts these options, for example `modules: [['@yuri4n/h34s-nuxt', { scalaPrerender: 'stub' }]]`: <!-- claude 2026-10-19: created: module options list -->
 
+<!-- claude 2026-10-20: changed: the guides' new paths under docs/content/ (issue #25) -->
+
 - `configFile`: the h34s config file, relative to the application root. The default is `h34s.config.mjs`. <!-- claude 2026-10-19: created: moved from the paragraph above -->
-- `scalaPrerender`: `'bundle'` (the default) or `'stub'`. With `'stub'`, a production build keeps the linked Scala.js out of Nitro's prerender bundle, so a build that prerenders routes bundles the Scala.js once, for the server output. While Nuxt prerenders, every Scala.js route then answers 501. Use it only when no prerendered page or Nitro plugin needs Scala.js. If a prerendered page calls a Scala.js route anyway, the build stops after prerendering with a list of those requests, because a page that catches the 501, as `useFetch` does, would be saved with its error state. With `nitro.prerender.failOnError: false`, h34s only warns. Any other value is a `TypeError`. The repository's `docs/npm-tooling.md` guide explains the trade-off. <!-- claude 2026-10-19: created: the scalaPrerender option and its build error (review F1) -->
+- `scalaPrerender`: `'bundle'` (the default) or `'stub'`. With `'stub'`, a production build keeps the linked Scala.js out of Nitro's prerender bundle, so a build that prerenders routes bundles the Scala.js once, for the server output. While Nuxt prerenders, every Scala.js route then answers 501. Use it only when no prerendered page or Nitro plugin needs Scala.js. If a prerendered page calls a Scala.js route anyway, the build stops after prerendering with a list of those requests, because a page that catches the 501, as `useFetch` does, would be saved with its error state. With `nitro.prerender.failOnError: false`, h34s only warns. Any other value is a `TypeError`. The repository's `docs/content/1.guide/13.npm-tooling.md` guide explains the trade-off. <!-- claude 2026-10-19: created: the scalaPrerender option and its build error (review F1) -->
 
 `./build` exports `defineConfig`, `loadConfig`, `buildScala`, `linkScala`, `watchScala`, `writeRoutes`, and `readRoutes`. `./rollup` exports `scalaDevModules`, `scalaSourceMaps`, and `scalaPrerenderStub` for custom integrations. Most Nuxt applications need only the module and CLI. <!-- claude 2026-10-19: changed: scalaPrerenderStub export -->
 

@@ -6,7 +6,9 @@ h34s is a toolbox for your Nuxt/Nitro application. Its core is written in Kyo: o
 
 You write ordinary Scala. A handler is a function from an immutable request to the response body, and it declares its own route. Configuration, storage and shared resources come from Scala APIs. Your models, services and databases stay in your application.
 
-**Status: [`0.2.0-alpha.1` is published](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1).** The nine `dev.yuri4n` libraries are in private GitHub Packages, and the matching build tooling is published as [`@yuri4n/h34s-nuxt@0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1). Both release workflows verified the packages through the authenticated registry. See the [installation and release guide](docs/releases.md) and the [release notes](.github/release-notes/0.2.0-alpha.1.md). The older [`0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1) libraries and [`@yuri4n/h34s-nuxt@0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) stay published, with an older API and two independent runtimes. The [migration guide](docs/migration.md) lists every change.
+<!-- claude 2026-10-20: changed: the guides' new paths under docs/content/ (issue #25) -->
+
+**Status: [`0.2.0-alpha.1` is published](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1).** The nine `dev.yuri4n` libraries are in private GitHub Packages, and the matching build tooling is published as [`@yuri4n/h34s-nuxt@0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1). Both release workflows verified the packages through the authenticated registry. See the [installation and release guide](docs/content/2.reference/2.releases.md) and the [release notes](.github/release-notes/0.2.0-alpha.1.md). The older [`0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1) libraries and [`@yuri4n/h34s-nuxt@0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) stay published, with an older API and two independent runtimes. The [migration guide](docs/content/2.reference/4.migration.md) lists every change.
 
 ## A Kyo handler
 
@@ -23,7 +25,9 @@ final case class Greeting(message: String) derives NativeConverter
 val hello: EventHandler = KHandler.define(_ => Greeting("Hello from Scala")).at(Route.get("/api/hello"))
 ```
 
-After `h34s-scala` links it, the h34s Nuxt module mounts the route; you write no route file. Nuxt types `$fetch('/api/hello')` from the declaration that `h34s-scala` generates next to the linked module (see [routes and typed `$fetch`](docs/routes.md)). `GET /api/hello` answers `{"data":{"message":"Hello from Scala"}}`. Errors are `{"errors":[{"message":"..."}]}`; only `SafeError` data reaches clients. Everything else is an opaque 500, with diagnostics only in Nuxt development mode or debug mode.
+<!-- claude 2026-10-20: changed: the guides' new paths under docs/content/ (issue #25) -->
+
+After `h34s-scala` links it, the h34s Nuxt module mounts the route; you write no route file. Nuxt types `$fetch('/api/hello')` from the declaration that `h34s-scala` generates next to the linked module (see [routes and typed `$fetch`](docs/content/1.guide/02.routes.md)). `GET /api/hello` answers `{"data":{"message":"Hello from Scala"}}`. Errors are `{"errors":[{"message":"..."}]}`; only `SafeError` data reaches clients. Everything else is an opaque 500, with diagnostics only in Nuxt development mode or debug mode.
 
 ## Try the demo
 
@@ -47,25 +51,31 @@ Expected body: `{"data":{"message":"Hello, Scala!"}}`. Send `{"name":"  "}` to s
 
 <!-- claude 2026-10-20: created: the "Set up with a coding assistant" entry in the Start column -->
 
+<!-- claude 2026-10-20: changed: a Getting started row and the guides' new paths under docs/content/ (issue #25) -->
+
 | Start | Build | Operate |
 | --- | --- | --- |
-| [Adoption paths](docs/adoption.md) | [Configuration and secrets](docs/configuration.md) | [Debugging](docs/debugging.md) |
-| [Kyo handlers](docs/kyo.md) | [Lifetimes: `Shared`, request scopes](docs/lifetimes.md) | [npm tooling](docs/npm-tooling.md) |
-| [Routes and typed `$fetch`](docs/routes.md) | | |
-| [ZIO handlers](docs/zio.md) | [Schemas](docs/schema.md) | [Compatibility](docs/compatibility.md) |
-| [Architecture](docs/architecture.md) | [PostgreSQL with kyo-sql or Skunk](docs/database.md) | [Releases](docs/releases.md) |
-| [Migration from 0.1.0-alpha.1](docs/migration.md) | [Streaming and cancellation](docs/streaming.md) | [Development of this repository](docs/development.md) |
-| [Set up with a coding assistant](docs/agent-setup.md) | [Testing](docs/testing.md) | |
-| | [Nitro storage and NuxtHub KV](docs/nuxthub.md) | |
+| [Getting started](docs/content/1.guide/01.getting-started.md) | [Configuration and secrets](docs/content/1.guide/05.configuration.md) | [Debugging](docs/content/1.guide/12.debugging.md) |
+| [Adoption paths](docs/content/1.guide/02.adoption.md) | [Lifetimes: `Shared`, request scopes](docs/content/1.guide/06.lifetimes.md) | [npm tooling](docs/content/1.guide/13.npm-tooling.md) |
+| [Kyo handlers](docs/content/1.guide/03.kyo.md) | | |
+| [Routes and typed `$fetch`](docs/content/1.guide/02.routes.md) | [Schemas](docs/content/1.guide/07.schema.md) | [Compatibility](docs/content/2.reference/3.compatibility.md) |
+| [ZIO handlers](docs/content/1.guide/04.zio.md) | [PostgreSQL with kyo-sql or Skunk](docs/content/1.guide/08.database.md) | [Releases](docs/content/2.reference/2.releases.md) |
+| [Architecture](docs/content/2.reference/1.architecture.md) | [Streaming and cancellation](docs/content/1.guide/09.streaming.md) | [Development of this repository](docs/development.md) |
+| [Migration from 0.1.0-alpha.1](docs/content/2.reference/4.migration.md) | [Testing](docs/content/1.guide/10.testing.md) | |
+| [Set up with a coding assistant](docs/content/1.guide/14.agent-setup.md) | [Nitro storage and NuxtHub KV](docs/content/1.guide/11.storage.md) | |
 
-The documentation website in [`website/`](website/README.md) presents the same guides.
+<!-- claude 2026-10-20: changed: the guides' new paths under docs/content/ (issue #25) -->
+
+The guides live in [`docs/`](docs/README.md), under `docs/content/`. The [documentation site](https://h34s.yuri4n.dev/) renders the same files.
 
 ## What is here
+
+<!-- claude 2026-10-20: changed: the guides' new paths under docs/content/ (issue #25) -->
 
 - `scala-modules/exts/`: the libraries. `h3` (effect-free native layer), `kyo-h3` (the Kyo core), `zio-h3` (the ZIO adapter), the Kyo and ZIO schema bridges, the ZIO converters, and the Kyo and ZIO storage modules. `zio-migrations` is an unpublished experiment.
 - `packages/nuxt/`: the npm package `@yuri4n/h34s-nuxt`: build CLI (linking, route manifests and TypeScript declarations), Nuxt module (route registration), development loading, source maps and the Nitro plugin.
 - `examples/nuxt/`: an optional demo application. `scala/kyo/` has the Kyo greeting; `scala/zio/` has the ZIO stream and the Skunk Notes example. It is a reference, not a template.
-- `website/`: the documentation site, a separate Nuxt app.
+- `docs/`: the guides and reference pages (`docs/content/`), the documentation site that renders them (a separate Nuxt app), and notes for maintainers.
 - `scripts/`: release, consumer and smoke checks.
 
 h34s mounts your Scala routes and types their response bodies. It does not generate request-body types, application scaffolds, database layers or deployment packages. Nix and sbt-native-packager support are planned.
