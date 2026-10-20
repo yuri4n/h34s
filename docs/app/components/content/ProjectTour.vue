@@ -4,51 +4,85 @@
 // virtual:h34s-snippets, which reads the example sources and the guides.
 import type { TreeEntry } from 'virtual:h34s-snippets'
 
+import type { Runtime } from '~/composables/useRuntimeChoice'
+
 import { files, tree } from 'virtual:h34s-snippets'
 
 const selected = ref('Handlers.scala')
 const runtime = useRuntimeChoice()
+// claude 2026-10-20: created: ids unique to each tour on a page (#52)
+const uid = useId()
+const idBase = `tour-${uid}`
+const titleId = `${idBase}-title`
+const fileNameId = `${idBase}-file-name`
 
 const directories = tree.filter((entry) => entry.directory)
 
-/** Each entry with its depth and the name shown below its directory. */
+// claude 2026-10-20: changed: names per runtime; the ZIO handler keeps its real file name (#52)
+/** The entry's path in one runtime. */
+function pathIn(entry: TreeEntry, value: Runtime) {
+  return value === 'zio' && entry.zioPath ? entry.zioPath : entry.path
+}
+
+/** Each entry with its depth and, per runtime, the names that the tree shows. */
 const entries = tree.map((entry: TreeEntry) => {
   const parent = directories
     .filter((item) => item !== entry && entry.path.startsWith(item.path))
     .sort((a, b) => b.path.length - a.path.length)[0]
+  const names = (value: Runtime) => {
+    const path = pathIn(entry, value)
+    const name = parent ? path.slice(parent.path.length) : path
+    /** The chip label at phone width: deep source folders show the name. */
+    const chip = parent && parent.path.split('/').length > 2 ? name : path
+    return { path, name, chip }
+  }
   return {
     ...entry,
     depth: parent ? 1 : 0,
-    name: parent ? entry.path.slice(parent.path.length) : entry.path,
-    /** The chip label at phone width: deep source folders show the name. */
-    chip:
-      parent && parent.path.split('/').length > 2
-        ? entry.path.slice(parent.path.length)
-        : entry.path,
+    kyo: names('kyo'),
+    zio: names('zio'),
   }
 })
+const other = computed<Runtime>(() => (runtime.value === 'kyo' ? 'zio' : 'kyo'))
 
 const file = computed(() => {
   const entry = files[selected.value]
   if (!entry) throw new Error(`The project tour has no file ${selected.value}`)
   return entry
 })
-const path = computed(
-  () =>
-    tree.find((entry) => entry.id === selected.value)?.path ?? selected.value,
+const selectedEntry = computed(() =>
+  entries.find((entry) => entry.id === selected.value),
 )
-const caption = computed(() => file.value[runtime.value].caption)
+// claude 2026-10-20: changed: the shown path and caption, with the other runtime's as a sizer (#52)
+function path(value: Runtime) {
+  return selectedEntry.value?.[value].path ?? selected.value
+}
+function caption(value: Runtime) {
+  return (
+    file.value[value].caption +
+    (file.value.shared ? ' · the same for Kyo and ZIO' : '')
+  )
+}
 </script>
 
 <template>
-  <section class="project-tour not-prose" aria-labelledby="tour-title">
+  <section class="project-tour not-prose" :aria-labelledby="titleId">
     <div class="tour-header">
-      <h3 id="tour-title" class="tour-title">
+      <h3 :id="titleId" class="tour-title">
         <UIcon name="i-lucide-folder-tree" aria-hidden="true" />
         A new project
       </h3>
-      <RuntimeSwitch id-base="tour" label="Project runtime" />
+      <RuntimeSwitch :id-base="idBase" label="Project runtime" />
     </div>
+    <!-- claude 2026-10-20: created: what the tour is and is not (#52) -->
+    <p class="tour-note">
+      This tour arranges the demo's greeting files in layout A; it is not a
+      generated or compiled project, because its Scala files also use the schema
+      bridge (<code>native-converter-kyo-schema-ext</code>, or
+      <code>native-converter-zio-schema-ext</code> with
+      <code>zio-schema-derivation</code>) and the ZIO
+      <code>AppHandler</code> also wires the demo's Notes service.
+    </p>
     <div class="tour-body">
       <ul class="tour-tree" aria-label="Project files">
         <li
@@ -59,22 +93,34 @@ const caption = computed(() => file.value[runtime.value].caption)
             'is-directory': entry.directory,
           }"
         >
+          <!-- claude 2026-10-20: changed: the full path names the button; both runtimes' names keep one width (#52) -->
           <button
             v-if="entry.id"
             class="tour-file"
             type="button"
+            :aria-label="entry[runtime].path"
             :aria-current="selected === entry.id ? 'true' : undefined"
-            :aria-controls="`tour-panel-${runtime}`"
+            :aria-controls="`${idBase}-panel-${runtime}`"
             @click="selected = entry.id"
           >
             <UIcon name="i-lucide-file" aria-hidden="true" />
-            <span class="tour-name-wide">{{ entry.name }}</span>
-            <span class="tour-name-narrow">{{ entry.chip }}</span>
+            <span class="tour-name-wide tour-swap">
+              <span>{{ entry[runtime].name }}</span>
+              <span class="tour-sizer" aria-hidden="true">{{
+                entry[other].name
+              }}</span>
+            </span>
+            <span class="tour-name-narrow tour-swap">
+              <span>{{ entry[runtime].chip }}</span>
+              <span class="tour-sizer" aria-hidden="true">{{
+                entry[other].chip
+              }}</span>
+            </span>
           </button>
           <span v-else class="tour-folder">
             <span class="tour-folder-name">
               <UIcon name="i-lucide-folder" aria-hidden="true" />
-              {{ entry.name }}
+              {{ entry.kyo.name }}
             </span>
             <span v-if="entry.generated" class="tour-generated">
               generated by the link step
@@ -83,19 +129,23 @@ const caption = computed(() => file.value[runtime.value].caption)
         </li>
       </ul>
       <div class="tour-view">
+        <!-- claude 2026-10-20: changed: path and caption keep one size across the runtime switch (#52) -->
         <div class="tour-view-header">
-          <span id="tour-file-name" class="tour-path">{{ path }}</span>
-          <span class="tour-caption">
-            {{ caption
-            }}<template v-if="file.shared">
-              · the same for Kyo and ZIO</template
-            >
+          <span class="tour-path tour-swap">
+            <span :id="fileNameId">{{ path(runtime) }}</span>
+            <span class="tour-sizer" aria-hidden="true">{{ path(other) }}</span>
+          </span>
+          <span class="tour-caption tour-swap">
+            <span>{{ caption(runtime) }}</span>
+            <span class="tour-sizer" aria-hidden="true">{{
+              caption(other)
+            }}</span>
           </span>
         </div>
         <SnippetPanels
-          id-base="tour"
+          :id-base="idBase"
           :variants="file"
-          label-id="tour-file-name"
+          :label-id="fileNameId"
         />
       </div>
     </div>

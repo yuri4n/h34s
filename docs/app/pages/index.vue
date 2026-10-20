@@ -33,6 +33,10 @@ async function copyExample() {
 watch(runtime, () => {
   copied.value = false
 })
+// claude 2026-10-20: created: the one text of the copy status (#52)
+const copyMessage = computed(
+  () => copyError.value || (copied.value ? 'Handler copied to clipboard.' : ''),
+)
 
 const paths = [
   {
@@ -189,8 +193,13 @@ const guides = [
             </div>
             <pre><code>{ "data": { "message": "Hello, Scala!" } }</code></pre>
           </div>
-          <p v-if="copied || copyError" class="copy-feedback" role="status">
-            {{ copyError || 'Handler copied to clipboard.' }}
+          <!-- claude 2026-10-20: changed: the status stays mounted, so a screen reader hears each new message (#52) -->
+          <p
+            class="copy-feedback"
+            :class="{ 'is-empty': !copyMessage }"
+            role="status"
+          >
+            {{ copyMessage }}
           </p>
         </div>
         <div class="code-caption">

@@ -384,6 +384,10 @@ html.dark .snippet-code .shiki .line.snippet-line-changed {
   font-size: 0.75rem;
   color: var(--ui-primary);
 }
+/* claude 2026-10-20: created: an empty status takes no space (#52) */
+.copy-feedback.is-empty {
+  padding: 0;
+}
 .code-caption {
   display: flex;
   align-items: center;
@@ -496,8 +500,38 @@ html.dark .snippet-code .shiki .line.snippet-line-changed {
   background: var(--ui-bg-elevated);
   font: 0.62rem var(--font-sans);
 }
+/* claude 2026-10-20: created: both runtimes' texts in one cell (#52) */
+/* The cell keeps its size when the runtime changes. */
+.tour-swap {
+  display: inline-grid;
+}
+.tour-swap > * {
+  grid-area: 1 / 1;
+}
+/* A zero minimum lets a long path or caption wrap; chips keep their width. */
+.tour-view-header .tour-swap,
+.tour-view-header .tour-swap > * {
+  min-width: 0;
+}
+.tour-sizer {
+  visibility: hidden;
+}
 .tour-name-narrow {
   display: none;
+}
+/* claude 2026-10-20: created: the note on what the tour shows (#52) */
+.tour-note {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-text-muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+.tour-note code {
+  color: var(--ui-text-highlighted);
+  font: 0.68rem var(--font-mono);
+  overflow-wrap: anywhere;
 }
 .tour-view {
   min-width: 0;
@@ -759,8 +793,10 @@ html.dark .snippet-code .shiki .line.snippet-line-changed {
   .tour-name-wide {
     display: none;
   }
+  /* claude 2026-10-20: changed: a swap cell that keeps its width (#52) */
   .tour-name-narrow {
-    display: inline;
+    display: inline-grid;
+    flex-shrink: 0;
   }
   .tour-view {
     min-height: 0;

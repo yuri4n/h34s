@@ -23,6 +23,8 @@ declare module 'virtual:h34s-snippets' {
   }
   export interface TreeEntry {
     path: string
+    /** The path when the tour shows ZIO, if the ZIO file has another name. */
+    zioPath?: string
     id?: string
     directory?: boolean
     generated?: boolean
