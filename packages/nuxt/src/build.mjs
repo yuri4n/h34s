@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { lstatSync, mkdirSync, realpathSync, rmSync, statSync, watch } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path' // claude 2026-10-20: changed: dirname and join for sbtRoot (ADR-0009)
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path' // claude 2026-10-20: changed: basename, dirname and join for sbtRoot (ADR-0009, #77 review)
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { writeRoutes } from './routes.mjs'
@@ -114,15 +114,44 @@ export async function loadConfig({
   return loaded
 }
 
-// claude 2026-10-20: created: the sbt build directory, checked before sbt starts or any output is removed (ADR-0009)
+// claude 2026-10-20: created: a path with its existing part resolved through symlinks (#77 review)
+function realPath(path) {
+  const rest = []
+  let current = path
+  while (!statSync(current, { throwIfNoEntry: false }) && dirname(current) !== current) {
+    rest.unshift(basename(current))
+    current = dirname(current)
+  }
+  return join(realpathSync(current), ...rest)
+}
+
+// claude 2026-10-20: created: the sbt build directory, checked before sbt starts or any output is removed, and outside every output (ADR-0009, #77 review)
 /**
  * The directory where the CLI runs sbt: `config.sbtRoot` resolved against `root` (`loadConfig`
- * has already made it absolute, against the config file's directory). It must hold `build.sbt` or
- * a `project/` directory, the files that sbt looks for. The sbt launcher itself also needs
- * `project/build.properties` when `build.sbt` is missing.
+ * has already made it absolute, against the config file's directory). It must lie outside every
+ * output, which a build removes, after symlinks are resolved; it can contain them. It must hold
+ * `build.sbt` or a `project/` directory, the files that sbt looks for. The sbt launcher itself
+ * also needs `project/build.properties` when `build.sbt` is missing.
  */
 function sbtDirectory(root, config) {
   const directory = resolve(root, config.sbtRoot ?? '.')
+  const loaded = loadedConfigs.get(config)
+  const written = loaded ? loaded.sbtRoot : config.sbtRoot
+  const key = written !== undefined
+    ? `sbtRoot '${written}' resolves to ${directory}, which`
+    : loaded
+      ? `sbtRoot is not set, so the sbt build is the config file's directory, ${directory}, which`
+      : `sbtRoot is not set, so the sbt build is the app root, ${directory}, which`
+  const actual = realPath(directory)
+  for (const module of config.modules) {
+    const output = realPath(resolve(root, module.output))
+    if (actual === output || inside(output, actual)) {
+      throw new Error(
+        `${key} ${actual === output ? 'is' : 'is inside'} the generated output '${module.output}' that h34s removes on every build. `
+        + `Set sbtRoot in ${loaded ? loaded.file : 'the h34s config'} to the directory of your sbt build, outside the outputs.`,
+      )
+    }
+  }
   const found = statSync(directory, { throwIfNoEntry: false })
   let problem
   if (!found)
@@ -137,13 +166,6 @@ function sbtDirectory(root, config) {
   }
   if (!problem)
     return directory
-  const loaded = loadedConfigs.get(config)
-  const written = loaded ? loaded.sbtRoot : config.sbtRoot
-  const key = written !== undefined
-    ? `sbtRoot '${written}' resolves to ${directory}, which`
-    : loaded
-      ? `sbtRoot is not set, so the sbt build is the config file's directory, ${directory}, which`
-      : `sbtRoot is not set, so the sbt build is the app root, ${directory}, which`
   const fix = loaded
     ? `Set sbtRoot in ${loaded.file} to the directory of your sbt build, relative to that file, for example '..'.`
     : 'Set sbtRoot in the h34s config to the directory of your sbt build, relative to the app root, or load the config with loadConfig.'

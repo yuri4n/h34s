@@ -408,3 +408,70 @@ test('layout C: watch runs sbt in sbtRoot and watches the outputs under the Nuxt
   child.emit('exit', 0, null)
   await watching
 })
+
+// claude 2026-10-20: created: an sbt root inside an output fails before sbt starts or any removal (#77 review)
+test('an sbtRoot that is or lies inside a generated output fails before sbt starts or any output is removed', async (t) => {
+  const r = repository(t)
+  const output = join(r.web, 'server/.scala')
+  mkdirSync(join(output, 'nested'), { recursive: true })
+  writeFileSync(join(output, 'build.sbt'), 'the user\'s build')
+  writeFileSync(join(output, 'nested/build.sbt'), 'the user\'s nested build')
+  writeFileSync(join(output, 'hello.js'), 'preserved')
+  symlinkSync(output, join(r.web, 'alias'), 'dir')
+  const started = []
+  // Like spawnSync: sbt cannot start in a directory that is gone.
+  function run(_command, _args, options) {
+    started.push(options.cwd)
+    return existsSync(options.cwd) ? { status: 0 } : { error: new Error(`spawnSync sbt ENOENT (cwd ${options.cwd})`) }
+  }
+  const cases = [
+    ['server/.scala', 'is the generated output'],
+    ['server/.scala/nested', 'is inside the generated output'],
+    ['alias', 'is the generated output'],
+    ['alias/nested', 'is inside the generated output'],
+  ]
+  for (const [index, [sbtRoot, problem]] of cases.entries()) {
+    const file = `inside-${index}.mjs`
+    r.config(sbtRoot, file)
+    const config = await loadConfig({ root: r.web, configFile: file })
+    const expected = (error) => {
+      assert.equal(
+        error.message,
+        `sbtRoot '${sbtRoot}' resolves to ${join(r.web, sbtRoot)}, which ${problem} 'server/.scala' that h34s removes on every build. Set sbtRoot in ${join(r.web, file)} to the directory of your sbt build, outside the outputs.`,
+      )
+      return true
+    }
+    for (const mode of ['build', 'dev'])
+      assert.throws(() => linkScala({ root: r.web, config, mode, run }), expected, `${sbtRoot} in ${mode}`)
+    assert.throws(() => watchScala({ root: r.web, config, start: () => assert.fail('must not start sbt') }), expected)
+    assert.ok(existsSync(join(output, 'build.sbt')), 'the user\'s build.sbt is not removed')
+    assert.ok(existsSync(join(output, 'nested/build.sbt')), 'the nested build.sbt is not removed')
+    assert.ok(existsSync(join(output, 'hello.js')), 'the output is not removed')
+  }
+  assert.deepEqual(started, [], 'sbt never starts')
+  // A config object that loadConfig did not read names the h34s config instead of a file.
+  assert.throws(
+    () => linkScala({ root: r.web, config: { sbtRoot: 'server/.scala/nested', modules: [{ output: 'server/.scala' }] }, run }),
+    /resolves to .*nested, which is inside the generated output 'server\/\.scala' that h34s removes on every build\. Set sbtRoot in the h34s config to the directory of your sbt build, outside the outputs\.$/,
+  )
+  assert.ok(existsSync(join(output, 'nested/build.sbt')))
+  // A sibling whose name starts with the output's name is not inside it, and an ancestor of the outputs is valid.
+  mkdirSync(join(r.web, 'server/.scala-kyo'))
+  writeFileSync(join(r.web, 'server/.scala-kyo/build.sbt'), '')
+  writeFileSync(join(r.web, 'build.sbt'), '')
+  for (const [index, sbtRoot] of ['server/.scala-kyo', '.'].entries()) {
+    r.config(sbtRoot, `outside-${index}.mjs`)
+    linkScala({
+      root: r.web,
+      config: await loadConfig({ root: r.web, configFile: `outside-${index}.mjs` }),
+      mode: 'build',
+      run(_command, _args, options) {
+        assert.equal(options.cwd, join(r.web, sbtRoot))
+        mkdirSync(output, { recursive: true })
+        writeFileSync(join(output, 'hello.js'), 'fresh')
+        return { status: 0 }
+      },
+    })
+    assert.ok(existsSync(join(r.web, 'server/.scala-kyo/build.sbt')))
+  }
+})

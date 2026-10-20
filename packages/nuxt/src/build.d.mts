@@ -10,12 +10,13 @@ export interface ScalaModule {
   entries?: string[]
 }
 export interface H34sConfig {
-  // claude 2026-10-20: created: the sbtRoot key (ADR-0009)
+  // claude 2026-10-20: created: the sbtRoot key, kept outside the outputs (ADR-0009, #77 review)
   /**
    * The directory of the sbt build, where the CLI runs sbt. A relative path is relative to the
    * config file's directory, for example `'..'` when the Nuxt app is in `web/` below the sbt
    * build. The default, `'.'`, is the config file's directory. The directory must hold `build.sbt`
-   * or a `project/` directory. The outputs stay relative to the application root.
+   * or a `project/` directory, and must not be an output or lie inside one, because a production
+   * build removes the outputs. The outputs stay relative to the application root.
    */
   sbtRoot?: string
   modules: ScalaModule[]
