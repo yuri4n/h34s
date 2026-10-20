@@ -477,7 +477,8 @@ class NitroLocalFetchSuite extends FunSuite:
         },
       )
       TestDeadline(NitroLocal.withBaseURL("/app/")(app.fetch("/app/api/caller").flatMap(body))).map { data =>
-        assertEquals(data.asInstanceOf[String], "hi 200")
+        // Interpolated: without the prefix the caller answers 500 and data is undefined.
+        assertEquals(s"$data", "hi 200")
       }
     }
 

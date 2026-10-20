@@ -151,22 +151,24 @@ object FetchResponse:
           case Some(value) if key == "set-cookie" => H3.splitCookiesString(value).toList
           case Some(value)                       => List(value)
 
+    private[exts] def decode[A](status: Int, text: String)(using converter: NativeConverter[A], frame: Frame): A < Abort[FetchError] =
+      decoded[A](status, text) match
+          case Right(value) => value
+          case Left(error)  => Abort.fail(error)
+
+    // claude 2026-10-20: created: the pure decode, shared with the ZIO adapter's FetchResponse.Plain.as (moved out of decode)
     /** Strict JSON, then the converter. Reasons never quote the body: converter messages contain
       * the values they reject.
       */
-    private[exts] def decode[A](status: Int, text: String)(using converter: NativeConverter[A], frame: Frame): A < Abort[FetchError] =
-      val decoded: Either[FetchError, A] =
-        BodyDecoding.parseJson(Some(text)) match
-            case Left(_)       => Left(FetchError.Decode(status, "the body is not valid JSON"))
-            case Right(native) =>
-              val input: js.Any = if js.isUndefined(native) then null else native
-              try Right(converter.fromNative(input))
-              catch
-                  case _: VirtualMachineError => Left(FetchError.Decode(status, "the converter failed"))
-                  case NonFatal(_)            => Left(FetchError.Decode(status, "the converter rejected the body"))
-      decoded match
-          case Right(value) => value
-          case Left(error)  => Abort.fail(error)
+    private[exts] def decoded[A](status: Int, text: String)(using converter: NativeConverter[A]): Either[FetchError, A] =
+      BodyDecoding.parseJson(Some(text)) match
+          case Left(_)       => Left(FetchError.Decode(status, "the body is not valid JSON"))
+          case Right(native) =>
+            val input: js.Any = if js.isUndefined(native) then null else native
+            try Right(converter.fromNative(input))
+            catch
+                case _: VirtualMachineError => Left(FetchError.Decode(status, "the converter failed"))
+                case NonFatal(_)            => Left(FetchError.Decode(status, "the converter rejected the body"))
 end FetchResponse
 
 // claude 2026-10-19: created: typed $fetch failures; not SafeErrors, so an unhandled one is an opaque 500

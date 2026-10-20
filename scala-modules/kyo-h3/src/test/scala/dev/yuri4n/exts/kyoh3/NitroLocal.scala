@@ -142,8 +142,7 @@ private[exts] object NitroLocal:
       * h34s Nitro plugin installs it, and removes the record when `body` completes.
       */
     def withBaseURL[A](baseURL: String)(body: => Future[A])(using ExecutionContext): Future[A] =
-      val config: js.Function0[js.Any] = () => js.Dynamic.literal(app = js.Dynamic.literal(baseURL = baseURL))
-      NitroGlobal.install(js.Dynamic.literal(version = 1, development = false, debug = false, runtimeConfig = config))
+      installBaseURL(baseURL)
       val result =
         try body
         catch case error: Throwable => Future.failed(error)
@@ -151,6 +150,11 @@ private[exts] object NitroLocal:
         NitroGlobal.remove()
         outcome
       }
+
+    /** Installs the startup record of `withBaseURL`; `NitroGlobal.remove()` removes it. */
+    def installBaseURL(baseURL: String): Unit =
+      val config: js.Function0[js.Any] = () => js.Dynamic.literal(app = js.Dynamic.literal(baseURL = baseURL))
+      NitroGlobal.install(js.Dynamic.literal(version = 1, development = false, debug = false, runtimeConfig = config))
 
     final case class Server(native: js.Dynamic, port: Int):
         def url(path: String): String = s"http://127.0.0.1:$port$path"

@@ -10,6 +10,7 @@ import zio.test.*
 object HandlerTestSpec extends ZIOSpecDefault:
     final case class Input(name: String) derives NativeConverter
     final case class Greeting(message: String) derives NativeConverter
+    final case class GreetingData(data: Greeting) derives NativeConverter
 
     trait Greetings:
         def greet(name: String): UIO[String]
@@ -94,6 +95,48 @@ object HandlerTestSpec extends ZIOSpecDefault:
         val failure = new Exception("stream failed")
         for result <- ZHandler.test(_ => Response.sendStream(ZStream("one") ++ ZStream.fail(failure)))(Request.fake()).either
         yield assertTrue(result == Left(failure))
+      },
+      // claude 2026-10-20: created: the testing guide's Fetch.fake example for ZIO (docs/content/1.guide/10.testing.md, "Answer $fetch calls"); keep them equal (ADR-0005 gap 6)
+      test("Fetch.fake answers $fetch from its map and records the requests; an unknown URL answers 404") {
+        // region guide-zio-fetch
+        val fetch = Fetch.fake(Map(
+          "/api/greeting" -> FetchResponse.Plain(200, Map("content-type" -> "application/json"), """{"data":{"message":"hi"}}"""),
+        ))
+        val handler: Request => ZIO[HandlerEnv, FetchError, String] = _ =>
+          for
+            greeting <- ZHandler.$fetch.get[GreetingData]("/api/greeting")
+            missing  <- ZHandler.$fetch.raw("/api/missing")
+          yield s"${greeting.data.message} ${missing.status}"
+
+        for response <- ZHandler.test(handler)(Request.fake(), fetch)
+        yield assertTrue(
+          response.body == TestResponse.Body.Value("hi 404"),
+          fetch.requests.map(_.url) == List("/api/greeting", "/api/missing"),
+        )
+        // endregion guide-zio-fetch
+      },
+      // claude 2026-10-20: created: a fake streamed response is a ZStream; a fake body failure is a typed FetchError (ADR-0005 gap 6)
+      test("a fake Streamed response is read as a ZStream, and its typed FetchError reaches the handler") {
+        val broken = FetchError.BodyFailed(200, "the body ended with an error before its end")
+        val fetch  = Fetch.fake(Map(
+          "/api/events" -> FetchResponse.Streamed(200, Map("x-h34s-stream" -> "1"), ZStream("a", "b")),
+          "/api/broken" -> FetchResponse.Streamed(200, Map.empty, ZStream("c") ++ ZStream.fail(broken)),
+        ))
+        val handler = (_: Request) =>
+          for
+            events <- ZHandler.$fetch.text("/api/events")
+            failed <- ZHandler.$fetch.text("/api/broken").either
+          yield s"$events ${failed.left.toOption.contains(broken)}"
+        for response <- ZHandler.test(handler)(Request.fake(), fetch)
+        yield assertTrue(response.body == TestResponse.Body.Value("ab true"))
+      },
+      // claude 2026-10-20: created: without a Fetch, $fetch dies and names ZHandler.test (ADR-0006, Q10)
+      test("without a Fetch, $fetch dies, and the message names ZHandler.test and Fetch.fake") {
+        val handler = (_: Request) => ZHandler.$fetch.text("/api/greeting")
+        for result <- ZHandler.test(handler)(Request.fake()).exit
+        yield assertTrue(
+          result.causeOption.flatMap(_.dieOption).exists(_.getMessage.contains("pass a Fetch to ZHandler.test, such as Fetch.fake")),
+        )
       },
       test("headers keep sets and appends in order; Unit is a value") {
         val handler = (_: Request) =>
