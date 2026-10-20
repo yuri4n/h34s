@@ -8,6 +8,8 @@ This page records why h34s is built the way it is. It covers the decisions the u
 
 **Keep it current.** When you change one of these decisions or behaviors, update this page in the same pull request. When the user makes a new decision, also record it in `AGENTS.md`.
 
+**Decision records.** From 2026-10-20 on, decisions are also recorded as architecture decision records (ADRs) under [`docs/design/adr/`](adr/README.md), one decision per record, with the options that were considered and the reasons. This page keeps the narrative and the numbered decision items, and links to the ADRs. Five of them touch the Kyo core and the ZIO adapter: [ADR-0004](adr/0004-streams-are-sent.md) (streams are sent with `Response.sendStream`), [ADR-0005](adr/0005-fetch-in-handlers.md) (`$fetch` in handlers), [ADR-0006](adr/0006-handler-environment-and-test-helpers.md) (the handler environment and the test helpers), [ADR-0007](adr/0007-server-sent-events.md) (server-sent events) and [ADR-0008](adr/0008-streaming-support-limits.md) (streaming support limits). None of the five is implemented yet: the sections below still describe the code as it is. <!-- claude 2026-10-20: created: pointer to the ADRs under docs/design/adr/ -->
+
 Tags such as *(dev. 4)*, *(B2-1)* and *(D-1)* are the deviation numbers from the original design notes. Review IDs such as R3, SEC-4, AD-9 and B1 are the findings of the adversarial review of PR #14; some test comments use them.
 
 ## Contents
