@@ -2,7 +2,7 @@
 // no sbt and no package install.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs' // claude 2026-10-20: changed: also the symlink calls (review P2)
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import process from 'node:process'
@@ -567,6 +567,42 @@ test('the same script with the same value, a listed package and h3 are kept as t
   assert.match(tree(root)['package.json'], /^\{\n\t"name"/, 'keeps tab indentation')
   assert.match(result.stdout, /package\.json lists @yuri4n\/h34s-nuxt 0\.1\.0-alpha\.1, and the sbt build uses the Scala libraries/)
   assert.doesNotMatch(result.stdout, /set the script "dev"/)
+})
+
+// claude 2026-10-20: created: the names below a directory, symlinks included and not followed (review P2)
+/** Every entry below `directory`, with `/` separators, sorted; a symlink is listed, never followed. */
+function listing(directory) {
+  return readdirSync(directory, { recursive: true }).map(name => name.split(sep).join('/')).sort()
+}
+
+// claude 2026-10-20: created: the test "a dangling symlink where init would create a file is a conflict ..." (review P2)
+test('a dangling symlink where init would create a file is a conflict, and init writes nothing', (t) => {
+  for (const name of ['build.sbt', '.npmrc', 'h34s.config.mjs']) {
+    const root = temporary(t)
+    write(root, nuxtStarter)
+    symlinkSync('missing-target', join(root, name))
+    const before = listing(root)
+    const result = init(root)
+    assert.equal(result.status, 1, `${name}\n${result.output}`)
+    assert.match(result.stderr, /^\[h34s\] init stopped and wrote nothing\. Resolve these conflicts, then run init again:\n/, name)
+    assert.ok(result.stderr.includes(`  - ${name} exists; init creates it and never overwrites a file\n`), `${name}\n${result.stderr}`)
+    assert.deepEqual(listing(root), before, `${name}: nothing was created`)
+    assert.equal(readlinkSync(join(root, name)), 'missing-target', `${name}: the symlink stays`)
+  }
+})
+
+// claude 2026-10-20: created: the test "a dangling symlink at a file that init creates only when missing ..." (review P2)
+test('a dangling symlink at a file that init creates only when missing is kept as it is', (t) => {
+  for (const name of ['project/build.properties', '.jvmopts']) {
+    const root = temporary(t)
+    write(root, { 'build.sbt': 'lazy val core = project\n', 'project/plugins.sbt': sbtBuild['project/plugins.sbt'] })
+    symlinkSync('missing-target', join(root, name))
+    const result = init(root)
+    assert.equal(result.status, 0, `${name}\n${result.output}`)
+    assert.ok(lstatSync(join(root, name)).isSymbolicLink(), name)
+    assert.equal(readlinkSync(join(root, name)), 'missing-target', `${name}: the symlink stays`)
+    assert.ok(listing(root).includes('h34s.sbt'), `${name}: init wrote the plan`)
+  }
 })
 
 // claude 2026-10-20: created: the test "a non-empty server/.scala or an existing /api/hello route file is ..." (ADR-0009)

@@ -3,7 +3,7 @@
 // missing files only, and never overwrites a file. Its only edits are appends to .gitignore and
 // .npmrc, the merge into package.json and the text edit of nuxt.config. It installs nothing and
 // runs no sbt, and it reads no token: the files name environment variables.
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
@@ -37,8 +37,9 @@ const scalaKeywords = new Set(['abstract', 'case', 'catch', 'class', 'def', 'do'
 /** Top-level packages that a project package must not shadow. */
 const reservedPackages = new Set(['scala', 'java', 'javax', 'zio', 'kyo', 'dev', 'org', 'com', 'js'])
 
-// claude 2026-10-20: created: file checks (ADR-0009)
-const exists = path => statSync(path, { throwIfNoEntry: false }) !== undefined
+// claude 2026-10-20: changed: file checks; exists does not follow a symlink, so a dangling one occupies its path (ADR-0009, review P2)
+/** Whether `path` names an entry, a symlink included, also one whose target is missing. */
+const exists = path => lstatSync(path, { throwIfNoEntry: false }) !== undefined
 const isFile = path => statSync(path, { throwIfNoEntry: false })?.isFile() === true
 const isDirectory = path => statSync(path, { throwIfNoEntry: false })?.isDirectory() === true
 const read = path => readFileSync(path, 'utf8')
@@ -456,13 +457,13 @@ function planAppend(plan, path, content, { create, edit, shown }) {
     edit(path, before, appended(before, '# h34s packages from GitHub Packages; the token comes from the environment', lines), `adds ${lines.length === 2 ? 'the @yuri4n scope and its token reference' : lines.map(keyOf).join(', ')}`)
 }
 
-// claude 2026-10-20: changed: project/build.properties and project/plugins.sbt, created only when missing; a commented-out sbt-scalajs line does not load Scala.js (ADR-0009, review P2)
+// claude 2026-10-20: changed: project/build.properties and project/plugins.sbt, created only when missing; a commented-out sbt-scalajs line does not load Scala.js, and a dangling build.properties is kept unread (ADR-0009, review P2)
 function planProject(plan, sbt, sources, { create, shown }) {
   const properties = join(sbt, 'project/build.properties')
   if (!exists(properties)) {
     create(properties, buildProperties.render())
   }
-  else {
+  else if (isFile(properties)) {
     const declared = /^\s*sbt\.version\s*=\s*(\S+)/m.exec(read(properties))?.[1]
     if (declared && declared !== buildProperties.sbtVersion)
       plan.warnings.push(`${shown(properties)} sets sbt.version=${declared}; h34s is tested with sbt ${buildProperties.sbtVersion}.`)
