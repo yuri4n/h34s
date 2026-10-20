@@ -1,21 +1,21 @@
 package dev.yuri4n.exts.zioh3.internal
 
 import dev.yuri4n.exts.h3.ResponseHead
-import dev.yuri4n.exts.kyoh3.HandlerEffects
+import dev.yuri4n.exts.kyoh3.{HandlerEffects, HandlerTransport}
 import dev.yuri4n.exts.zioh3.HandlerEnv
-import kyo.{Frame, Scope, Sync, Var, `<`}
+import kyo.{Env, Frame, Scope, Sync, Var, `<`}
 import zio.{Exit, Runtime, UIO, Unsafe, ZEnvironment, ZIO}
 
 // claude 2026-10-19: changed: value, Unit and interrupted programs log a failed close and keep their Exit (issue #40)
+// claude 2026-10-19: changed: no streamed flag: a stream is sent inside the program (ZHandler.sendStream), so the fiber always closes the request scope itself; the transport joins the ZIO environment
 /** One ZIO handler program inside the Kyo request worker.
   *
-  * The program runs on one ZIO fiber with its own request `Scope` and `ZState[ResponseHead]`:
+  * The program runs on one ZIO fiber with its own request `Scope`, `ZState[ResponseHead]` and the
+  * request's `HandlerTransport`:
   *
-  *   - value and Unit bodies: the fiber closes the request scope itself; a failed close is logged
-  *     and does not change the program's Exit, as in Kyo;
-  *   - stream bodies: the scope stays open while the core sends the stream; a Kyo request finalizer
-  *     closes it after the stream ended or was cancelled (the Kyo side creates and always closes
-  *     the scope, whatever the fiber's Exit says);
+  *   - the fiber closes the request scope itself after the program; a failed close is logged and
+  *     does not change the program's Exit, as in Kyo. A stream sent with `Response.sendStream` has
+  *     ended or was cancelled by then, because the program waits for it;
   *   - interruption (client disconnect): the Kyo finalizer interrupts the fiber and waits until the
   *     request scope is closed, so ZIO finalizers finish before the core settles the response; a
   *     failed close is logged and the fiber's Exit stays the interruption.
@@ -26,17 +26,22 @@ import zio.{Exit, Runtime, UIO, Unsafe, ZEnvironment, ZIO}
 private[exts] object ZioRequest:
     final case class Completed[+B](head: ResponseHead, exit: Exit[Throwable, B])
 
-    /** `afterProgram` runs inside the fiber's uninterruptible region, after a streamed program
-      * returned (a test seam for interrupts that arrive in that window).
+    /** `afterProgram` runs inside the fiber's uninterruptible region, after the program returned
+      * and before the fiber closes the scope (a test seam for interrupts that arrive in that window).
       */
-    def run[B](runtime: Runtime[Any], streamed: Boolean, afterProgram: UIO[Unit] = ZIO.unit)(
+    def run[B](runtime: Runtime[Any], afterProgram: UIO[Unit] = ZIO.unit)(
+        program: => ZIO[HandlerEnv, Throwable, B],
+    )(using Frame): B < HandlerEffects =
+      Env.use[HandlerTransport](transport => run(runtime, transport, afterProgram)(program))
+
+    private def run[B](runtime: Runtime[Any], transport: HandlerTransport, afterProgram: UIO[Unit])(
         program: => ZIO[HandlerEnv, Throwable, B],
     )(using Frame): B < HandlerEffects =
       Sync.Unsafe.defer {
         // The Kyo side owns the ZIO request scope. An interrupt that arrives after the program
         // returned replaces the fiber's Exit, so the scope must not travel inside that Exit.
         val scope = Unsafe.unsafely(zio.Scope.unsafe.make)
-        val call  = new ZioCall(runtime, fiber(scope, streamed, afterProgram, program))
+        val call  = new ZioCall(runtime, fiber(scope, transport, afterProgram, program))
         // Closing a scope that the fiber already closed is a no-op.
         Scope.ensure(call.stop.andThen(ZioCall.closeScope(runtime, scope, Exit.unit)))
           .andThen(Sync.Unsafe.defer(call.start()))
@@ -52,39 +57,38 @@ private[exts] object ZioRequest:
 
     private def fiber[B](
         scope: zio.Scope.Closeable,
-        streamed: Boolean,
+        transport: HandlerTransport,
         afterProgram: UIO[Unit],
         program: => ZIO[HandlerEnv, Throwable, B],
     ): UIO[Completed[B]] =
       ZIO.uninterruptibleMask { restore =>
-        restore(stateful(scope, program)).exit.flatMap {
-          case Exit.Success((exit, head)) if streamed && exit.isSuccess =>
-            // The scope stays open while the core sends the stream; the Kyo finalizer closes it.
-            afterProgram.as(Completed(head, exit))
+        restore(stateful(scope, transport, program)).exit.flatMap {
           // claude 2026-10-19: changed: a failing finalizer is logged and keeps the program's Exit (issue #40)
-          case Exit.Success((exit, head))                               =>
-            closeAndLog(scope, exit).as(Completed(head, exit))
+          case Exit.Success((exit, head)) =>
+            afterProgram *> closeAndLog(scope, exit).as(Completed(head, exit))
           // claude 2026-10-19: changed: a failing finalizer during an interruption is logged too (issue #40 review)
-          case Exit.Failure(cause)                                      =>
+          case Exit.Failure(cause)        =>
             closeAndLog(scope, Exit.failCause(cause)).as(Completed(ResponseHead.empty, Exit.failCause(cause)))
         }
       }
 
     // claude 2026-10-19: created: closes the request scope and logs a failed close, interruptions included (issue #40 review)
+    // claude 2026-10-20: changed: ZHandler.test closes its request scope the same way (ADR-0006, Q10)
     /** Closes `scope` and logs a failed close. Never fails: the log runs outside the fiber's
       * failure path, so a cause that cannot be rendered cannot turn the response into a 500.
       */
-    private def closeAndLog(scope: zio.Scope.Closeable, exit: Exit[Any, Any]): UIO[Unit] =
+    private[exts] def closeAndLog(scope: zio.Scope.Closeable, exit: Exit[Any, Any]): UIO[Unit] =
       scope.close(exit).exit.flatMap { closed =>
         ZIO.attempt(closed.causeOption.foreach(ZioCall.logFinalizerFailure(_, includeInterrupts = true))).ignore
       }
 
     private def stateful[B](
         scope: zio.Scope,
+        transport: HandlerTransport,
         program: => ZIO[HandlerEnv, Throwable, B],
     ): UIO[(Exit[Throwable, B], ResponseHead)] =
-      ZIO.stateful[zio.Scope](ResponseHead.empty)(
+      ZIO.stateful[zio.Scope & HandlerTransport](ResponseHead.empty)(
         // A program that throws while it is built is a defect, never an approved error.
         ZIO.suspendSucceed(program).exit.zip(ZIO.getState[ResponseHead]),
-      ).provideEnvironment(ZEnvironment[zio.Scope](scope))
+      ).provideEnvironment(ZEnvironment[zio.Scope, HandlerTransport](scope, transport))
 end ZioRequest

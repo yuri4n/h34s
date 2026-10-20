@@ -3,7 +3,7 @@ package dev.yuri4n.exts.zioh3
 import dev.yuri4n.exts.kyoh3.ResponseBody
 import dev.yuri4n.exts.kyoh3.internal.StreamResponse
 import dev.yuri4n.exts.zioh3.ZioTesting.turns
-import kyo.{AllowUnsafe, Sync}
+import dev.yuri4n.exts.zioh3.internal.ZStreamSource
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.*
 import zio.stream.ZStream
@@ -13,22 +13,18 @@ import scala.scalajs.js
 
 /** ZStreams as pull-driven Web streams through the core (Z19-Z24). */
 object StreamSpec extends ZIOSpecDefault:
+    // claude 2026-10-19: changed: readers come from ZStreamSource directly (the ZStream givens are gone)
     /** Encodes with the adapter's internal stream encoding, so the bridge is tested with any element
-      * type (handlers may return only `ZStream[Any, E, String]`; letters use the public instance).
+      * type (`Response.sendStream` sends only `ZStream[Any, E, String]`; letters use its encoding).
       */
     private def reader[E <: Throwable, A: NativeConverter](stream: ZStream[Any, E, A]): UIO[js.Dynamic] =
-      readerWith(ZResponseBody.streamOf[E, A](summon[NativeConverter[A]].toNative(_)), stream)
+      readerWith(stream, summon[NativeConverter[A]].toNative(_))
 
     private def stringReader[E <: Throwable](stream: ZStream[Any, E, String]): UIO[js.Dynamic] =
-      readerWith(summon[ZResponseBody[ZStream[Any, E, String]]], stream)
+      readerWith(stream, ResponseBody.text)
 
-    private def readerWith[E <: Throwable, A](body: ZResponseBody[ZStream[Any, E, A]], stream: ZStream[Any, E, A]): UIO[js.Dynamic] =
-      ZIO.succeed {
-        import AllowUnsafe.embrace.danger
-        Sync.Unsafe.evalOrThrow(body.toCore(stream, Runtime.default)) match
-            case ResponseBody.Outgoing.Streamed(chunks) => StreamResponse.readable(chunks).asInstanceOf[js.Dynamic].getReader()
-            case other                                  => throw IllegalStateException(s"expected a stream, got $other")
-      }
+    private def readerWith[E <: Throwable, A](stream: ZStream[Any, E, A], encode: A => js.Any): UIO[js.Dynamic] =
+      ZIO.succeed(StreamResponse.readable(ZStreamSource(Runtime.default, stream, encode)).asInstanceOf[js.Dynamic].getReader())
 
     private def read(reader: js.Dynamic): Task[js.Dynamic] =
       ZIO.fromPromiseJS(reader.read().asInstanceOf[js.Promise[js.Dynamic]])

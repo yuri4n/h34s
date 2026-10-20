@@ -3,19 +3,23 @@ package dev.yuri4n.exts.zioh3
 import dev.yuri4n.exts.kyoh3.{KHandler, ResponseBody}
 import dev.yuri4n.exts.zioh3.internal.ZioRequest
 import zio.prelude.NonEmptyList
-import zio.{IO, Runtime, ZIO}
+import zio.{IO, Runtime, ZEnvironment, ZIO}
 
+// claude 2026-10-19: changed: streams are sent with ZHandler.sendStream
+// claude 2026-10-20: changed: streams are sent with Response.sendStream; ZHandler.sendStream is deleted (ADR-0004, Q8)
 /** Defines h3 handlers from ZIO programs.
   *
   * A handler is a function from the request snapshot to a ZIO program that returns the response
   * body: `Request => ZIO[HandlerEnv, ErrorResponse | Throwable, B]`. h34s runs it once per request on
-  * the given ZIO `Runtime`, supplies `HandlerEnv` (response head state and request scope), and
-  * writes the response once, after the program and its finalizers finish.
+  * the given ZIO `Runtime`, supplies `HandlerEnv` (response head state, request scope and the
+  * transport), and writes the response once, after the program and its finalizers finish. A
+  * handler that streams sends the head and the stream itself with `Response.sendStream` and returns
+  * its `Sent`.
   *
   * Provide your own services before you pass the program, with ordinary ZIO (`provide`,
   * `provideSomeLayer`, `ZShared.provide`). The wire format is the one of `KHandler`: a value body is
-  * `{"data": ...}`, a `Unit` body is a 204 without a body, a `ZStream` is sent as is, and errors are
-  * `{"errors": [{"message": ...}]}`.
+  * `{"data": ...}`, a `Unit` body is a 204 without a body, a sent `ZStream` is UTF-8 text, and errors
+  * are `{"errors": [{"message": ...}]}`.
   */
 object ZHandler:
     /** The program receives the request snapshot and returns the body. Uses `HandlerOptions.default`.
@@ -41,6 +45,34 @@ object ZHandler:
     def failWith(status: Int, msg: String, msgs: String*): IO[ErrorResponse, Nothing] =
       ZIO.fail(ErrorResponse(NonEmptyList(msg, msgs*), status))
 
+    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10); after sendStream, the head at the call
+    /** Runs `handler` for `request` without h3, Nitro or a server, and gives the head that the
+      * program set and its body: the returned value, or the elements that it sent with
+      * `Response.sendStream`. After `sendStream`, the head is the one at the call, as on the wire: a
+      * change after the call does not reach the client, so it is not in the result.
+      *
+      * It provides what `define` provides for a request: the `ZState[ResponseHead]`, a request
+      * `Scope` (closed before the result is given; a failing finalizer is logged, as in `define`)
+      * and a transport that collects a sent stream. Provide your own services inside the function,
+      * as you do for `define`:
+      *
+      * {{{
+      * ZHandler.test(request => NotesHandler.create(request).provideSomeLayer[HandlerEnv](notes))(Request.fake(...))
+      * }}}
+      *
+      * The program's typed error stays in the error channel, so `.either` shows it. Handler
+      * defaults, the envelope and the error rendering belong to `define` and are not applied here.
+      */
+    def test[E, B](handler: Request => ZIO[HandlerEnv, E, B])(request: Request): IO[E, TestResponse[B]] =
+      ZIO.suspendSucceed {
+        val transport = HandlerTransport.collecting()
+        ZIO.acquireReleaseExitWith(zio.Scope.make)((scope, exit) => ZioRequest.closeAndLog(scope, exit)) { scope =>
+          ZIO.stateful[zio.Scope & HandlerTransport](ResponseHead.empty)(
+            ZIO.suspendSucceed(handler(request)).zip(Response.head),
+          ).provideEnvironment(ZEnvironment[zio.Scope, HandlerTransport](scope, transport))
+        }.map((value, head) => TestResponse(transport.sentHead.getOrElse(head), TestResponse.collected(transport.collected, value)))
+      }
+
     /** Handlers that share one set of options. */
     final class Configured private[ZHandler] (options: HandlerOptions):
         def apply[B](program: Request => ZIO[HandlerEnv, ErrorResponse | Throwable, B])(using
@@ -48,5 +80,5 @@ object ZHandler:
             runtime: Runtime[Any] = Runtime.default,
         ): EventHandler =
           given ResponseBody[B] = ZResponseBody.core(body, runtime)
-          KHandler.define[B](options)(request => ZioRequest.run(runtime, body.streamed)(program(request)))
+          KHandler.define[B](options)(request => ZioRequest.run(runtime)(program(request)))
 end ZHandler

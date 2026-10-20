@@ -1,21 +1,24 @@
 package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.{H3, H3Event, HandlerMetadata, Nitro}
-import dev.yuri4n.exts.kyoh3.internal.{Interop, Rendering, RequestLifecycle, StreamResponse, Supervised}
-import kyo.{Abort, Async, Fiber, Frame, Result, Scope, Sync, Var, `<`}
+import dev.yuri4n.exts.kyoh3.internal.{Interop, NitroFetch, Rendering, RequestLifecycle, Supervised}
+import kyo.{Abort, Async, Env, Fiber, Frame, Result, Scope, Sync, Var, `<`}
+import org.getshaka.nativeconverter.NativeConverter
 
 import scala.scalajs.js
 import scala.util.control.NonFatal
 
+// claude 2026-10-19: changed: streams are sent with Response.sendStream; $fetch is injected
 /** Defines h3 handlers from Kyo programs.
   *
   * A handler is a function from the request snapshot to the response body: a Kleisli arrow
   * `Request => B < HandlerEffects`. The core runs it once per request, owns its scope and
   * cancellation, and writes the response head and body once, after the program and its finalizers
-  * finish.
+  * finish. A handler that streams sends the head and the stream itself with `Response.sendStream`
+  * and returns its `Sent`.
   *
   * Wire format with the default options: a value body is `{"data": ...}`, a `Unit` body is a 204
-  * without a body, a stream of strings is sent as UTF-8 text, and errors are
+  * without a body, a sent stream of strings is UTF-8 text, and errors are
   * `{"errors": [{"message": ...}]}`.
   */
 object KHandler:
@@ -54,6 +57,98 @@ object KHandler:
       // The release is registered in the step that starts the fiber, so an interrupt cannot land
       // between the two.
       Scope.acquireRelease(Fiber.initUnscoped(step))(_.getResult.unit).map(fiber => fiber.uninterruptible.map(_.get))
+
+    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10); after sendStream, the head at the call
+    /** Runs `handler` for `request` without h3, Nitro or a server, and gives the head that the
+      * program set and its body: the returned value, or the elements that it sent with
+      * `Response.sendStream`. After `sendStream`, the head is the one at the call, as on the wire: a
+      * change after the call does not reach the client, so it is not in the result.
+      *
+      * It provides what `define` provides for a request: a request scope (closed before the result
+      * is given), an empty response head, a transport that collects a sent stream, and `fetch` as
+      * the server-side `$fetch` (by default `Fetch.unavailable`; pass `Fetch.fake(...)` to answer
+      * calls). Provide your own services inside the function, as you do for `define`:
+      *
+      * {{{
+      * KHandler.test(request => Env.run(fakeNotes)(NotesHandler.create(request)))(Request.fake(...))
+      * }}}
+      *
+      * A failure of the program stays a failure of the result: run it with `Abort.run` to check an
+      * error. Handler defaults, the envelope and the error rendering belong to `define` and are not
+      * applied here.
+      */
+    def test[B](handler: Request => B < HandlerEffects)(request: Request, fetch: Fetch = Fetch.unavailable)(using
+        Frame,
+    ): TestResponse[B] < (Async & Abort[Throwable]) =
+      Sync.defer(HandlerTransport.collecting()).map { transport =>
+        Scope.run(Var.runTuple(ResponseHead.empty)(Env.run(transport)(Env.run(fetch)(Sync.defer(handler(request))))))
+          .map { (head, value) =>
+            Sync.defer(TestResponse(transport.sentHead.getOrElse(head), TestResponse.collected(transport.collected, value)))
+          }
+      }
+
+    // claude 2026-10-19: created: the $fetch accessor (decision 2) over the request's Env[Fetch]
+    // claude 2026-10-20: changed: the Scaladoc states the forwarding and detection rules (ADR-0005, Q2 and Q5)
+    /** The server-side `$fetch` of the current request.
+      *
+      *   - **In-process paths.** A path that starts with `/` is answered in-process by Nitro, and
+      *     the incoming headers and cookies are forwarded, as Nuxt does.
+      *   - **Absolute URLs.** An absolute URL gets only the `headers` you pass, and the content
+      *     type and length of the `body` you send. The user's cookies and `authorization` never
+      *     reach another host. Nuxt's `event.$fetch` forwards them to any host; h34s does not.
+      *   - **Plain or streamed.** `raw` gives `FetchResponse.Streamed` when the response carries
+      *     the `x-h34s-stream` marker (every `Response.sendStream` sets it) or a stream content type
+      *     (`text/event-stream`, `application/x-ndjson`), and `FetchResponse.Plain` otherwise.
+      *
+      * `raw` returns as soon as the head arrives. `text`, `as`, `get` and `post` read the whole body
+      * and fail with `FetchError.Status` unless the status is 2xx. A `FetchError` is not a
+      * `SafeError`: unhandled, it is an opaque 500.
+      */
+    @annotation.nowarn("id=E230")
+    object $fetch:
+        def raw(
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        )(using Frame): FetchResponse < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          Env.use[Fetch](_.raw(FetchRequest(url, method, headers, body)))
+
+        def text(
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        )(using Frame): String < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          raw(url, method, headers, body).map(response => bodyText(response).map(text => successText(response.status, text)))
+
+        def as[A: NativeConverter](
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        )(using Frame): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          raw(url, method, headers, body).map(response =>
+            bodyText(response).map(text => successText(response.status, text)).map(text => FetchResponse.decode[A](response.status, text)),
+          )
+
+        def get[A: NativeConverter](url: String, headers: Seq[(String, String)] = Nil)(using
+            Frame,
+        ): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          as[A](url, headers = headers)
+
+        def post[A: NativeConverter](url: String, body: FetchBody, headers: Seq[(String, String)] = Nil)(using
+            Frame,
+        ): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
+          as[A](url, "POST", headers, Some(body))
+
+        private def bodyText(response: FetchResponse)(using Frame): String < (Async & Scope) = response match
+            case FetchResponse.Plain(_, _, text)    => text
+            case FetchResponse.Streamed(_, _, body) => body.run.map(_.mkString)
+
+        private def successText(status: Int, text: String)(using Frame): String < Abort[FetchError] =
+          if status >= 200 && status <= 299 then text else Abort.fail(FetchError.Status(status, text))
+    end $fetch
 end KHandler
 
 /** One request: snapshot, program, scope, cancellation and the single write of head and body. */
@@ -63,7 +158,6 @@ private[kyoh3] object RequestRuntime:
         case Empty(head: ResponseHead)
         case Failed(head: ResponseHead, error: Result.Error[Throwable])
         case Sent
-        case Abandoned
 
     def run[B](event: H3Event, options: HandlerOptions, program: Request => B < HandlerEffects)(using
         body: ResponseBody[B],
@@ -76,69 +170,87 @@ private[kyoh3] object RequestRuntime:
           js.Promise.resolve[js.Any](lifecycle.claim())
       else
           new js.Promise[js.Any]((resolve, _) =>
-            val supervised = new Supervised[Completion](work(event, options, program))
+            // claude 2026-10-19: changed: one HandlerTransport per request; a socketless stream settles the h3 promise early
+            // claude 2026-10-20: changed: the transport can end the connection after a failure without reporting a disconnect (ADR-0004)
+            val transport  = new HandlerTransport(
+              event,
+              options,
+              () => resolve(js.undefined),
+              () =>
+                lifecycle.unlisten()
+                event.node.res.destroy(),
+            )
+            val supervised = new Supervised[Completion](work(transport, program))
             lifecycle.setInterrupt(() => supervised.interrupt())
             supervised.onComplete { result =>
+              val clientLeft = lifecycle.closedByClient
               lifecycle.unlisten()
               val response =
                 try
-                    if lifecycle.disconnected then lifecycle.claim()
+                    // The transport owns a sent response: write nothing more, but log a failure
+                    // that happened after it (for example a second sendStream). A client that
+                    // disconnected interrupted the program: that is not a failure to log.
+                    if transport.sent then
+                        if !clientLeft then afterSent(transport, result)
+                        lifecycle.claim()
+                    else if lifecycle.disconnected then lifecycle.claim()
                     else render(event, lifecycle, options, result)
                 catch
                     case NonFatal(error) =>
                       if lifecycle.disconnected then lifecycle.claim() else defect(event, options, ResponseHead.empty, error)
+              transport.markFinished()
               resolve(response)
             },
           )
     end run
 
+    // claude 2026-10-19: changed: provides Env[HandlerTransport] and Env[Fetch]; a Sent body ends the request
     /** The worker program. Var runs outside Abort so a failure still sees the response head. */
-    private def work[B](event: H3Event, options: HandlerOptions, program: Request => B < HandlerEffects)(using
+    private def work[B](transport: HandlerTransport, program: Request => B < HandlerEffects)(using
         body: ResponseBody[B],
         frame: Frame,
     ): Completion < (Async & Abort[Throwable] & Scope) =
-      Sync.defer(Request.fromEvent(event, options.bodyLimit, options.requireJsonContentType)).map { request =>
+      val event   = transport.event
+      val options = transport.options
+      Sync.defer {
+        // Captured at request start: Nitro sets event.fetch in onRequest, before any route handler.
+        (Request.fromEvent(event, options.bodyLimit, options.requireJsonContentType), new NitroFetch(event))
+      }.map { (request, fetch) =>
         Var.runTuple(ResponseHead.empty)(
-          Abort.run[Any](Sync.defer(program(request)).map(value => body.encode(value))),
+          Abort.run[Any](
+            Env.run(transport)(Env.run(fetch)(
+              Sync.defer(program(request)),
+            )).map(value => body.encode(value)),
+          ),
         ).map { (head, result) =>
           Interop.typed(result).foldError(
             {
               case ResponseBody.Outgoing.Value(native)    => Completion.Value(head, native)
               case ResponseBody.Outgoing.Empty            => Completion.Empty(head)
-              case ResponseBody.Outgoing.Streamed(chunks) =>
-                val committed = ResponseHead.forSuccess(options.defaults, head)
-                val streamHead = Rendering.withDefaultContentType(event, committed, Rendering.textContentType)
-                var applied    = false
-                val commit     = () =>
-                  applied = true
-                  Rendering.writeHead(event, streamHead)
-                Abort.run[Any](StreamResponse.send(event, chunks, commit)).map(result => Interop.typed(result).foldError(
-                  _ => Completion.Sent,
-                  failure =>
-                    if headersSent(event) then
-                        Sync.defer {
-                          // The client already has a status and part of the body: end the
-                          // connection so the response cannot look complete.
-                          event.node.res.destroy()
-                          Rendering.logDefect(Rendering.describe(failure.failureOrPanic))
-                          Completion.Abandoned
-                        }
-                    else
-                        Sync.defer {
-                          // The head may be applied already (before the first chunk) but not sent:
-                          // the failure response must not carry success-only headers or cookies.
-                          if applied then Rendering.clearHead(event, streamHead)
-                          Completion.Failed(head, failure)
-                        },
-                ))
+              case ResponseBody.Outgoing.Sent(sent)       =>
+                if sent.owner eq transport then Completion.Sent
+                else Completion.Failed(head, Result.Panic(IllegalStateException("The handler returned a Sent value of another request")))
             },
             failure => Completion.Failed(head, failure),
           )
         }
       }
 
-    private def headersSent(event: H3Event): Boolean =
-      Nitro.isTrue(event.node.res.asInstanceOf[js.Dynamic].headersSent)
+    // claude 2026-10-19: created: a failure after the response was sent cannot reach the client; log it
+    // claude 2026-10-20: changed: also logs a stream failure that the program recovered from, once (ADR-0004, Q3)
+    /** Logs one failure: the program's own, or else the sent stream's failure that the program
+      * recovered from. The stream's failure usually is the program's failure, so it is not logged
+      * twice.
+      */
+    private def afterSent(transport: HandlerTransport, result: Result[Throwable, Completion]): Unit =
+      def log(error: Throwable): Unit = Rendering.logDefect(Rendering.describe(error))
+      result.foldError(
+        {
+          case Completion.Failed(_, error) => log(error.failureOrPanic)
+          case _                           => transport.streamFailure.foreach(log)
+        },
+        error => log(error.failureOrPanic),
+      )
 
     private def render(
         event: H3Event,
@@ -163,7 +275,6 @@ private[kyoh3] object RequestRuntime:
             success(event, options, complete.copy(status = complete.status.orElse(Some(Status.NoContent))), Rendering.noContent)
           case Completion.Failed(head, error) => failure(event, options, head, error)
           case Completion.Sent                => lifecycle.claim()
-          case Completion.Abandoned           => lifecycle.claim()
         },
         error => failure(event, options, ResponseHead.empty, error),
       )

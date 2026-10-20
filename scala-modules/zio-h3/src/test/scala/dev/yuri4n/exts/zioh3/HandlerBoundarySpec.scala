@@ -221,9 +221,10 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
         val unrenderable = Call()
         val interrupted = Call()
         val streaming = Call()
+        // claude 2026-10-20: changed: the stream is sent with Response.sendStream after the failure (ADR-0004)
         val failsBeforeStream = ZHandler.define(_ =>
           ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("stream handler cleanup defect"))) *>
-            ZIO.fail(Rejected("Invalid name")).as(zio.stream.ZStream.empty: zio.stream.ZStream[Any, Nothing, String]),
+            ZIO.fail(Rejected("Invalid name")) *> Response.sendStream(zio.stream.ZStream.empty),
         )
         for
           captured <- consoleErrors(
@@ -390,29 +391,28 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
           atSettle == List("step done", "connection released"), js.isUndefined(body), call.response.writes == 0,
         )
       } @@ TestAspect.withLiveClock,
-      test("an interrupt after a streamed program returned still closes the request scope") {
+      // claude 2026-10-19: changed: the streamed scope hand-over is gone; the afterProgram seam now covers every body, before the fiber closes the scope
+      test("an interrupt after the program returned still closes the request scope once") {
         import dev.yuri4n.exts.kyoh3.{KHandler, ResponseBody}
         import dev.yuri4n.exts.zioh3.internal.ZioRequest
-        import zio.stream.ZStream
         for
           released <- Ref.make(0)
           call = Call()
           runtime = Runtime.default
           handler = {
-            given ResponseBody[ZStream[Any, Nothing, String]] =
-              ZResponseBody.core(summon[ZResponseBody[ZStream[Any, Nothing, String]]], runtime)
+            given ResponseBody[String] = ZResponseBody.core(summon[ZResponseBody[String]], runtime)
             // The interrupt arrives inside the fiber's uninterruptible region, after the program
-            // returned its stream and before the fiber exits: it replaces the fiber's Exit.
+            // returned and before the fiber closes the scope: it replaces the fiber's Exit.
             val window = ZIO.succeed(call.response.disconnect()) *> ZIO.sleep(50.millis)
-            KHandler.define[ZStream[Any, Nothing, String]](HandlerOptions.default)(_ =>
-              ZioRequest.run(runtime, streamed = true, afterProgram = window)(
-                ZIO.acquireRelease(ZIO.unit)(_ => released.update(_ + 1)).as(ZStream("never sent")),
+            KHandler.define[String](HandlerOptions.default)(_ =>
+              ZioRequest.run(runtime, afterProgram = window)(
+                ZIO.acquireRelease(ZIO.unit)(_ => released.update(_ + 1)).as("never sent"),
               ),
             )
           }
           body <- call.invoke(handler)
           count <- released.get
-        yield assertTrue(count == 1, js.isUndefined(body), call.response.chunks.isEmpty)
+        yield assertTrue(count == 1, js.isUndefined(body), call.response.chunks.isEmpty, call.response.writes == 0)
       },
       // K13
       test("an already closed response never starts the request program") {

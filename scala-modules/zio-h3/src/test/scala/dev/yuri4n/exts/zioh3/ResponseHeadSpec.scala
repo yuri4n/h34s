@@ -186,7 +186,8 @@ object ResponseHeadSpec extends ZIOSpecDefault:
         )
       },
       // C13
-      test("a handler function is testable without h3: Request.fake and a ZState head") {
+      // claude 2026-10-20: changed: ZHandler.test replaces the manual ZState and Scope provisioning (ADR-0006, Q10)
+      test("a handler function is testable without h3: Request.fake and ZHandler.test") {
         val handler: Request => ZIO[HandlerEnv, HttpError | InvalidInput, Greeting] = request =>
           for
             first <- request.body.json[Input]
@@ -195,8 +196,11 @@ object ResponseHeadSpec extends ZIOSpecDefault:
           yield Greeting(s"${first.name} $again")
         // claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41)
         val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = Some("{\"name\":\"Scala\"}"))
-        for (head, greeting) <- direct(handler(request))
-        yield assertTrue(head.status.contains(Status.Created), greeting == Greeting("Scala {\"name\":\"Scala\"}"))
+        for response <- ZHandler.test(handler)(request)
+        yield assertTrue(
+          response.status.contains(Status.Created),
+          response.body == TestResponse.Body.Value(Greeting("Scala {\"name\":\"Scala\"}")),
+        )
       },
     ) @@ TestAspect.timeout(45.seconds)
 end ResponseHeadSpec

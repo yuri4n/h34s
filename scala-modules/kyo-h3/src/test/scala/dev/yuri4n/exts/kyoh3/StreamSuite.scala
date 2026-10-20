@@ -23,14 +23,10 @@ class StreamSuite extends FunSuite:
     ): js.Dynamic =
       StreamResponse.readable(ResponseBody.chunks(stream)(converter.toNative(_))).asInstanceOf[js.Dynamic].getReader()
 
-    /** Encodes through the same `ResponseBody` instance that handlers use. */
-    private def stringReader[S >: ResponseBody.StreamEffects](stream: Stream[String, S])(using
-        body: ResponseBody[Stream[String, S]],
-    ): js.Dynamic =
-      import AllowUnsafe.embrace.danger
-      Sync.Unsafe.evalOrThrow(body.encode(stream)) match
-          case ResponseBody.Outgoing.Streamed(chunks) => StreamResponse.readable(chunks).asInstanceOf[js.Dynamic].getReader()
-          case other                                  => fail(s"expected a stream, got $other")
+    // claude 2026-10-19: changed: encodes as Response.sendStream does (the stream given is gone)
+    /** Encodes through the same element encoding that `Response.sendStream` uses. */
+    private def stringReader[S >: ResponseBody.StreamEffects](stream: Stream[String, S]): js.Dynamic =
+      StreamResponse.readable(ResponseBody.chunks(stream)(ResponseBody.text)).asInstanceOf[js.Dynamic].getReader()
 
     private def read(reader: js.Dynamic): Future[js.Dynamic] =
       reader.read().asInstanceOf[js.Promise[js.Dynamic]].toFuture

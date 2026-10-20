@@ -66,8 +66,4 @@ private[exts] object ZioTesting:
     /** A few event-loop turns, for checks that something did NOT happen. */
     def turns(count: Int): UIO[Unit] =
       ZIO.async[Any, Nothing, Unit](done => js.timers.setTimeout(0)(done(ZIO.unit))).repeatN(count - 1)
-
-    /** Runs a handler function without h3: a fake request, a fresh head and a request scope. */
-    def direct[E, A](program: ZIO[HandlerEnv, E, A]): IO[E, (ResponseHead, A)] =
-      ZIO.scoped(ZIO.stateful[Scope](ResponseHead.empty)(program.zip(Response.head).map((value, head) => (head, value))))
 end ZioTesting

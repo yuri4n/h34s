@@ -15,11 +15,12 @@ object HandlerTypesSpec extends ZIOSpecDefault:
       record(handler).types.asInstanceOf[js.Function0[js.Dynamic]]().success.asInstanceOf[String]
 
     def spec = suite("ZHandler.define types")(
-      test("value bodies, Unit and streams, with and without options") {
+      // claude 2026-10-20: changed: a stream is sent with Response.sendStream, and its Sent body is text (ADR-0004)
+      test("value bodies, Unit and sent streams, with and without options") {
         assertTrue(
           success(ZHandler.define(_ => ZIO.succeed(Map("a" -> 1)))) == "{ data: Record<string, number> }",
           success(ZHandler.define(_ => ZIO.unit)) == "undefined",
-          success(ZHandler.define(_ => ZIO.succeed(ZStream("a", "b")))) == "string",
+          success(ZHandler.define(_ => Response.sendStream(ZStream("a", "b")))) == "string",
           success(ZHandler.define(HandlerOptions(success = SuccessEnvelope.Raw))(_ => ZIO.succeed(true))) == "boolean",
         )
       },

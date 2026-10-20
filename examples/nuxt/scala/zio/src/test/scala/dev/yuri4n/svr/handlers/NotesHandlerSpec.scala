@@ -15,24 +15,33 @@ object NotesHandlerSpec extends ZIOSpecDefault:
         def create(text: String): Task[Note] = created.updateAndGet(_ :+ text).map(all => Note(all.size, text))
         def list: Task[List[Note]]           = created.get.map(_.zipWithIndex.map((text, index) => Note(index + 1, text)))
 
-    private def run[A](program: ZIO[HandlerEnv & Notes, Throwable, A]): Task[(ResponseHead, A, List[String])] =
+    // claude 2026-10-20: changed: ZHandler.test provides the handler environment (ADR-0006, Q10)
+    /** Runs a handler function with an in-memory `Notes`; gives the response and the created texts. */
+    private def run[A](handler: Request => ZIO[HandlerEnv & Notes, Throwable, A], request: Request)
+        : Task[(TestResponse[A], List[String])] =
       for
         created <- Ref.make(List.empty[String])
-        result <- ZIO.scoped(ZIO.stateful[Scope](ResponseHead.empty)(
-          program.zip(Response.head).provideSomeEnvironment[ZState[ResponseHead] & Scope](_.add[Notes](InMemoryNotes(created))),
-        ))
+        response <- ZHandler.test(request =>
+          handler(request).provideSomeEnvironment[HandlerEnv](_.add[Notes](InMemoryNotes(created))),
+        )(request)
         texts <- created.get
-      yield (result._2, result._1, texts)
+      yield (response, texts)
 
     private def post(body: String) = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = Some(body))
 
     def spec = suite("Notes handlers")(
+      // claude 2026-10-20: changed: the response of ZHandler.test (ADR-0006, Q10)
       test("create trims the text through the model schema and answers 201") {
-        for (head, note, texts) <- run(NotesHandler.create(post("{\"text\":\"  hello  \"}")))
-        yield assertTrue(head.status.contains(Status.Created), note == NoteView(1, "hello"), texts == List("hello"))
+        for (response, texts) <- run(NotesHandler.create, post("{\"text\":\"  hello  \"}"))
+        yield assertTrue(
+          response.status.contains(Status.Created),
+          response.body == TestResponse.Body.Value(NoteView(1, "hello")),
+          texts == List("hello"),
+        )
       },
+      // claude 2026-10-20: changed: the response of ZHandler.test (ADR-0006, Q10)
       test("create rejects invalid input before the service runs") {
-        for result <- run(NotesHandler.create(post("{\"text\":\"   \"}"))).either
+        for result <- run(NotesHandler.create, post("{\"text\":\"   \"}")).either
         yield assertTrue(result == Left(InvalidInput(List(ErrorEntry("must have at least 1 character", Some("text"))))))
       },
       test("with NotesLive, invalid input never takes a database session; valid input takes one") {
@@ -40,15 +49,16 @@ object NotesHandlerSpec extends ZIOSpecDefault:
         def downPool(attempts: Ref[Int]) = SessionPool(
           Resource.eval[Task, Session[Task]](attempts.update(_ + 1) *> ZIO.fail(new Exception("connection refused"))),
         )
-        def withLive[A](attempts: Ref[Int])(program: ZIO[HandlerEnv & Notes, Throwable, A]) =
-          ZIO.scoped(ZIO.stateful[Scope](ResponseHead.empty)(
-            program.provideSomeLayer[HandlerEnv](ZLayer.succeed(downPool(attempts)) >>> NotesLive.layer),
-          ))
+        // claude 2026-10-20: changed: ZHandler.test provides the handler environment (ADR-0006, Q10)
+        def withLive(attempts: Ref[Int])(request: Request) =
+          ZHandler.test(request =>
+            NotesHandler.create(request).provideSomeLayer[HandlerEnv](ZLayer.succeed(downPool(attempts)) >>> NotesLive.layer),
+          )(request)
         for
           attempts <- Ref.make(0)
-          invalid <- withLive(attempts)(NotesHandler.create(post("{\"text\":\"   \"}"))).either
+          invalid <- withLive(attempts)(post("{\"text\":\"   \"}")).either
           beforeValid <- attempts.get
-          valid <- withLive(attempts)(NotesHandler.create(post("{\"text\":\"hello\"}"))).either
+          valid <- withLive(attempts)(post("{\"text\":\"hello\"}")).either
           afterValid <- attempts.get
         yield assertTrue(
           invalid.left.toOption.exists(_.isInstanceOf[InvalidInput]), beforeValid == 0,
