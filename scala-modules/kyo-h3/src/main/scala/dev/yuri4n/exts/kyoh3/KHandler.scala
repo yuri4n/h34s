@@ -58,10 +58,11 @@ object KHandler:
       // between the two.
       Scope.acquireRelease(Fiber.initUnscoped(step))(_.getResult.unit).map(fiber => fiber.uninterruptible.map(_.get))
 
-    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10)
+    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10); after sendStream, the head at the call
     /** Runs `handler` for `request` without h3, Nitro or a server, and gives the head that the
       * program set and its body: the returned value, or the elements that it sent with
-      * `Response.sendStream`.
+      * `Response.sendStream`. After `sendStream`, the head is the one at the call, as on the wire: a
+      * change after the call does not reach the client, so it is not in the result.
       *
       * It provides what `define` provides for a request: a request scope (closed before the result
       * is given), an empty response head, a transport that collects a sent stream, and `fetch` as
@@ -82,7 +83,7 @@ object KHandler:
       Sync.defer(HandlerTransport.collecting()).map { transport =>
         Scope.run(Var.runTuple(ResponseHead.empty)(Env.run(transport)(Env.run(fetch)(Sync.defer(handler(request))))))
           .map { (head, value) =>
-            Sync.defer(TestResponse(head, TestResponse.collected(transport.collected, value)))
+            Sync.defer(TestResponse(transport.sentHead.getOrElse(head), TestResponse.collected(transport.collected, value)))
           }
       }
 

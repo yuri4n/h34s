@@ -404,6 +404,27 @@ class HttpStreamSuite extends FunSuite:
       }
     }
 
+    // claude 2026-10-20: created: the head leaves at the call, so a change after it is not on the wire (ADR-0004, Q1)
+    test("a status, header or cookie set after sendStream is not on the wire") {
+      val call = Call("/stream")
+      val handler = KHandler.define { _ =>
+        Response.status(Status.Accepted).andThen(Response.sendStream(Stream.init(Seq("a")))).map { sent =>
+          Response.status(Status.Created)
+            .andThen(Response.header("x-late", "1"))
+            .andThen(Response.cookie(SetCookie("late", "1")))
+            .andThen(sent)
+        }
+      }
+      call.invoke(handler).map { body =>
+        assert(js.isUndefined(body))
+        assertEquals(call.response.status, 202)
+        assertEquals(call.response.header("x-late"), None)
+        assertEquals(call.response.header("set-cookie"), None)
+        assertEquals(call.response.chunks.toList, List("a"))
+        assert(call.response.ended)
+      }
+    }
+
     // claude 2026-10-19: created: outside KHandler.define, sendStream fails instead of writing
     test("sendStream on a detached transport fails with IllegalStateException") {
       run(Scope.run(Var.run(ResponseHead.empty)(detached(Response.sendStream(Stream.init(Seq("x"))))))).map { result =>

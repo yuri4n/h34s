@@ -46,7 +46,7 @@ private[exts] object StreamResponse:
       Sync.Unsafe.defer {
         if transport.state != HandlerTransport.State.Open then
             Abort.panic(IllegalStateException("The response was already sent: call sendStream once, as the handler's result"))
-        else if transport.collects then collect(transport, chunks)
+        else if transport.collects then collect(transport, head, chunks)
         else if transport.event == null then
             // claude 2026-10-20: changed: the message names the test helpers too (ADR-0006, Q10)
             Abort.panic(IllegalStateException(
@@ -124,15 +124,18 @@ private[exts] object StreamResponse:
       )
     end socketless
 
-    // claude 2026-10-20: created: the test helpers' path: the stream runs to its end in its own scope and its elements are kept (ADR-0006, Q10)
-    /** Runs the stream to its end, as a client would read it, and keeps its elements in the
-      * transport. The stream's resources live in their own scope, which closes when the stream ends,
-      * as with a real response. A failure fails the call, as after a real head.
+    // claude 2026-10-20: created: the test helpers' path: the stream runs to its end in its own scope; the head at the call and the elements are kept (ADR-0006, Q10)
+    /** Runs the stream to its end, as a client would read it, and keeps the head and the elements in
+      * the transport. The head is the one at the call, because a real transport writes it then and a
+      * later change does not reach the client. The stream's resources live in their own scope, which
+      * closes when the stream ends, as with a real response. A failure fails the call, as after a
+      * real head.
       */
-    private def collect(transport: HandlerTransport, chunks: Stream[js.Any, StreamEffects])(using
+    private def collect(transport: HandlerTransport, head: ResponseHead, chunks: Stream[js.Any, StreamEffects])(using
         Frame,
     ): Sent < (Async & Abort[Throwable] & Scope) =
       transport.state = HandlerTransport.State.Sent
+      transport.sentHead = Some(head)
       transport.collected = Some(Vector.empty)
       Abort.run[Any](
         Scope.run(chunks.foreach(element => Sync.defer { transport.collected = transport.collected.map(_ :+ element.asInstanceOf[String]) })),

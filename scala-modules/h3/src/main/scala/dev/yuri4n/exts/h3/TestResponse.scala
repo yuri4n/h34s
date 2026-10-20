@@ -1,12 +1,13 @@
 package dev.yuri4n.exts.h3
 
-// claude 2026-10-20: created: the result of KHandler.test and ZHandler.test (ADR-0006, Q10)
+// claude 2026-10-20: created: the result of KHandler.test and ZHandler.test (ADR-0006, Q10); a sent stream's head is the one at the call
 /** What a handler produced in a test with `KHandler.test` or `ZHandler.test`: the response head
   * that the program set, and its body.
   *
-  * `head` is what your program set. Handler defaults (`HandlerOptions.defaults`), the default
-  * content type and the envelope are added by h34s when it writes a real response, so they are not
-  * in it.
+  * `head` is what your program set. For a handler that sends a stream, it is the head at the
+  * `Response.sendStream` call, because h34s writes the head then and a later change does not
+  * reach the client. Handler defaults (`HandlerOptions.defaults`), the default content type and the
+  * envelope are added by h34s when it writes a real response, so they are not in it.
   *
   * {{{
   * KHandler.test(handler)(Request.fake(path = "/api/greeting")).map { response =>

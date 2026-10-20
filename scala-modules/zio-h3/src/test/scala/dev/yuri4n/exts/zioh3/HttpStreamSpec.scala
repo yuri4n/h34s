@@ -178,6 +178,20 @@ object HttpStreamSpec extends ZIOSpecDefault:
           call.response.header("x-h34s-stream").isEmpty, !started, !call.response.destroyed, call.response.chunks.isEmpty,
         )
       },
+      // claude 2026-10-20: created: the head leaves at the call, so a change after it is not on the wire (ADR-0004, Q1)
+      test("a status, header or cookie set after sendStream is not on the wire") {
+        val call = Call("/stream")
+        val handler = ZHandler.define { _ =>
+          Response.status(Status.Accepted) *> Response.sendStream(ZStream("a")).flatMap(sent =>
+            Response.status(Status.Created) *> Response.header("x-late", "1") *> Response.cookie(SetCookie("late", "1")).as(sent),
+          )
+        }
+        for body <- call.invoke(handler)
+        yield assertTrue(
+          js.isUndefined(body), call.response.status == 202, call.response.header("x-late").isEmpty,
+          call.response.header("set-cookie").isEmpty, call.response.chunks.toList == List("a"), call.response.ended,
+        )
+      },
       test("a stream without a content type is sent as text/plain with nosniff") {
         val call = Call("/stream")
         for _ <- call.invoke(ZHandler.define(_ => Response.sendStream(ZStream("a"))))

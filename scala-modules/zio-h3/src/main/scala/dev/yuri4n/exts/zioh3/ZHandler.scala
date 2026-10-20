@@ -45,10 +45,11 @@ object ZHandler:
     def failWith(status: Int, msg: String, msgs: String*): IO[ErrorResponse, Nothing] =
       ZIO.fail(ErrorResponse(NonEmptyList(msg, msgs*), status))
 
-    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10)
+    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10); after sendStream, the head at the call
     /** Runs `handler` for `request` without h3, Nitro or a server, and gives the head that the
       * program set and its body: the returned value, or the elements that it sent with
-      * `Response.sendStream`.
+      * `Response.sendStream`. After `sendStream`, the head is the one at the call, as on the wire: a
+      * change after the call does not reach the client, so it is not in the result.
       *
       * It provides what `define` provides for a request: the `ZState[ResponseHead]`, a request
       * `Scope` (closed before the result is given; a failing finalizer is logged, as in `define`)
@@ -69,7 +70,7 @@ object ZHandler:
           ZIO.stateful[zio.Scope & HandlerTransport](ResponseHead.empty)(
             ZIO.suspendSucceed(handler(request)).zip(Response.head),
           ).provideEnvironment(ZEnvironment[zio.Scope, HandlerTransport](scope, transport))
-        }.map((value, head) => TestResponse(head, TestResponse.collected(transport.collected, value)))
+        }.map((value, head) => TestResponse(transport.sentHead.getOrElse(head), TestResponse.collected(transport.collected, value)))
       }
 
     /** Handlers that share one set of options. */

@@ -49,6 +49,12 @@ final class HandlerTransport private[exts] (
     /** `Some` after `Response.sendStream` ran on a test transport: the elements it sent, in order. */
     private[exts] var collected: Option[Vector[String]] = None
 
+    // claude 2026-10-20: created: the head that a test transport took at the sendStream call, the one a real transport writes
+    /** `Some` after `Response.sendStream` ran on a test transport: the head as the program had set it
+      * at the call. A real transport writes that head, so a later change does not reach the client.
+      */
+    private[exts] var sentHead: Option[ResponseHead] = None
+
     // claude 2026-10-20: created: the stream failure that failed the sendStream step, for the core's log (ADR-0004, Q3)
     /** The failure of the sent stream, if it failed after the head. The core logs it once, after the
       * program, unless the program failed with its own error (which the core logs instead).

@@ -129,6 +129,19 @@ class HandlerTestSuite extends FunSuite:
         assertEquals(failed.getOrThrow.failure.map(_.status), Maybe(409))
     }
 
+    // claude 2026-10-20: created: after sendStream, the result's head is the one at the call, as on the wire
+    test("after sendStream, the head is the one at the call: a later change is not in the result, as it is not on the wire") {
+      val handler: Request => Sent < HandlerEffects = _ =>
+        Response.status(Status.Accepted).andThen(Response.sendStream(Stream.init(Seq("a")))).map { sent =>
+          Response.status(Status.Created).andThen(Response.header("x-late", "1")).andThen(sent)
+        }
+      response(KHandler.test(handler)(Request.fake())).map { result =>
+        assertEquals(result.status, Some(Status.Accepted))
+        assertEquals(result.header("x-late"), None)
+        assertEquals(result.body, TestResponse.Body.Streamed(List("a")))
+      }
+    }
+
     test("a stream that fails after an element fails the result with the stream's error") {
       val failure = new Exception("stream failed")
       val handler: Request => Sent < HandlerEffects = _ =>

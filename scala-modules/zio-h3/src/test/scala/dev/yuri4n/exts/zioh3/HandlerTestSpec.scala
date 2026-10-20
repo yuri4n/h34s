@@ -77,6 +77,19 @@ object HandlerTestSpec extends ZIOSpecDefault:
           order == Vector("stream released", "request released"),
         )
       },
+      // claude 2026-10-20: created: after sendStream, the result's head is the one at the call, as on the wire
+      test("after sendStream, the head is the one at the call: a later change is not in the result, as it is not on the wire") {
+        val handler = (_: Request) =>
+          Response.status(Status.Accepted) *> Response.sendStream(ZStream("a")).flatMap(sent =>
+            Response.status(Status.Created) *> Response.header("x-late", "1").as(sent),
+          )
+        for response <- ZHandler.test(handler)(Request.fake())
+        yield assertTrue(
+          response.status.contains(Status.Accepted),
+          response.header("x-late").isEmpty,
+          response.body == TestResponse.Body.Streamed(List("a")),
+        )
+      },
       test("a stream that fails after an element fails the effect with the stream's own error") {
         val failure = new Exception("stream failed")
         for result <- ZHandler.test(_ => Response.sendStream(ZStream("one") ++ ZStream.fail(failure)))(Request.fake()).either
