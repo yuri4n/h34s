@@ -38,6 +38,11 @@ private[exts] object H3:
 
     @js.native @JSImport("h3", "parseCookies")
     def parseCookies(event: H3Event): js.Dictionary[String] = js.native
+
+    // claude 2026-10-20: created: splits joined set-cookie values as Nitro's normalizeFetchResponse does (FetchResponse.headerValues, ADR-0005 Q14)
+    /** Splits `set-cookie` values joined with `", "`, keeping the comma of an `Expires` date. */
+    @js.native @JSImport("h3", "splitCookiesString")
+    def splitCookiesString(value: String): js.Array[String] = js.native
 end H3
 
 /** The members of h3's `H3Event` that h34s reads. */

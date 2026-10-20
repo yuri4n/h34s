@@ -242,9 +242,13 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/zio-h3")) // claude
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     commonJsTests,
-    Test / jsEnv := testJsEnv("h3" -> (h3Ext / baseDirectory).value),
+    // claude 2026-10-20: changed: H34S_WORKSPACE for NitroLocalFetchSpec, which reuses the Kyo NitroLocal harness (run pnpm install first)
+    Test / jsEnv := testJsEnvWith(
+      Map("H34S_WORKSPACE" -> (ThisBuild / baseDirectory).value.getAbsolutePath),
+      "h3" -> (h3Ext / baseDirectory).value,
+    ),
   )
-  // Tests reuse the h3 event fixtures and NitroGlobal; schema request tests use NativeSchema.
+  // Tests reuse the h3 event fixtures, NitroGlobal and NitroLocal; schema request tests use NativeSchema.
   .dependsOn(
     kyoH3Ext % "compile->compile;test->test",
     nativeConverterZIOExt,

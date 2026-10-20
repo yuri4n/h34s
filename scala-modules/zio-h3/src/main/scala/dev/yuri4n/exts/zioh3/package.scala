@@ -8,13 +8,14 @@ import zio.{Scope, ZIO, ZState}
 import scala.util.control.NoStackTrace
 
 // claude 2026-10-19: changed: HandlerTransport, the per-request transport that ZHandler.sendStream writes through
-// claude 2026-10-20: changed: the stream operation is Response.sendStream (ADR-0004, Q8); tests use ZHandler.test (ADR-0006, Q10)
+// claude 2026-10-20: changed: Fetch, the server-side $fetch, joins the one handler environment (ADR-0005 gap 6, ADR-0006); tests use ZHandler.test (Q10)
 /** What h34s supplies to every ZIO handler: the response head as `ZState` (status, headers and
   * cookies, written once after the handler finishes), the request `Scope` (resources that live
-  * until the response is complete, also while `Response.sendStream` sends a stream) and the
-  * `HandlerTransport` behind `Response.sendStream`. In a test, `ZHandler.test` provides all three.
+  * until the response is complete, also while `Response.sendStream` sends a stream), the
+  * `HandlerTransport` behind `Response.sendStream` and the `Fetch` behind `ZHandler.$fetch`. In a
+  * test, `ZHandler.test` provides all four.
   */
-type HandlerEnv = ZState[ResponseHead] & Scope & HandlerTransport
+type HandlerEnv = ZState[ResponseHead] & Scope & HandlerTransport & Fetch
 
 type ZHandler[-R, +E, +A] = ZIO[HandlerEnv & R, E, A]
 type Handler[+E, +A]      = ZHandler[Any, E, A]
@@ -61,6 +62,9 @@ export dev.yuri4n.exts.h3.{
 
 // claude 2026-10-19: created: the transport type that HandlerEnv carries, for tests that call handler functions directly
 export dev.yuri4n.exts.kyoh3.HandlerTransport
+
+// claude 2026-10-20: created: the request, body and error values of $fetch, shared with the Kyo core (ADR-0005 gap 6)
+export dev.yuri4n.exts.kyoh3.{FetchBody, FetchError, FetchRequest}
 
 /** Approved error messages with a status, as `ZHandler.failWith` builds them.
   *

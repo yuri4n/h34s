@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.kyoh3
 
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSImport
 
@@ -28,7 +28,8 @@ private object NitroNodeHttp extends js.Object:
   * Handlers are the h34s handlers under test; they import h3 from the h3 test fixture (1.15.4),
   * like an application whose own h3 differs from nitropack's.
   */
-private[kyoh3] object NitroLocal:
+// claude 2026-10-20: changed: private[exts], so the ZIO adapter's NitroLocalFetchSpec runs on the same harness
+private[exts] object NitroLocal:
     private def fail(message: String): Nothing = throw IllegalStateException(message)
 
     /** `require` as nitropack 2.13.1 resolves its dependencies. */
@@ -54,7 +55,12 @@ private[kyoh3] object NitroLocal:
         name -> NodeModule.createRequire(main)(s"${root}package.json").version.asInstanceOf[String]
       }.toMap
 
-    final class App(development: Boolean = false):
+    // claude 2026-10-20: changed: baseURL mounts the router as Nitro does (app.mjs:138); a local request's _platform and waitUntil reach the context as in app.mjs:48-60 (ADR-0005, decision 1)
+    /** One Nitro app. `baseURL` is `app.baseURL`: the router is mounted under it, as Nitro mounts its
+      * routes (`h3App.use(config.app.baseURL, router.handler)`). h34s reads the base URL from the
+      * plugin's startup record, so a test with another base also installs it with `withBaseURL`.
+      */
+    final class App(development: Boolean = false, baseURL: String = "/"):
         private var onRequestHook: js.Dynamic => Unit = _ => ()
 
         /** Runs after Nitro's own `onRequest` work, like a Nitro `request` hook. */
@@ -63,6 +69,15 @@ private[kyoh3] object NitroLocal:
         private lazy val app: js.Dynamic = h3.createApp(js.Dynamic.literal(
           onRequest = ((event: js.Dynamic) => {
             if js.isUndefined(event.context.nitro) then event.context.nitro = js.Dynamic.literal(errors = js.Array())
+            // nitropack app.mjs:49-60: a local request's context gives only _platform (spread into
+            // the context) and waitUntil.
+            val fetchContext = event.node.req.__unenv__
+            if fetchContext != null && js.typeOf(fetchContext) == "object" then
+                val platform = fetchContext._platform
+                if !js.isUndefined(platform) && platform != null then
+                    event.context = js.Object.assign(js.Dynamic.literal(_platform = platform), platform.asInstanceOf[js.Object], event.context.asInstanceOf[js.Object])
+                if js.isUndefined(event.context.waitUntil) && !js.isUndefined(fetchContext.waitUntil) then
+                    event.context.waitUntil = fetchContext.waitUntil
             event.fetch = ((req: js.Any, init: js.Any) =>
               h3.fetchWithEvent(event, req, init, js.Dynamic.literal(fetch = localFetch))
             ): js.Function2[js.Any, js.Any, js.Any]
@@ -77,7 +92,7 @@ private[kyoh3] object NitroLocal:
 
         private lazy val router: js.Dynamic = h3.createRouter(js.Dynamic.literal(preemptive = true))
         private lazy val nodeHandler: js.Dynamic =
-          app.use("/", router.handler)
+          app.use(baseURL, router.handler)
           h3.toNodeListener(app)
 
         /** Nitro's `localFetch`: in-process for paths that start with `/`, else `globalThis.fetch`. */
@@ -100,6 +115,12 @@ private[kyoh3] object NitroLocal:
           method.fold(router.use(path, handler.toNative))(router.use(path, handler.toNative, _))
           this
 
+        // claude 2026-10-20: created: a JavaScript route, built with nitropack's own h3 (the minimal context test)
+        /** A JavaScript route: `handler` receives the h3 event, as a handler in `server/api` does. */
+        def routeNative(path: String, handler: js.Function1[js.Dynamic, js.Any]): App =
+          router.use(path, h3.defineEventHandler(handler))
+          this
+
         /** An in-process request from outside any handler, as `localFetch("/path", init)`. */
         def fetch(path: String, init: js.Dynamic = js.Dynamic.literal()): Future[js.Dynamic] =
           localFetch(path, init).toFuture
@@ -115,6 +136,25 @@ private[kyoh3] object NitroLocal:
           }): js.Function0[Unit])
           listening.future
     end App
+
+    // claude 2026-10-20: created: the plugin's startup record with app.baseURL, for the base URL tests (ADR-0005, decision 1)
+    /** Runs `body` with an h34s startup record whose runtime config has `app.baseURL = baseURL`, as the
+      * h34s Nitro plugin installs it, and removes the record when `body` completes.
+      */
+    def withBaseURL[A](baseURL: String)(body: => Future[A])(using ExecutionContext): Future[A] =
+      installBaseURL(baseURL)
+      val result =
+        try body
+        catch case error: Throwable => Future.failed(error)
+      result.transform { outcome =>
+        NitroGlobal.remove()
+        outcome
+      }
+
+    /** Installs the startup record of `withBaseURL`; `NitroGlobal.remove()` removes it. */
+    def installBaseURL(baseURL: String): Unit =
+      val config: js.Function0[js.Any] = () => js.Dynamic.literal(app = js.Dynamic.literal(baseURL = baseURL))
+      NitroGlobal.install(js.Dynamic.literal(version = 1, development = false, debug = false, runtimeConfig = config))
 
     final case class Server(native: js.Dynamic, port: Int):
         def url(path: String): String = s"http://127.0.0.1:$port$path"

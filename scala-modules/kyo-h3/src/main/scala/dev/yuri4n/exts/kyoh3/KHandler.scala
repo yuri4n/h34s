@@ -88,17 +88,25 @@ object KHandler:
       }
 
     // claude 2026-10-19: created: the $fetch accessor (decision 2) over the request's Env[Fetch]
-    // claude 2026-10-20: changed: the Scaladoc states the forwarding and detection rules (ADR-0005, Q2 and Q5)
+    // claude 2026-10-20: changed: the Scaladoc states the base URL, the context, the typed body errors and the raw verbs (ADR-0005, decision 1, Q14 and Q15)
     /** The server-side `$fetch` of the current request.
       *
       *   - **In-process paths.** A path that starts with `/` is answered in-process by Nitro, and
-      *     the incoming headers and cookies are forwarded, as Nuxt does.
+      *     the incoming headers and cookies are forwarded, as Nuxt does. h34s puts the app's
+      *     `app.baseURL` in front of the path, as Nuxt's `$fetch` does (a path that already starts
+      *     with it stays as it is). The callee gets only the caller's `_platform` and `waitUntil`
+      *     context entries, never the rest of the caller's `event.context`.
       *   - **Absolute URLs.** An absolute URL gets only the `headers` you pass, and the content
       *     type and length of the `body` you send. The user's cookies and `authorization` never
       *     reach another host. Nuxt's `event.$fetch` forwards them to any host; h34s does not.
       *   - **Plain or streamed.** `raw` gives `FetchResponse.Streamed` when the response carries
       *     the `x-h34s-stream` marker (every `Response.sendStream` sets it) or a stream content type
-      *     (`text/event-stream`, `application/x-ndjson`), and `FetchResponse.Plain` otherwise.
+      *     (`text/event-stream`, `application/x-ndjson`), and `FetchResponse.Plain` otherwise. A
+      *     streamed body that breaks after the head fails with `FetchError.BodyFailed`.
+      *   - **Raw JSON.** `as`, `get` and `post` decode the JSON as it arrives, envelope included: an
+      *     h34s route with the default options answers `{"data": ...}`, so model the envelope, for
+      *     example `final case class GreetingData(data: Greeting)`. The typed route call (issue
+      *     #46) will remove the envelope for you, because only the route knows its options.
       *
       * `raw` returns as soon as the head arrives. `text`, `as`, `get` and `post` read the whole body
       * and fail with `FetchError.Status` unless the status is 2xx. A `FetchError` is not a
@@ -132,17 +140,26 @@ object KHandler:
             bodyText(response).map(text => successText(response.status, text)).map(text => FetchResponse.decode[A](response.status, text)),
           )
 
+        // claude 2026-10-20: created: the Scaladoc of the raw verb (ADR-0005, Q15)
+        /** A GET that decodes the 2xx body as `A`, as the JSON arrives: from an h34s route with the
+          * default options, `A` must model the `{"data": ...}` envelope.
+          */
         def get[A: NativeConverter](url: String, headers: Seq[(String, String)] = Nil)(using
             Frame,
         ): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
           as[A](url, headers = headers)
 
+        // claude 2026-10-20: created: the Scaladoc of the raw verb (ADR-0005, Q15)
+        /** A POST of `body` that decodes the 2xx body as `A`, as the JSON arrives: from an h34s route
+          * with the default options, `A` must model the `{"data": ...}` envelope.
+          */
         def post[A: NativeConverter](url: String, body: FetchBody, headers: Seq[(String, String)] = Nil)(using
             Frame,
         ): A < (Async & Abort[FetchError] & Scope & Env[Fetch]) =
           as[A](url, "POST", headers, Some(body))
 
-        private def bodyText(response: FetchResponse)(using Frame): String < (Async & Scope) = response match
+        // claude 2026-10-20: changed: a streamed body fails with a typed FetchError (ADR-0005, Q14)
+        private def bodyText(response: FetchResponse)(using Frame): String < (Async & Scope & Abort[FetchError]) = response match
             case FetchResponse.Plain(_, _, text)    => text
             case FetchResponse.Streamed(_, _, body) => body.run.map(_.mkString)
 

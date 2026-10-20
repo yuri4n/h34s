@@ -1,8 +1,9 @@
 package dev.yuri4n.exts.zioh3.internal
 
 import dev.yuri4n.exts.h3.ResponseHead
+import dev.yuri4n.exts.kyoh3
 import dev.yuri4n.exts.kyoh3.{HandlerEffects, HandlerTransport}
-import dev.yuri4n.exts.zioh3.HandlerEnv
+import dev.yuri4n.exts.zioh3.{Fetch, HandlerEnv}
 import kyo.{Env, Frame, Scope, Sync, Var, `<`}
 import zio.{Exit, Runtime, UIO, Unsafe, ZEnvironment, ZIO}
 
@@ -29,19 +30,22 @@ private[exts] object ZioRequest:
     /** `afterProgram` runs inside the fiber's uninterruptible region, after the program returned
       * and before the fiber closes the scope (a test seam for interrupts that arrive in that window).
       */
+    // claude 2026-10-20: changed: the request's Kyo Fetch reaches the program as the ZIO Fetch of HandlerEnv (ADR-0005 gap 6, ADR-0006)
     def run[B](runtime: Runtime[Any], afterProgram: UIO[Unit] = ZIO.unit)(
         program: => ZIO[HandlerEnv, Throwable, B],
     )(using Frame): B < HandlerEffects =
-      Env.use[HandlerTransport](transport => run(runtime, transport, afterProgram)(program))
+      Env.use[HandlerTransport](transport =>
+        Env.use[kyoh3.Fetch](fetch => run(runtime, transport, Fetch.fromKyo(fetch), afterProgram)(program)),
+      )
 
-    private def run[B](runtime: Runtime[Any], transport: HandlerTransport, afterProgram: UIO[Unit])(
+    private def run[B](runtime: Runtime[Any], transport: HandlerTransport, fetch: Fetch, afterProgram: UIO[Unit])(
         program: => ZIO[HandlerEnv, Throwable, B],
     )(using Frame): B < HandlerEffects =
       Sync.Unsafe.defer {
         // The Kyo side owns the ZIO request scope. An interrupt that arrives after the program
         // returned replaces the fiber's Exit, so the scope must not travel inside that Exit.
         val scope = Unsafe.unsafely(zio.Scope.unsafe.make)
-        val call  = new ZioCall(runtime, fiber(scope, transport, afterProgram, program))
+        val call  = new ZioCall(runtime, fiber(scope, transport, fetch, afterProgram, program))
         // Closing a scope that the fiber already closed is a no-op.
         Scope.ensure(call.stop.andThen(ZioCall.closeScope(runtime, scope, Exit.unit)))
           .andThen(Sync.Unsafe.defer(call.start()))
@@ -58,11 +62,12 @@ private[exts] object ZioRequest:
     private def fiber[B](
         scope: zio.Scope.Closeable,
         transport: HandlerTransport,
+        fetch: Fetch,
         afterProgram: UIO[Unit],
         program: => ZIO[HandlerEnv, Throwable, B],
     ): UIO[Completed[B]] =
       ZIO.uninterruptibleMask { restore =>
-        restore(stateful(scope, transport, program)).exit.flatMap {
+        restore(stateful(scope, transport, fetch, program)).exit.flatMap {
           // claude 2026-10-19: changed: a failing finalizer is logged and keeps the program's Exit (issue #40)
           case Exit.Success((exit, head)) =>
             afterProgram *> closeAndLog(scope, exit).as(Completed(head, exit))
@@ -82,13 +87,15 @@ private[exts] object ZioRequest:
         ZIO.attempt(closed.causeOption.foreach(ZioCall.logFinalizerFailure(_, includeInterrupts = true))).ignore
       }
 
+    // claude 2026-10-20: changed: the environment carries the request's Fetch (ADR-0005 gap 6, ADR-0006)
     private def stateful[B](
         scope: zio.Scope,
         transport: HandlerTransport,
+        fetch: Fetch,
         program: => ZIO[HandlerEnv, Throwable, B],
     ): UIO[(Exit[Throwable, B], ResponseHead)] =
-      ZIO.stateful[zio.Scope & HandlerTransport](ResponseHead.empty)(
+      ZIO.stateful[zio.Scope & HandlerTransport & Fetch](ResponseHead.empty)(
         // A program that throws while it is built is a defect, never an approved error.
         ZIO.suspendSucceed(program).exit.zip(ZIO.getState[ResponseHead]),
-      ).provideEnvironment(ZEnvironment[zio.Scope, HandlerTransport](scope, transport))
+      ).provideEnvironment(ZEnvironment[zio.Scope, HandlerTransport, Fetch](scope, transport, fetch))
 end ZioRequest
