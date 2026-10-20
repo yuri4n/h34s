@@ -6,7 +6,7 @@ An architecture decision record (ADR) records one decision: its context, the dec
 
 ## Index
 
-<!-- claude 2026-10-20: created: index -->
+<!-- claude 2026-10-20: changed: index, with the row of ADR-0014 -->
 
 | Number                                                   | Title                                                                                  | Status   | Date       | Source issue |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------- | ---------- | ------------ |
@@ -22,6 +22,7 @@ An architecture decision record (ADR) records one decision: its context, the dec
 | [ADR-0010](0010-homepage-mini-project-view.md)           | Homepage mini-project view: an in-place Kyo \| ZIO toggle and a project tour component | accepted | 2026-10-20 | #52          |
 | [ADR-0011](0011-no-content-body-typing.md)               | A no-content body keeps the 204 rule and the `undefined` type                          | accepted | 2026-10-20 | #46          |
 | [ADR-0012](0012-inner-scope-finalizer-semantics.md)      | Finalizer failures in a handler's own scopes follow each runtime's rules               | accepted | 2026-10-20 | #50, #40     |
+| [ADR-0014](0014-named-model-types.md)                    | Named model types: `WireType.Named`, one models file per output, and `#h34s/models`    | accepted | 2026-10-20 | #66          |
 
 ## When to write an ADR
 

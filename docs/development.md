@@ -102,7 +102,7 @@ With the combined build toolchain selected, run:
 pnpm build
 ```
 
-This runs `pnpm run scala:full` before the demo's Nuxt production build. The packaged `h34s-scala build` step reads `examples/nuxt/h34s.build.config.mjs`, clears previous output from both `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, then loads both outputs to collect their routes and write the route manifests and `.d.ts` declarations. A failed link, or an output without handlers, stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own. Nuxt writes the deployable output to `examples/nuxt/.output/`.
+This runs `pnpm run scala:full` before the demo's Nuxt production build. The packaged `h34s-scala build` step reads `examples/nuxt/h34s.build.config.mjs`, clears previous output from both `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, then loads both outputs to collect their routes and write the route manifests, the `.d.ts` declarations and the models files (`h34s-models.d.ts`). A failed link, or an output without handlers, stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own. Nuxt writes the deployable output to `examples/nuxt/.output/`. <!-- claude 2026-10-20: changed: the models files (ADR-0014) -->
 
 <!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
 

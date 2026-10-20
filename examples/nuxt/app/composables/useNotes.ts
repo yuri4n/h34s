@@ -2,7 +2,7 @@
 // region guide-models-ts
 import type { NoteView } from '#h34s/models'
 
-/** The notes of `GET /api/notes`, typed with the `NoteView` model that `h34s-scala` generates. */
+/** The notes of `GET /api/notes`, typed with the generated `NoteView`. */
 export function useNotes() {
   return useAsyncData<NoteView[]>('notes', () => fetchNotes())
 }
