@@ -135,7 +135,54 @@ export function detect(target) {
   return { path: null, layout: null, app: target, sbt: target, nuxt: null, build: null }
 }
 
-// claude 2026-10-20: created: the text of every root .sbt and project/*.sbt|*.scala file of a build (ADR-0009)
+// claude 2026-10-20: created: a Scala string or character literal at an offset (review P2)
+/** A triple-quoted string, a one-line string or a character literal, read from `lastIndex`. */
+const scalaLiteral = /"""[\s\S]*?"""(?!")|"""[\s\S]*|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])'/y
+
+// claude 2026-10-20: created: an sbt source without its comments, as sbt reads it (review P2)
+/**
+ * `text` without its line comments and its block comments, which nest in Scala. A block comment
+ * leaves one space and its newlines. String and character literals stay as they are, also when
+ * they hold `//` or `/*`, as a URL does.
+ */
+function withoutComments(text) {
+  let code = ''
+  let i = 0
+  while (i < text.length) {
+    if (text.startsWith('//', i)) {
+      const end = text.indexOf('\n', i)
+      i = end === -1 ? text.length : end
+    }
+    else if (text.startsWith('/*', i)) {
+      let depth = 0
+      while (i < text.length) {
+        if (text.startsWith('/*', i)) {
+          depth++
+          i += 2
+        }
+        else if (text.startsWith('*/', i)) {
+          i += 2
+          if (--depth === 0)
+            break
+        }
+        else {
+          code += text[i] === '\n' ? '\n' : ''
+          i++
+        }
+      }
+      code += ' '
+    }
+    else {
+      scalaLiteral.lastIndex = i
+      const found = scalaLiteral.exec(text)?.[0] ?? text[i]
+      code += found
+      i += found.length
+    }
+  }
+  return code
+}
+
+// claude 2026-10-20: changed: the text of every root .sbt and project/*.sbt|*.scala file of a build, and its code without comments (ADR-0009, review P2)
 function buildSources(sbt) {
   const files = []
   for (const directory of [sbt, join(sbt, 'project')]) {
@@ -143,8 +190,10 @@ function buildSources(sbt) {
       continue
     for (const name of readdirSync(directory)) {
       const path = join(directory, name)
-      if ((name.endsWith('.sbt') || (directory !== sbt && name.endsWith('.scala'))) && isFile(path))
-        files.push({ path, text: read(path) })
+      if ((name.endsWith('.sbt') || (directory !== sbt && name.endsWith('.scala'))) && isFile(path)) {
+        const text = read(path)
+        files.push({ path, text, code: withoutComments(text) })
+      }
     }
   }
   return files
@@ -173,7 +222,7 @@ function bareVersion(spec) {
   return String(spec).replace(/^[\^~=v\s]+/, '')
 }
 
-// claude 2026-10-20: changed: also checks the sbt build's h34s.config.mjs, stops in a directory that holds another project, and adds the sbt resolver and credentials one by one (review S4, S5, P1)
+// claude 2026-10-20: changed: also checks the sbt build's h34s.config.mjs, stops in a directory that holds another project, and adds the sbt resolver and credentials one by one, found in the build's code without comments (review S4, S5, P1, P2)
 /**
  * Builds the plan for `directory` (relative to `cwd`): every file to create with its content, every
  * edit with the text it expects and the text it writes, the conflicts that stop init, the steps
@@ -259,10 +308,11 @@ export function planInit({ directory = '.', api = 'kyo', cwd = process.cwd(), ve
     create(gitignorePath, gitignore.render({ sbtAtApp: found.layout === 'A' }))
   }
 
-  // The sbt half. The resolver and the credentials are two stanzas: h34s.sbt adds the ones the build lacks.
+  // The sbt half. The resolver and the credentials are two stanzas: h34s.sbt adds the ones the
+  // build lacks. A commented-out stanza is not in the build.
   const sources = buildSources(sbt)
-  const resolver = !sources.some(source => source.text.includes(sbtBuild.registryHost))
-  const credentials = !sources.some(source => sbtBuild.credentialsPattern.test(source.text))
+  const resolver = !sources.some(source => source.code.includes(sbtBuild.registryHost))
+  const credentials = !sources.some(source => sbtBuild.credentialsPattern.test(source.code))
   if (!resolver)
     plan.kept.push('the h34s resolver that your sbt build already has')
   if (!credentials)
@@ -406,7 +456,7 @@ function planAppend(plan, path, content, { create, edit, shown }) {
     edit(path, before, appended(before, '# h34s packages from GitHub Packages; the token comes from the environment', lines), `adds ${lines.length === 2 ? 'the @yuri4n scope and its token reference' : lines.map(keyOf).join(', ')}`)
 }
 
-// claude 2026-10-20: created: project/build.properties and project/plugins.sbt, created only when missing (ADR-0009)
+// claude 2026-10-20: changed: project/build.properties and project/plugins.sbt, created only when missing; a commented-out sbt-scalajs line does not load Scala.js (ADR-0009, review P2)
 function planProject(plan, sbt, sources, { create, shown }) {
   const properties = join(sbt, 'project/build.properties')
   if (!exists(properties)) {
@@ -419,7 +469,7 @@ function planProject(plan, sbt, sources, { create, shown }) {
   }
   const plugins = sources
     .filter(source => dirname(source.path) === join(sbt, 'project') && source.path.endsWith('.sbt'))
-    .map(source => ({ source, version: /"sbt-scalajs"\s*%\s*"([^"]+)"/.exec(source.text)?.[1] }))
+    .map(source => ({ source, version: /"sbt-scalajs"\s*%\s*"([^"]+)"/.exec(source.code)?.[1] }))
     .find(item => item.version)
   const pluginsPath = join(sbt, 'project/plugins.sbt')
   if (plugins) {

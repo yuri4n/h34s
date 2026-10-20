@@ -460,6 +460,51 @@ test('path 3: the resolver and the credentials are found independently, and h34s
   }
 })
 
+// claude 2026-10-20: created: the test "path 3: a commented-out Scala.js plugin does not load Scala.js ..." (review P2)
+test('path 3: a commented-out Scala.js plugin does not load Scala.js, and an active one does', (t) => {
+  const plugin = 'addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0")'
+  const printed = /Do these yourself:\n {2}- Add this line to project\/plugins\.sbt, which does not load Scala\.js yet:\n {6}addSbtPlugin\("org\.scala-js" % "sbt-scalajs" % "1\.22\.0"\)\n/
+  for (const item of [
+    { name: 'a line comment', files: { 'project/plugins.sbt': `// ${plugin}\n` }, loaded: false },
+    { name: 'a block comment', files: { 'project/plugins.sbt': `/*\n${plugin}\n*/\n` }, loaded: false },
+    // Scala block comments nest, so the plugin line is still inside the outer comment.
+    { name: 'a nested block comment', files: { 'project/plugins.sbt': `/* outer /* inner */ ${plugin} */\n` }, loaded: false },
+    // No project/plugins.sbt: init creates it.
+    { name: 'a comment in another plugins file', files: { 'project/build.properties': 'sbt.version=1.11.7\n', 'project/scalajs.sbt': `// ${plugin}\n` }, loaded: false, creates: true },
+    { name: 'an active line with a comment after it', files: { 'project/plugins.sbt': `${plugin} // Scala.js\n` }, loaded: true },
+    { name: 'an active line after a string with comment markers', files: { 'project/plugins.sbt': `val note = "/* // not a comment"\n${plugin}\n` }, loaded: true },
+  ]) {
+    const root = temporary(t)
+    write(root, { 'build.sbt': 'lazy val core = project\n', 'project/build.properties': 'sbt.version=1.11.7\n', ...item.files })
+    const before = tree(root)
+    const result = init(root)
+    assert.equal(result.status, 0, `${item.name}\n${result.output}`)
+    const files = tree(root)
+    for (const file of Object.keys(before))
+      assert.equal(files[file], before[file], `${item.name}: ${file} is unchanged`)
+    assert.equal(printed.test(result.stdout), !item.loaded && !item.creates, `${item.name}: the printed line\n${result.stdout}`)
+    assert.equal(files['project/plugins.sbt'], item.creates ? `// project/plugins.sbt\n${plugin}\n` : before['project/plugins.sbt'], `${item.name}: project/plugins.sbt`)
+    assert.equal(result.stdout.includes('sbt-scalajs'), !item.loaded && !item.creates, `${item.name}: no warning about sbt-scalajs\n${result.stdout}`)
+  }
+})
+
+// claude 2026-10-20: created: the test "path 3: a commented-out resolver or credentials stanza ..." (review P1, P2)
+test('path 3: a commented-out resolver or credentials stanza is not in the build, and h34s.sbt adds it', (t) => {
+  for (const [name, build] of [
+    ['line comments', '// ThisBuild / resolvers += "mine" at "https://maven.pkg.github.com/yuri4n/h34s"\n// credentials += Credentials("GitHub Package Registry", "maven.pkg.github.com", "u", sys.env("GITHUB_PACKAGES_TOKEN"))\nlazy val core = project\n'],
+    ['a block comment', '/*\nThisBuild / resolvers += "mine" at "https://maven.pkg.github.com/yuri4n/h34s"\ncredentials += Credentials("GitHub Package Registry", "maven.pkg.github.com", "u", sys.env("GITHUB_PACKAGES_TOKEN"))\n*/\nlazy val core = project\n'],
+  ]) {
+    const root = temporary(t)
+    write(root, { ...sbtBuild, 'build.sbt': build })
+    const result = init(root)
+    assert.equal(result.status, 0, `${name}\n${result.output}`)
+    const sbt = tree(root)['h34s.sbt']
+    assert.ok(sbt.includes('ThisBuild / resolvers += "h34s GitHub Packages" at'), `${name}: the resolver\n${sbt}`)
+    assert.ok(sbt.includes('ThisBuild / credentials ++= (for {'), `${name}: the credentials\n${sbt}`)
+    assert.equal(result.stdout.includes('Kept:'), false, `${name}\n${result.stdout}`)
+  }
+})
+
 // claude 2026-10-20: created: the test "path 3: a build that already defines the server project ..." (ADR-0009)
 test('path 3: a build that already defines the server project or uses scala-server is a conflict', (t) => {
   const root = temporary(t)
