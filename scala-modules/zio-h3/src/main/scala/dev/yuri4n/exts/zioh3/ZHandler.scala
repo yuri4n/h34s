@@ -2,8 +2,9 @@ package dev.yuri4n.exts.zioh3
 
 import dev.yuri4n.exts.kyoh3.{KHandler, ResponseBody}
 import dev.yuri4n.exts.zioh3.internal.ZioRequest
+import org.getshaka.nativeconverter.NativeConverter
 import zio.prelude.NonEmptyList
-import zio.{IO, Runtime, ZEnvironment, ZIO}
+import zio.{IO, Runtime, Scope, ZEnvironment, ZIO}
 
 // claude 2026-10-19: changed: streams are sent with ZHandler.sendStream
 // claude 2026-10-20: changed: streams are sent with Response.sendStream; ZHandler.sendStream is deleted (ADR-0004, Q8)
@@ -45,16 +46,17 @@ object ZHandler:
     def failWith(status: Int, msg: String, msgs: String*): IO[ErrorResponse, Nothing] =
       ZIO.fail(ErrorResponse(NonEmptyList(msg, msgs*), status))
 
-    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10); after sendStream, the head at the call
+    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10); after sendStream, the head at the call; the fetch parameter, in the shape of KHandler.test (ADR-0005 gap 6)
     /** Runs `handler` for `request` without h3, Nitro or a server, and gives the head that the
       * program set and its body: the returned value, or the elements that it sent with
       * `Response.sendStream`. After `sendStream`, the head is the one at the call, as on the wire: a
       * change after the call does not reach the client, so it is not in the result.
       *
       * It provides what `define` provides for a request: the `ZState[ResponseHead]`, a request
-      * `Scope` (closed before the result is given; a failing finalizer is logged, as in `define`)
-      * and a transport that collects a sent stream. Provide your own services inside the function,
-      * as you do for `define`:
+      * `Scope` (closed before the result is given; a failing finalizer is logged, as in `define`),
+      * a transport that collects a sent stream, and `fetch` as the server-side `$fetch` (by default
+      * `Fetch.unavailable`; pass `Fetch.fake(...)` to answer calls). Provide your own services
+      * inside the function, as you do for `define`:
       *
       * {{{
       * ZHandler.test(request => NotesHandler.create(request).provideSomeLayer[HandlerEnv](notes))(Request.fake(...))
@@ -63,15 +65,89 @@ object ZHandler:
       * The program's typed error stays in the error channel, so `.either` shows it. Handler
       * defaults, the envelope and the error rendering belong to `define` and are not applied here.
       */
-    def test[E, B](handler: Request => ZIO[HandlerEnv, E, B])(request: Request): IO[E, TestResponse[B]] =
+    def test[E, B](handler: Request => ZIO[HandlerEnv, E, B])(request: Request, fetch: Fetch = Fetch.unavailable): IO[E, TestResponse[B]] =
       ZIO.suspendSucceed {
         val transport = HandlerTransport.collecting()
         ZIO.acquireReleaseExitWith(zio.Scope.make)((scope, exit) => ZioRequest.closeAndLog(scope, exit)) { scope =>
-          ZIO.stateful[zio.Scope & HandlerTransport](ResponseHead.empty)(
+          ZIO.stateful[zio.Scope & HandlerTransport & Fetch](ResponseHead.empty)(
             ZIO.suspendSucceed(handler(request)).zip(Response.head),
-          ).provideEnvironment(ZEnvironment[zio.Scope, HandlerTransport](scope, transport))
+          ).provideEnvironment(ZEnvironment[zio.Scope, HandlerTransport, Fetch](scope, transport, fetch))
         }.map((value, head) => TestResponse(transport.sentHead.getOrElse(head), TestResponse.collected(transport.collected, value)))
       }
+
+    // claude 2026-10-20: created: the ZIO $fetch accessor over the Fetch of HandlerEnv (ADR-0005 decision 2 and gap 6)
+    /** The server-side `$fetch` of the current request.
+      *
+      *   - **In-process paths.** A path that starts with `/` is answered in-process by Nitro, and
+      *     the incoming headers and cookies are forwarded, as Nuxt does. h34s puts the app's
+      *     `app.baseURL` in front of the path, as Nuxt's `$fetch` does (a path that already starts
+      *     with it stays as it is). The callee gets only the caller's `_platform` and `waitUntil`
+      *     context entries, never the rest of the caller's `event.context`.
+      *   - **Absolute URLs.** An absolute URL gets only the `headers` you pass, and the content
+      *     type and length of the `body` you send. The user's cookies and `authorization` never
+      *     reach another host. Nuxt's `event.$fetch` forwards them to any host; h34s does not.
+      *   - **Plain or streamed.** `raw` gives `FetchResponse.Streamed` when the response carries
+      *     the `x-h34s-stream` marker (every `Response.sendStream` sets it) or a stream content type
+      *     (`text/event-stream`, `application/x-ndjson`), and `FetchResponse.Plain` otherwise. Its
+      *     body is a `ZStream` that fails with `FetchError.BodyFailed` when it breaks after the head.
+      *   - **Raw JSON.** `as`, `get` and `post` decode the JSON as it arrives, envelope included: an
+      *     h34s route with the default options answers `{"data": ...}`, so model the envelope, for
+      *     example `final case class GreetingData(data: Greeting)`. The typed route call (issue
+      *     #46) will remove the envelope for you, because only the route knows its options.
+      *
+      * `raw` returns as soon as the head arrives, and its body lives in the current `Scope` (the
+      * request scope, or a `ZIO.scoped` block): when the scope closes, h34s cancels a body that you
+      * did not read to its end and waits for the callee's cleanup. `text`, `as`, `get` and `post`
+      * read the whole body in their own scope and fail with `FetchError.Status` unless the status is
+      * 2xx. A `FetchError` is not a `SafeError`: unhandled, it is an opaque 500.
+      */
+    @annotation.nowarn("id=E230")
+    object $fetch:
+        def raw(
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        ): ZIO[Fetch & Scope, FetchError, FetchResponse] =
+          ZIO.serviceWithZIO[Fetch](_.raw(FetchRequest(url, method, headers, body)))
+
+        def text(
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        ): ZIO[Fetch, FetchError, String] =
+          ZIO.scoped[Fetch](raw(url, method, headers, body).flatMap(response => successText(response)))
+
+        def as[A: NativeConverter](
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        ): ZIO[Fetch, FetchError, A] =
+          ZIO.scoped[Fetch](raw(url, method, headers, body).flatMap(response =>
+            successText(response).flatMap(text => FetchResponse.Plain(response.status, response.headers, text).as[A]),
+          ))
+
+        /** A GET that decodes the 2xx body as `A`, as the JSON arrives: from an h34s route with the
+          * default options, `A` must model the `{"data": ...}` envelope.
+          */
+        def get[A: NativeConverter](url: String, headers: Seq[(String, String)] = Nil): ZIO[Fetch, FetchError, A] =
+          as[A](url, headers = headers)
+
+        /** A POST of `body` that decodes the 2xx body as `A`, as the JSON arrives: from an h34s route
+          * with the default options, `A` must model the `{"data": ...}` envelope.
+          */
+        def post[A: NativeConverter](url: String, body: FetchBody, headers: Seq[(String, String)] = Nil): ZIO[Fetch, FetchError, A] =
+          as[A](url, "POST", headers, Some(body))
+
+        /** The whole body, or `FetchError.Status` unless the status is 2xx. */
+        private def successText(response: FetchResponse): IO[FetchError, String] =
+          val text = response match
+              case FetchResponse.Plain(_, _, text)    => ZIO.succeed(text)
+              case FetchResponse.Streamed(_, _, body) => body.runCollect.map(_.mkString)
+          text.flatMap(text => if response.ok then ZIO.succeed(text) else ZIO.fail(FetchError.Status(response.status, text)))
+    end $fetch
 
     /** Handlers that share one set of options. */
     final class Configured private[ZHandler] (options: HandlerOptions):

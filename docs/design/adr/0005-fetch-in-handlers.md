@@ -102,9 +102,9 @@ The memo names no lettered options for these two questions. It describes the sha
 
 ## Follow-ups
 
-<!-- claude 2026-10-20: created: follow-ups -->
+<!-- claude 2026-10-20: created: follow-ups; the Kyo policies, the ZIO $fetch and the docs are done (design record, items 29, 30 and 32); the typed route stays open -->
 
-- Implement the Kyo `$fetch` policies (memo, gap 3) and the ZIO `$fetch` (gap 6; the ZIO side is not started). Mirror `NitroLocalFetchSuite` for ZIO.
-- Build the typed `$fetch(route)` on the route registry of PR #15, which merged on 2026-10-20 (gap 10).
-- Update the guides, the migration guide and the design record in the implementation pull request.
-- Comment on issue #51 that its two open questions (the detection rule and the local call) are answered here.
+- Done: the Kyo `$fetch` policies (memo, gap 3) and the ZIO `$fetch` (gap 6), with `NitroLocalFetchSpec` mirroring `NitroLocalFetchSuite` for ZIO. The detection rule and the credential rule landed with the `sendStream` pull request (#64); the `app.baseURL` prefix, the minimal context, the typed body errors, `headerValues` and the ZIO `$fetch` landed in the next one. See the [design record](../kyo-core.md), items 29, 30 and 32.
+- Open: build the typed `$fetch(route)` on the route registry of PR #15, which merged on 2026-10-20 (gap 10, issue [#46](https://github.com/yuri4n/h34s/issues/46)). It removes the callee's envelope (decision 8).
+- Done: the guides, the migration guide and the design record describe `$fetch` in both runtimes.
+- Done: issue #51 records that its two open questions (the detection rule and the local call) are answered here.
