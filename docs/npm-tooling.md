@@ -134,7 +134,7 @@ After each link, `dev`, `build` and `watch` load the linked modules in a separat
 
 For production, `pnpm build` clears each generated output directory, runs `fullLinkJS`, verifies the configured entry files, writes the route manifests and declarations, and only then starts the Nuxt build. A linker failure, a missing entry, an output without handlers, or two handlers for the same route stops the command. The Nuxt module alone does not run a production link; keep that ordering in the application build script.
 
-Large linked outputs make Nitro's production bundling memory-hungry. The repository demo, which links a Kyo and a ZIO application, needed `NODE_OPTIONS=--max-old-space-size=8192` for `nuxt build` on this branch. If your build stops with a JavaScript heap error, raise the limit the same way.
+Large linked outputs make Nitro's production bundling memory-hungry. The repository demo, which links a Kyo and a ZIO application, runs `nuxt build` with `node --max-old-space-size=8192`, because Nitro bundles the linked Scala.js twice when a route is prerendered. If your build stops with a JavaScript heap error, raise the limit the same way, or remove one of the causes in the [development guide](development.md#production-build). <!-- claude 2026-10-19: changed: the demo's option and the measured cause -->
 
 The CLI accepts `--root <directory>` and `--config <file>` for projects with a different layout. Configure an alternate file in Nuxt with `modules: [['@yuri4n/h34s-nuxt', { configFile: 'custom.mjs' }]]`. Keep the Nuxt integration and CLI pointed at the same application configuration. sbt must be available on `PATH`.
 
