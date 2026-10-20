@@ -149,5 +149,60 @@ object HandlerTestSpec extends ZIOSpecDefault:
           response.header("x-c").isEmpty,
         )
       },
+      // claude 2026-10-20: created: ZHandler.test collects the frames of sendEvents, with the event-stream head (ADR-0007)
+      // The testing guide shows this region (docs/content/1.guide/10.testing.md): docs/test checks that they are equal.
+      test("the guide's sendEvents example: the body holds the frames, and the head has the event-stream headers") {
+        // #region zio-test-events
+        val handler: Request => ZIO[HandlerEnv, Throwable, Sent] = _ =>
+          Response.sendEvents(ZStream(ServerEvent.json(Greeting("hi"), event = Some("greeting")), ServerEvent("bye")))
+
+        for response <- ZHandler.test(handler)(Request.fake())
+        yield assertTrue(
+          response.body == TestResponse.Body.Streamed(List("event: greeting\ndata: {\"message\":\"hi\"}\n\n", "data: bye\n\n")),
+          response.header("content-type").contains("text/event-stream"),
+          response.header("cache-control").contains("private, no-cache, no-store, no-transform, must-revalidate, max-age=0"),
+          response.header("x-accel-buffering").contains("no"),
+          response.header("connection").contains("keep-alive"),
+        )
+        // #endregion zio-test-events
+      },
+      // claude 2026-10-20: created: $fetch.events reads a fake event stream by its content type, Plain or Streamed, and asks for text/event-stream (ADR-0007)
+      test("$fetch.events decodes a fake event stream, Plain or Streamed, by its content type and sends accept: text/event-stream") {
+        val eventStream = Map("content-type" -> "text/event-stream")
+        val fetch = Fetch.fake(Map(
+          "/api/plain"    -> FetchResponse.Plain(200, eventStream, "data: {\"message\":\"one\"}\n\n"),
+          "/api/streamed" -> FetchResponse.Streamed(200, eventStream, ZStream("data: {\"message\":", "\"two\"}\n", "\n")),
+        ))
+        val handler = (_: Request) =>
+          for
+            plain <- ZHandler.$fetch.events[Greeting]("/api/plain").flatMap(_.runCollect)
+            streamed <- ZHandler.$fetch.events[Greeting]("/api/streamed", headers = Seq("Accept" -> "text/event-stream;q=1")).flatMap(_.runCollect)
+          yield (plain ++ streamed).map(_.message).mkString(",")
+        for response <- ZHandler.test(handler)(Request.fake(), fetch)
+        yield assertTrue(
+          response.body == TestResponse.Body.Value("one,two"),
+          fetch.requests.map(_.headers) == List(Seq("accept" -> "text/event-stream"), Seq("Accept" -> "text/event-stream;q=1")),
+        )
+      },
+      // claude 2026-10-20: created: events compares the media type without its parameters and letter case; a longer type is not an event stream (review N1, ADR-0007)
+      test("$fetch.events: a content type with parameters or in another letter case is an event stream; text/event-streams is not") {
+        val fetch = Fetch.fake(Map(
+          "/api/charset" -> FetchResponse.Plain(200, Map("content-type" -> "text/event-stream; charset=utf-8"), "data: {\"message\":\"one\"}\n\n"),
+          "/api/case"    -> FetchResponse.Plain(200, Map("content-type" -> "Text/Event-Stream"), "data: {\"message\":\"two\"}\n\n"),
+          "/api/longer"  -> FetchResponse.Plain(200, Map("content-type" -> "text/event-streams"), "data: {\"message\":\"three\"}\n\n"),
+        ))
+        val handler = (_: Request) =>
+          for
+            charset <- ZHandler.$fetch.events[Greeting]("/api/charset").flatMap(_.runCollect)
+            cased <- ZHandler.$fetch.events[Greeting]("/api/case").flatMap(_.runCollect)
+            longer <- ZHandler.$fetch.events[Greeting]("/api/longer").flatMap(_.runCollect).either
+          yield
+              val refused = longer match
+                  case Left(FetchError.NotEvents(status, contentType)) => s"NotEvents($status, ${contentType.getOrElse("-")})"
+                  case other                                           => s"unexpected $other"
+              s"${(charset ++ cased).map(_.message).mkString(",")} $refused"
+        for response <- ZHandler.test(handler)(Request.fake(), fetch)
+        yield assertTrue(response.body == TestResponse.Body.Value("one,two NotEvents(200, text/event-streams)"))
+      },
     ) @@ TestAspect.timeout(30.seconds)
 end HandlerTestSpec

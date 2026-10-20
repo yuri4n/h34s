@@ -3,6 +3,7 @@ package dev.yuri4n.exts.kyoh3
 import dev.yuri4n.exts.kyoh3.KyoTesting.*
 import kyo.*
 import munit.FunSuite
+import org.getshaka.nativeconverter.NativeConverter
 
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future, Promise}
@@ -466,6 +467,88 @@ class HttpStreamSuite extends FunSuite:
       val errors = compileErrors("KHandler.define(_ => kyo.Stream.init(Seq(\"a\")))")
       assert(errors.contains("h34s cannot send kyo.Stream[String, Any] as a response body"), errors)
       assert(errors.contains("Response.sendStream(stream)"), errors)
+    }
+
+    // ---- Server-sent events (ADR-0007) ----
+
+    // claude 2026-10-20: created: a typed event for the sendEvents tests (ADR-0007)
+    final case class Tick(remaining: Int) derives NativeConverter
+
+    private val eventHeaders = Map(
+      "content-type"      -> "text/event-stream",
+      "cache-control"     -> "private, no-cache, no-store, no-transform, must-revalidate, max-age=0",
+      "x-accel-buffering" -> "no",
+      "connection"        -> "keep-alive",
+    )
+
+    // claude 2026-10-20: created: sendEvents sets h3's headers over the program's and the defaults' values, writes one frame per event and gives Sent (ADR-0007)
+    test("sendEvents sets h3's event-stream headers, keeps the other head entries, writes one frame per event and gives Sent") {
+      val call = Call("/events")
+      var sent: Option[Sent] = None
+      val events = Stream.init(Seq(ServerEvent.json(Tick(2), event = Some("tick"), id = Some("2")), ServerEvent("done")))
+      val handler = KHandler.define(HandlerOptions(defaults = ResponseHead.noStore)) { _ =>
+        Response.header("content-type", "text/plain")
+          .andThen(Response.header("x-custom", "kept"))
+          .andThen(Response.sendEvents(events))
+          .map(value => Sync.defer { sent = Some(value); value })
+      }
+      call.invoke(handler).map { body =>
+        assert(js.isUndefined(body))
+        assertEquals(sent.map(_.toString), Some("Sent"))
+        eventHeaders.foreach((name, value) => assertEquals(call.response.header(name), Some(value), name))
+        assertEquals(call.response.header("x-custom"), Some("kept"))
+        assertEquals(call.response.header("x-h34s-stream"), Some("1"))
+        assertEquals(call.response.header("x-content-type-options"), None, "the content type is set, so no default is added")
+        assertEquals(call.response.status, 200)
+        assertEquals(call.response.chunks.toList, List("id: 2\nevent: tick\ndata: {\"remaining\":2}\n\n", "data: done\n\n"))
+        assert(call.response.headAtFlush.exists(_._3 == 0), "the head left before the first frame")
+        assert(call.response.ended)
+      }
+    }
+
+    // claude 2026-10-20: created: no connection header over HTTP/2, as h3's createEventStream (ADR-0007)
+    test("sendEvents over HTTP/2 leaves out the connection header, as h3's createEventStream does") {
+      val call = Call("/events", headers = Seq(":method" -> "GET", ":path" -> "/events"))
+      call.invoke(KHandler.define(_ => Response.sendEvents(Stream.init(Seq(ServerEvent("x")))))).map { _ =>
+        assertEquals(call.response.header("content-type"), Some("text/event-stream"))
+        assertEquals(call.response.header("connection"), None)
+        assertEquals(call.response.chunks.toList, List("data: x\n\n"))
+      }
+    }
+
+    // claude 2026-10-20: created: the cancel rule of sendStream holds for sendEvents (ADR-0007; the Z14 shape)
+    test("a disconnect cancels the event stream and releases its resources and the request's once") {
+      var released = 0
+      var streamReleased = 0
+      val call = Call("/events")
+      val events = Stream[ServerEvent, Async & Scope] {
+        Scope.acquireRelease(Sync.defer(()))(_ => Sync.defer { streamReleased += 1 })
+          .andThen(Emit.value(Chunk(ServerEvent("first"))))
+          .andThen(Async.never[Unit])
+      }
+      val handler = KHandler.define { _ =>
+        Scope.acquireRelease(Sync.defer(()))(_ => Sync.defer { released += 1 }).andThen(Response.sendEvents(events))
+      }
+      val running = call.invoke(handler)
+      val checked = for
+        _ <- call.response.firstWrite.future
+        _ = call.response.disconnect()
+        body <- running
+      yield
+        assert(js.isUndefined(body))
+        assertEquals(released, 1)
+        assertEquals(streamReleased, 1)
+        assertEquals(call.response.chunks.toList, List("data: first\n\n"))
+        assert(!call.response.hasListener)
+      TestDeadline(checked)
+    }
+
+    // claude 2026-10-20: created: a returned stream of events is the same compile error, and the message names sendEvents (ADR-0007)
+    test("returning a kyo.Stream of ServerEvent does not compile, and the message names sendEvents") {
+      val errors = compileErrors("KHandler.define(_ => kyo.Stream.init(Seq(ServerEvent(\"a\"))))")
+      assert(errors.contains("h34s cannot send kyo.Stream["), errors)
+      assert(errors.contains("ServerEvent, Any] as a response body"), errors)
+      assert(errors.contains("Response.sendEvents(events)"), errors)
     }
 
     private def decode(value: js.Any): String =

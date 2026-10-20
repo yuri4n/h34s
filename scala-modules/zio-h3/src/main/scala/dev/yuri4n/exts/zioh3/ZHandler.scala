@@ -1,9 +1,11 @@
 package dev.yuri4n.exts.zioh3
 
+import dev.yuri4n.exts.kyoh3.internal.EventStreams
 import dev.yuri4n.exts.kyoh3.{KHandler, ResponseBody}
 import dev.yuri4n.exts.zioh3.internal.ZioRequest
 import org.getshaka.nativeconverter.NativeConverter
 import zio.prelude.NonEmptyList
+import zio.stream.ZStream
 import zio.{IO, Runtime, Scope, ZEnvironment, ZIO}
 
 // claude 2026-10-19: changed: streams are sent with ZHandler.sendStream
@@ -75,7 +77,7 @@ object ZHandler:
         }.map((value, head) => TestResponse(transport.sentHead.getOrElse(head), TestResponse.collected(transport.collected, value)))
       }
 
-    // claude 2026-10-20: created: the ZIO $fetch accessor over the Fetch of HandlerEnv (ADR-0005 decision 2 and gap 6)
+    // claude 2026-10-20: created: the ZIO $fetch accessor over the Fetch of HandlerEnv (ADR-0005 decision 2 and gap 6); events (ADR-0007)
     /** The server-side `$fetch` of the current request.
       *
       *   - **In-process paths.** A path that starts with `/` is answered in-process by Nitro, and
@@ -94,6 +96,9 @@ object ZHandler:
       *     h34s route with the default options answers `{"data": ...}`, so model the envelope, for
       *     example `final case class GreetingData(data: Greeting)`. The typed route call (issue
       *     #46) will remove the envelope for you, because only the route knows its options.
+      *   - **Server-sent events.** `events[E]` reads a `text/event-stream` response as a `ZStream`
+      *     of `E`, each event's `data` decoded as JSON; `events(request)` gives the `ServerEvent`
+      *     values themselves.
       *
       * `raw` returns as soon as the head arrives, and its body lives in the current `Scope` (the
       * request scope, or a `ZIO.scoped` block): when the scope closes, h34s cancels a body that you
@@ -140,6 +145,60 @@ object ZHandler:
           */
         def post[A: NativeConverter](url: String, body: FetchBody, headers: Seq[(String, String)] = Nil): ZIO[Fetch, FetchError, A] =
           as[A](url, "POST", headers, Some(body))
+
+        // claude 2026-10-20: created: typed server-sent events, the caller side of sendEvents (ADR-0007)
+        /** Sends the request with `accept: text/event-stream` (unless `headers` names `accept`) and
+          * gives its server-sent events as a `ZStream` of `E`, as soon as the head arrives. Each
+          * event's `data` is decoded as JSON with the `NativeConverter`, whatever its type: read a
+          * stream that mixes other data with `events(request)`.
+          *
+          * The response must be 2xx (else `FetchError.Status`, with the body of a plain response)
+          * with the content type `text/event-stream` (else `FetchError.NotEvents`, without reading
+          * the body). The stream fails with `FetchError.Decode`, which names the event by its
+          * position and type, at the first event whose `data` is not JSON for `E`, and with
+          * `FetchError.BodyFailed` when the body breaks. The body lives in the current `Scope`, as
+          * the body of `raw` does: when the scope closes, h34s cancels a body that you did not read
+          * to its end and waits for the callee's cleanup.
+          */
+        def events[E: NativeConverter](
+            url: String,
+            method: String = "GET",
+            headers: Seq[(String, String)] = Nil,
+            body: Option[FetchBody] = None,
+        ): ZIO[Fetch & Scope, FetchError, ZStream[Any, FetchError, E]] =
+          opened(FetchRequest(url, method, headers, body)).map((status, events) =>
+            events.zipWithIndex.mapZIO((event, index) => ZIO.fromEither(EventStreams.decodedEvent[E](status, event, index + 1))),
+          )
+
+        // claude 2026-10-20: created: untyped server-sent events, for a route without a model such as a JavaScript route (ADR-0007)
+        /** Sends `request` (with `accept: text/event-stream` unless it names `accept`) and gives its
+          * server-sent events as `ServerEvent` values, with the rules of `events[E]` but without
+          * decoding `data`. Use it for a route that has no model, for example a JavaScript route
+          * that uses h3's `createEventStream`.
+          */
+        def events(request: FetchRequest): ZIO[Fetch & Scope, FetchError, ZStream[Any, FetchError, ServerEvent]] =
+          opened(request).map((_, events) => events)
+
+        /** The response's status and its decoded events, or the reason it is not an event stream. */
+        private def opened(request: FetchRequest): ZIO[Fetch & Scope, FetchError, (Int, ZStream[Any, FetchError, ServerEvent])] =
+          ZIO.serviceWithZIO[Fetch](_.raw(EventStreams.request(request))).flatMap { response =>
+            val plainText = response match
+                case FetchResponse.Plain(_, _, text) => Some(text)
+                case _: FetchResponse.Streamed       => None
+            EventStreams.refused(response.status, response.headers, plainText) match
+                case Some(error) => ZIO.fail(error)
+                case None        =>
+                  val text = response match
+                      case FetchResponse.Plain(_, _, text)    => ZStream(text)
+                      case FetchResponse.Streamed(_, _, body) => body
+                  ZIO.succeed((response.status, decoded(text)))
+          }
+
+        /** The events of a body of text chunks, decoded as they arrive. */
+        private def decoded(body: ZStream[Any, FetchError, String]): ZStream[Any, FetchError, ServerEvent] =
+          body.chunks
+            .mapAccum(ServerEvent.Decoder.initial)((state, chunk) => EventStreams.feedAll(state, chunk))
+            .flattenIterables
 
         /** The whole body, or `FetchError.Status` unless the status is 2xx. */
         private def successText(response: FetchResponse): IO[FetchError, String] =

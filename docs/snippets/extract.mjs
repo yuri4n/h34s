@@ -96,17 +96,18 @@ function elide(lines, fail) {
   return shown
 }
 
-// claude 2026-10-20: created: the fence after a `<!-- tour: … -->` line (#52)
+// claude 2026-10-20: changed: the marker kind, tour or example (#51)
 /**
- * Gives the body of the first code fence after `<!-- tour: <name> -->` in
- * a Markdown file, without the fence's indentation. Only blank lines may
- * stand between the marker and the fence (the Markdown formatter puts one
- * there). Throws a `SnippetError` when the marker is missing, repeated, or
- * not followed by a fence.
+ * Gives the body of the first code fence after `<!-- <kind>: <name> -->` in
+ * a Markdown file, without the fence's indentation. `kind` is `tour` (a
+ * fence that the project tour shows) or `example` (a fence that must equal
+ * an example region). Only blank lines may stand between the marker and the
+ * fence (the Markdown formatter puts one there). Throws a `SnippetError`
+ * when the marker is missing, repeated, or not followed by a fence.
  */
-export function extractMarkedFence(markdown, name, file) {
+export function extractMarkedFence(markdown, name, file, kind = 'tour') {
   const lines = markdown.split('\n')
-  const marker = `<!-- tour: ${name} -->`
+  const marker = `<!-- ${kind}: ${name} -->`
   const fail = message =>
     new SnippetError(file, `marker "${marker}" ${message}`)
   const found = lines
@@ -203,11 +204,26 @@ export function regionNames(text) {
   })
 }
 
-// claude 2026-10-20: created: the tour marker names of a guide (#52)
-/** Gives the names of every `<!-- tour: <name> -->` line in a Markdown file. */
-export function tourMarkers(markdown) {
+// claude 2026-10-20: changed: the marker names of either kind (#51)
+/**
+ * Gives the names of every `<!-- <kind>: <name> -->` line in a Markdown
+ * file; `tourMarkers` and `exampleMarkers` name the two kinds.
+ */
+export function markerNames(markdown, kind) {
+  const pattern = new RegExp(`^\\s*<!-- ${kind}: (.+?) -->\\s*$`)
   return markdown.split('\n').flatMap((line) => {
-    const marker = /^\s*<!-- tour: (.+?) -->\s*$/.exec(line)
+    const marker = pattern.exec(line)
     return marker ? [marker[1]] : []
   })
+}
+
+/** Gives the names of every `<!-- tour: <name> -->` line in a Markdown file. */
+export function tourMarkers(markdown) {
+  return markerNames(markdown, 'tour')
+}
+
+// claude 2026-10-20: created: the example markers of a guide (#51)
+/** Gives the names of every `<!-- example: <name> -->` line in a file. */
+export function exampleMarkers(markdown) {
+  return markerNames(markdown, 'example')
 }

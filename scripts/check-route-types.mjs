@@ -13,8 +13,8 @@ const routes = join(app, '.nuxt/types/nitro-routes.d.ts')
 if (!existsSync(routes))
   throw new Error(`Missing ${routes}: link the Scala handlers and run nuxt prepare in examples/nuxt first`)
 const types = readFileSync(routes, 'utf8')
-// claude 2026-10-20: changed: the ZIO greeting route (issue #52)
-for (const route of ['/api/kyo/greeting', '/api/zio/greeting', '/api/notes', '/api/test']) {
+// claude 2026-10-20: changed: the ZIO greeting route (issue #52) and the countdown routes (ADR-0007)
+for (const route of ['/api/kyo/greeting', '/api/zio/greeting', '/api/notes', '/api/test', '/api/kyo/countdown', '/api/zio/countdown']) {
   if (!types.includes(`'${route}'`))
     throw new Error(`Nitro does not type ${route}: check the route manifests in examples/nuxt/server`)
 }
@@ -26,7 +26,7 @@ const shim = join(app, '.nuxt/h34s-vue-shim.d.ts')
 writeFileSync(shim, 'declare module \'*.vue\' {\n  const component: unknown\n  export default component\n}\n')
 writeFileSync(config, JSON.stringify({
   extends: './tsconfig.app.json',
-  include: ['./nuxt.d.ts', './h34s-vue-shim.d.ts', '../app/utils/scala-api.ts', '../app/composables/useNotes.ts', '../test/route-types.ts'], // claude 2026-10-20: changed: also the composable that types useAsyncData with NoteView (ADR-0014)
+  include: ['./nuxt.d.ts', './h34s-vue-shim.d.ts', '../app/utils/scala-api.ts', '../app/composables/useNotes.ts', '../app/composables/useCountdown.ts', '../test/route-types.ts'], // claude 2026-10-20: changed: also the composable that types useAsyncData with NoteView (ADR-0014), and the EventSource composable (ADR-0007)
 }))
 try {
   const tsc = createRequire(join(app, 'package.json')).resolve('typescript/bin/tsc')

@@ -2,16 +2,17 @@ package dev.yuri4n.exts.zioh3
 
 import dev.yuri4n.exts.h3.internal.HeaderRules
 import dev.yuri4n.exts.kyoh3.ResponseBody
-import dev.yuri4n.exts.kyoh3.internal.StreamResponse
+import dev.yuri4n.exts.kyoh3.internal.{EventStreams, StreamResponse}
 import dev.yuri4n.exts.zioh3.internal.{KyoCall, ZStreamSource}
 import zio.stream.ZStream
 import zio.{Cause, Ref, URIO, ZIO, ZState}
 
-// claude 2026-10-20: changed: sendStream joins the head operations (ADR-0004, Q8)
+// claude 2026-10-20: changed: sendStream joins the head operations (ADR-0004, Q8), and sendEvents (ADR-0007)
 /** Response head operations over ZIO's `ZState[ResponseHead]`. They change local state only; h34s
   * writes the head once, after the handler finishes. A failed handler keeps only the entries
   * marked `OnFailure.Keep` and takes its status from the error. `sendStream` is the one operation
-  * that writes: it sends the head and a stream, and its `Sent` result ends the handler.
+  * that writes: it sends the head and a stream, and its `Sent` result ends the handler;
+  * `sendEvents` is `sendStream` for server-sent events.
   *
   * `ZState` is backed by a `FiberRef`: a forked fiber works on its own copy, and joining it copies
   * the child's head back into the parent (ZIO's default `FiberRef` join). `catchAll` and other
@@ -101,4 +102,27 @@ object Response:
         sent <- KyoCall.run(StreamResponse.send(transport, head, ZStreamSource(runtime, recorded, ResponseBody.text)))
           .catchAllCause(cause => failure.get.flatMap(own => ZIO.failCause(own.getOrElse(cause))))
       yield sent
+
+    // claude 2026-10-20: created: sendEvents, server-sent events over sendStream, the twin of the Kyo operation (ADR-0007)
+    /** Sends the head set so far as a server-sent event stream, then one frame per event, and gives
+      * `Sent`. Make it the handler's last step: return its `Sent` as the body.
+      *
+      * It sets the headers of h3's `createEventStream`, as `Response.header` would:
+      * `content-type: text/event-stream`, `cache-control: private, no-cache, no-store,
+      * no-transform, must-revalidate, max-age=0`, `x-accel-buffering: no` and, except over HTTP/2,
+      * `connection: keep-alive`. They replace a value of the same name that you or the handler
+      * defaults set; your other headers, cookies and status stay. Keep the status 200: a browser's
+      * `EventSource` fails on any other status. Then it is `sendStream` over the frames
+      * (`ServerEvent.frame`), with the same rules: the head leaves at the call, the request `Scope`
+      * stays open until the stream ends or the client goes away, a disconnect waits for the
+      * stream's finalizers, and a failure after the head ends the response and fails this effect
+      * with the stream's own cause.
+      *
+      * {{{
+      * Response.sendEvents(ZStream(3, 2, 1).map(n => ServerEvent.json(Tick(n), event = Some("tick"))))
+      * }}}
+      */
+    def sendEvents[E <: Throwable](events: ZStream[Any, E, ServerEvent]): ZIO[ZState[ResponseHead] & HandlerTransport, Throwable, Sent] =
+      ZIO.serviceWithZIO[HandlerTransport](transport => ZIO.updateState[ResponseHead](EventStreams.head(transport, _))) *>
+        sendStream(events.map(ServerEvent.frame))
 end Response

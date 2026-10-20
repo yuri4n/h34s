@@ -9,16 +9,19 @@ import scala.annotation.implicitNotFound
 import scala.scalajs.js
 
 // claude 2026-10-19: changed: streams are sent with Response.sendStream, not returned (Outgoing.Streamed is gone); Sent is a body; a missing instance names the three options
+// claude 2026-10-20: changed: the message also names Response.sendEvents (ADR-0007)
 /** What a handler may return as its response body.
   *
   *   - any `A` with a `NativeConverter` (converted after the handler, inside the request scope);
   *   - `Unit` (no body: 204 unless the handler set another status; no converter needed);
-  *   - `Sent`, the result of `Response.sendStream(stream)`: the handler sent a stream itself.
+  *   - `Sent`, the result of `Response.sendStream(stream)` or `Response.sendEvents(events)`: the
+  *     handler sent a stream itself.
   *
-  * A `kyo.Stream` is not a body: send it with `Response.sendStream` as the handler's last step.
+  * A `kyo.Stream` is not a body: send it with `Response.sendStream` (or a stream of `ServerEvent`
+  * with `Response.sendEvents`) as the handler's last step.
   */
 @implicitNotFound(
-  "h34s cannot send ${B} as a response body. Return a value with a NativeConverter, return Unit for a 204, or end the handler with Response.sendStream(stream) to stream text",
+  "h34s cannot send ${B} as a response body. Return a value with a NativeConverter, return Unit for a 204, or end the handler with Response.sendStream(stream) to stream text or Response.sendEvents(events) to stream server-sent events",
 )
 trait ResponseBody[B]:
     private[exts] def encode(body: B)(using Frame): ResponseBody.Outgoing < Sync

@@ -150,4 +150,68 @@ class HandlerTestSuite extends FunSuite:
         assertEquals(result, Result.fail(failure))
       }
     }
+
+    // claude 2026-10-20: created: KHandler.test collects the frames of sendEvents, with the event-stream head (ADR-0007)
+    // The testing guide shows this region (docs/content/1.guide/10.testing.md): docs/test checks that they are equal.
+    test("the guide's sendEvents example: the body holds the frames, and the head has the event-stream headers") {
+      // #region kyo-test-events
+      val handler: Request => Sent < HandlerEffects = _ =>
+        Response.sendEvents(Stream.init(Seq(ServerEvent.json(Greeting("hi"), event = Some("greeting")), ServerEvent("bye"))))
+
+      val program = KHandler.test(handler)(Request.fake())
+      // the body of the result: TestResponse.Body.Streamed(List("event: greeting\ndata: {\"message\":\"hi\"}\n\n", "data: bye\n\n"))
+      // #endregion kyo-test-events
+      response(program).map { result =>
+        assertEquals(result.body, TestResponse.Body.Streamed(List("event: greeting\ndata: {\"message\":\"hi\"}\n\n", "data: bye\n\n")))
+        assertEquals(result.header("content-type"), Some("text/event-stream"))
+        assertEquals(result.header("cache-control"), Some("private, no-cache, no-store, no-transform, must-revalidate, max-age=0"))
+        assertEquals(result.header("x-accel-buffering"), Some("no"))
+        assertEquals(result.header("connection"), Some("keep-alive"))
+      }
+    }
+
+    // claude 2026-10-20: created: $fetch.events reads a fake event stream by its content type, Plain or Streamed, and asks for text/event-stream (ADR-0007)
+    test("$fetch.events decodes a fake event stream, Plain or Streamed, by its content type and sends accept: text/event-stream") {
+      val eventStream = Map("content-type" -> "text/event-stream")
+      val fetch = Fetch.fake(Map(
+        "/api/plain"    -> FetchResponse.Plain(200, eventStream, "data: {\"message\":\"one\"}\n\n"),
+        "/api/streamed" -> FetchResponse.Streamed(200, eventStream, Stream.init(Seq("data: {\"message\":", "\"two\"}\n", "\n"))),
+      ))
+      val handler: Request => String < HandlerEffects = _ =>
+        for
+          plain <- KHandler.$fetch.events[Greeting]("/api/plain").map(_.run)
+          streamed <- KHandler.$fetch.events[Greeting]("/api/streamed", headers = Seq("Accept" -> "text/event-stream;q=1")).map(_.run)
+        yield (plain ++ streamed).map(_.message).mkString(",")
+      response(KHandler.test(handler)(Request.fake(), fetch)).map { result =>
+        assertEquals(result.body, TestResponse.Body.Value("one,two"))
+        assertEquals(fetch.requests.map(_.headers), List(Seq("accept" -> "text/event-stream"), Seq("Accept" -> "text/event-stream;q=1")))
+      }
+    }
+
+    // claude 2026-10-20: created: events compares the media type without its parameters and letter case; a longer type is not an event stream (review N1, ADR-0007)
+    test("$fetch.events: a content type with parameters or in another letter case is an event stream; text/event-streams is not") {
+      val fetch = Fetch.fake(Map(
+        "/api/charset" -> FetchResponse.Plain(200, Map("content-type" -> "text/event-stream; charset=utf-8"), "data: {\"message\":\"one\"}\n\n"),
+        "/api/case"    -> FetchResponse.Plain(200, Map("content-type" -> "Text/Event-Stream"), "data: {\"message\":\"two\"}\n\n"),
+        "/api/longer"  -> FetchResponse.Plain(200, Map("content-type" -> "text/event-streams"), "data: {\"message\":\"three\"}\n\n"),
+      ))
+      val handler: Request => String < HandlerEffects = _ =>
+        for
+          charset <- KHandler.$fetch.events[Greeting]("/api/charset").map(_.run)
+          cased <- KHandler.$fetch.events[Greeting]("/api/case").map(_.run)
+          longer <- Abort.run[FetchError](KHandler.$fetch.events[Greeting]("/api/longer").map(_.run))
+        yield
+            val refused = longer.fold(
+              _ => "ended",
+              {
+                case FetchError.NotEvents(status, contentType) => s"NotEvents($status, ${contentType.getOrElse("-")})"
+                case other                                     => other.getClass.getSimpleName
+              },
+              panic => s"panic $panic",
+            )
+            s"${(charset ++ cased).map(_.message).mkString(",")} $refused"
+      response(KHandler.test(handler)(Request.fake(), fetch)).map { result =>
+        assertEquals(result.body, TestResponse.Body.Value("one,two NotEvents(200, text/event-streams)"))
+      }
+    }
 end HandlerTestSuite

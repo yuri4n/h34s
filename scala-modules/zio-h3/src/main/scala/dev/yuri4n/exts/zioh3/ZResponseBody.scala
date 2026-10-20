@@ -10,17 +10,19 @@ import zio.Runtime
 import scala.annotation.implicitNotFound
 
 // claude 2026-10-19: changed: streams are sent with ZHandler.sendStream; Sent is a body; the ZStream givens and the streamed flag are gone
-// claude 2026-10-20: changed: the stream operation is Response.sendStream, in both runtimes (ADR-0004, Q8)
+// claude 2026-10-20: changed: the stream operations are Response.sendStream and Response.sendEvents, in both runtimes (ADR-0004, Q8; ADR-0007)
 /** What a ZIO handler may return as its response body.
   *
   *   - any `A` with a `NativeConverter` (converted after the handler, inside the request);
   *   - `Unit` (no body: 204 unless the handler set another status; no converter needed);
-  *   - `Sent`, the result of `Response.sendStream(stream)`: the handler sent a stream itself.
+  *   - `Sent`, the result of `Response.sendStream(stream)` or `Response.sendEvents(events)`: the
+  *     handler sent a stream itself.
   *
-  * A `ZStream` is not a body: send it with `Response.sendStream` as the handler's last step.
+  * A `ZStream` is not a body: send it with `Response.sendStream` (or a stream of `ServerEvent`
+  * with `Response.sendEvents`) as the handler's last step.
   */
 @implicitNotFound(
-  "h34s cannot send ${B} as a response body. Return a value with a NativeConverter, return Unit for a 204, or end the handler with Response.sendStream(stream) to stream text",
+  "h34s cannot send ${B} as a response body. Return a value with a NativeConverter, return Unit for a 204, or end the handler with Response.sendStream(stream) to stream text or Response.sendEvents(events) to stream server-sent events",
 )
 trait ZResponseBody[B]:
     private[exts] def toCore(body: B, runtime: Runtime[Any])(using Frame): ResponseBody.Outgoing < Sync

@@ -24,6 +24,25 @@ const stream = await request('/api/test')
 assert.equal(stream.status, 200)
 assert.equal(await stream.text(), 'abc')
 
+// claude 2026-10-20: created: the countdown routes send server-sent events (ADR-0007)
+// Each countdown sends four tick events, one per second, with h3's event-stream headers.
+for (const runtime of ['kyo', 'zio']) {
+  const events = await request(`/api/${runtime}/countdown`)
+  assert.equal(events.status, 200)
+  assert.equal(events.headers.get('content-type'), 'text/event-stream')
+  assert.equal(
+    events.headers.get('cache-control'),
+    'private, no-cache, no-store, no-transform, must-revalidate, max-age=0',
+  )
+  assert.equal(events.headers.get('x-accel-buffering'), 'no')
+  assert.equal(
+    await events.text(),
+    [3, 2, 1, 0]
+      .map(remaining => `event: tick\ndata: {"remaining":${remaining}}\n\n`)
+      .join(''),
+  )
+}
+
 // claude 2026-10-20: created: the ZIO greeting needs no database (issue #52)
 // The ZIO greeting answers the Kyo greeting's shape and never builds the database pool.
 const zioGreeting = await post('/api/zio/greeting', JSON.stringify({ name: 'Scala' }))
@@ -88,8 +107,9 @@ if (database) {
   )
 }
 
+// claude 2026-10-20: changed: the message names the server-sent events check (ADR-0007)
 console.log(
   database
-    ? 'Passed: stream response, ZIO greeting, schema validation entries, malformed-input responses and database insert/read'
-    : 'Passed: stream response, ZIO greeting, schema validation entries and malformed-input responses (database skipped)',
+    ? 'Passed: stream response, server-sent events, ZIO greeting, schema validation entries, malformed-input responses and database insert/read'
+    : 'Passed: stream response, server-sent events, ZIO greeting, schema validation entries and malformed-input responses (database skipped)',
 )

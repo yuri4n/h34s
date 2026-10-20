@@ -46,6 +46,7 @@ export dev.yuri4n.exts.h3.{
   SameSite,
   Secret,
   Sent, // claude 2026-10-19: changed: export Sent
+  ServerEvent, // claude 2026-10-20: changed: export ServerEvent (ADR-0007)
   SetCookie,
   Status,
   SuccessEnvelope,
