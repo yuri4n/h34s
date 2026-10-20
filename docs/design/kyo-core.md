@@ -81,7 +81,7 @@ The user has not decided yet:
 
 - The Maven group id, and whether h34s gets its own directory in the renamed repository or its own repository ([#21](https://github.com/yuri4n/h34s/issues/21)). <!-- claude 2026-10-19: changed: open item from #21 -->
 - Whether the kyo-sql code is also checked inside a Nitro bundle (it ran in Node through sbt), and whether the PostgreSQL job also gates release tags, because `release.yml` reuses `scala.yml` ([#29](https://github.com/yuri4n/h34s/issues/29)). <!-- claude 2026-10-19: changed: open items from #29 -->
-- Which heap reduction, if any, the example or the h34s Nuxt module adopts. The example's `nuxt build` needs more than 4 GiB of Node heap ([#30](https://github.com/yuri4n/h34s/issues/30)). <!-- claude 2026-10-19: changed: open item from #30 -->
+- Whether the example's `build` and `generate` scripts can drop `--max-old-space-size=8192`. With `scalaPrerender: 'stub'`, the example's build passed with a 4096 MiB heap limit on a cloud VM; nobody has measured it on the maintainer's Mac yet. The heap reduction itself is decided: see "Build heap" in [section 9.12](#912-examples) ([#30](https://github.com/yuri4n/h34s/issues/30)). <!-- claude 2026-10-19: changed: open item from #30, narrowed to the heap option because the delegated remedy is decided in section 9.12 -->
 - How a no-content body with a custom success status is typed for `$fetch` ([#46](https://github.com/yuri4n/h34s/issues/46)). <!-- claude 2026-10-19: changed: open item from #46 -->
 
 Each one is a sub-issue of the tracking issue [#17](https://github.com/yuri4n/h34s/issues/17), with its context and its "done when". <!-- claude 2026-10-19: changed: pointer to the sub-issues of #17 -->
