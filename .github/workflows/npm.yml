@@ -11,6 +11,11 @@ on:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - .github/workflows/npm.yml
+      # claude 2026-10-20: created: the init template test compares the templates with these guide blocks (review S3)
+      - docs/content/1.guide/02.adoption.md
+      - docs/content/1.guide/13.npm-tooling.md
+      - docs/content/2.reference/2.releases.md
+      - docs/snippets/extract.mjs
   push:
     branches: [main]
     tags: ['npm-v*']
@@ -23,6 +28,11 @@ on:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - .github/workflows/npm.yml
+      # claude 2026-10-20: created: the init template test compares the templates with these guide blocks (review S3)
+      - docs/content/1.guide/02.adoption.md
+      - docs/content/1.guide/13.npm-tooling.md
+      - docs/content/2.reference/2.releases.md
+      - docs/snippets/extract.mjs
   workflow_dispatch:
 
 permissions:
