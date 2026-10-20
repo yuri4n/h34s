@@ -184,5 +184,25 @@ object HandlerTestSpec extends ZIOSpecDefault:
           fetch.requests.map(_.headers) == List(Seq("accept" -> "text/event-stream"), Seq("Accept" -> "text/event-stream;q=1")),
         )
       },
+      // claude 2026-10-20: created: events compares the media type without its parameters and letter case; a longer type is not an event stream (review N1, ADR-0007)
+      test("$fetch.events: a content type with parameters or in another letter case is an event stream; text/event-streams is not") {
+        val fetch = Fetch.fake(Map(
+          "/api/charset" -> FetchResponse.Plain(200, Map("content-type" -> "text/event-stream; charset=utf-8"), "data: {\"message\":\"one\"}\n\n"),
+          "/api/case"    -> FetchResponse.Plain(200, Map("content-type" -> "Text/Event-Stream"), "data: {\"message\":\"two\"}\n\n"),
+          "/api/longer"  -> FetchResponse.Plain(200, Map("content-type" -> "text/event-streams"), "data: {\"message\":\"three\"}\n\n"),
+        ))
+        val handler = (_: Request) =>
+          for
+            charset <- ZHandler.$fetch.events[Greeting]("/api/charset").flatMap(_.runCollect)
+            cased <- ZHandler.$fetch.events[Greeting]("/api/case").flatMap(_.runCollect)
+            longer <- ZHandler.$fetch.events[Greeting]("/api/longer").flatMap(_.runCollect).either
+          yield
+              val refused = longer match
+                  case Left(FetchError.NotEvents(status, contentType)) => s"NotEvents($status, ${contentType.getOrElse("-")})"
+                  case other                                           => s"unexpected $other"
+              s"${(charset ++ cased).map(_.message).mkString(",")} $refused"
+        for response <- ZHandler.test(handler)(Request.fake(), fetch)
+        yield assertTrue(response.body == TestResponse.Body.Value("one,two NotEvents(200, text/event-streams)"))
+      },
     ) @@ TestAspect.timeout(30.seconds)
 end HandlerTestSpec

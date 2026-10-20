@@ -124,7 +124,11 @@ object ServerEvent:
       * events that the chunk completed. A chunk may end anywhere, also inside a line or between
       * the CR and the LF of a CRLF.
       *
-      *   - One leading U+FEFF (byte order mark) is removed. Lines end with CRLF, CR or LF.
+      * The chunks are text: the body after one UTF-8 decode, which removes one leading byte order
+      * mark (U+FEFF), as the standard's decode step does. The parser removes none, so a U+FEFF at
+      * the start of the text is part of the first line's field name, as in a browser.
+      *
+      *   - Lines end with CRLF, CR or LF.
       *   - A line that starts with `:` is a comment. A line `name: value` sets a field; one space
       *     after the colon is removed, and a line without a colon is a field with an empty value.
       *   - `data` adds a line to the event's data. `event` sets the type (empty means the default
@@ -141,7 +145,6 @@ object ServerEvent:
           * that has not ended yet. `data`: the data lines of the current event.
           */
         final case class State(
-            started: Boolean,
             afterCR: Boolean,
             pending: Vector[String],
             data: Vector[String],
@@ -150,28 +153,27 @@ object ServerEvent:
             retry: Option[Int],
         )
 
-        val initial: State = State(false, false, Vector.empty, Vector.empty, None, None, None)
+        val initial: State = State(false, Vector.empty, Vector.empty, None, None, None)
 
         /** The next state, and the events that `chunk` completed, in order. */
         def feed(state: State, chunk: String): (State, Vector[ServerEvent]) =
           if chunk.isEmpty then (state, Vector.empty)
           else
-              val text      = if !state.started && chunk.charAt(0) == '﻿' then chunk.substring(1) else chunk
               val events    = Vector.newBuilder[ServerEvent]
-              var current   = state.copy(started = true, afterCR = false)
-              var lineStart = if state.afterCR && text.nonEmpty && text.charAt(0) == '\n' then 1 else 0
+              var current   = state.copy(afterCR = false)
+              var lineStart = if state.afterCR && chunk.charAt(0) == '\n' then 1 else 0
               var index     = lineStart
-              while index < text.length do
-                  val char = text.charAt(index)
+              while index < chunk.length do
+                  val char = chunk.charAt(index)
                   if char == '\n' || char == '\r' then
-                      val line = (current.pending :+ text.substring(lineStart, index)).mkString
+                      val line = (current.pending :+ chunk.substring(lineStart, index)).mkString
                       current = applyLine(current.copy(pending = Vector.empty), line, events)
                       if char == '\r' then
-                          if index + 1 == text.length then current = current.copy(afterCR = true)
-                          else if text.charAt(index + 1) == '\n' then index += 1
+                          if index + 1 == chunk.length then current = current.copy(afterCR = true)
+                          else if chunk.charAt(index + 1) == '\n' then index += 1
                       lineStart = index + 1
                   index += 1
-              if lineStart < text.length then current = current.copy(pending = current.pending :+ text.substring(lineStart))
+              if lineStart < chunk.length then current = current.copy(pending = current.pending :+ chunk.substring(lineStart))
               (current, events.result())
 
         /** Applies one complete line. */

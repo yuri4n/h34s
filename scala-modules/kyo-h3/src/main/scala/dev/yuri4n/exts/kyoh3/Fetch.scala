@@ -159,19 +159,22 @@ object FetchResponse:
           case Right(value) => value
           case Left(error)  => Abort.fail(error)
 
-    // claude 2026-10-20: created: the pure decode, shared with the ZIO adapter's FetchResponse.Plain.as (moved out of decode)
-    /** Strict JSON, then the converter. Reasons never quote the body: converter messages contain
-      * the values they reject.
+    // claude 2026-10-20: created: the pure decode, shared with the ZIO adapter's FetchResponse.Plain.as and with the events of $fetch.events (moved out of decode)
+    /** Strict JSON, then the converter. `subject` names the text in the reason: the body, or the
+      * data of one event. Reasons never quote the text: converter messages contain the values
+      * they reject.
       */
-    private[exts] def decoded[A](status: Int, text: String)(using converter: NativeConverter[A]): Either[FetchError, A] =
+    private[exts] def decoded[A](status: Int, text: String, subject: String = "the body")(using
+        converter: NativeConverter[A],
+    ): Either[FetchError, A] =
       BodyDecoding.parseJson(Some(text)) match
-          case Left(_)       => Left(FetchError.Decode(status, "the body is not valid JSON"))
+          case Left(_)       => Left(FetchError.Decode(status, s"$subject is not valid JSON"))
           case Right(native) =>
             val input: js.Any = if js.isUndefined(native) then null else native
             try Right(converter.fromNative(input))
             catch
-                case _: VirtualMachineError => Left(FetchError.Decode(status, "the converter failed"))
-                case NonFatal(_)            => Left(FetchError.Decode(status, "the converter rejected the body"))
+                case _: VirtualMachineError => Left(FetchError.Decode(status, s"the converter failed on $subject"))
+                case NonFatal(_)            => Left(FetchError.Decode(status, s"the converter rejected $subject"))
 end FetchResponse
 
 // claude 2026-10-19: created: typed $fetch failures; not SafeErrors, so an unhandled one is an opaque 500

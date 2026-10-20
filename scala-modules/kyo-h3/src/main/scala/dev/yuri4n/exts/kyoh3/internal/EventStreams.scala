@@ -1,13 +1,11 @@
 package dev.yuri4n.exts.kyoh3.internal
 
-import dev.yuri4n.exts.h3.internal.BodyDecoding
 import dev.yuri4n.exts.h3.{ResponseHead, ServerEvent}
-import dev.yuri4n.exts.kyoh3.{FetchError, FetchRequest, HandlerTransport}
+import dev.yuri4n.exts.kyoh3.{FetchError, FetchRequest, FetchResponse, HandlerTransport}
 import kyo.{Abort, Chunk, Emit, Frame, Kyo, Stream, Tag, Var, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 
 import scala.scalajs.js
-import scala.util.control.NonFatal
 
 // claude 2026-10-20: created: the server-sent event plumbing that both runtimes share: the head of sendEvents and the decoding of $fetch.events (ADR-0007)
 /** Server-sent events on both sides: the head that `Response.sendEvents` sets, and how
@@ -69,37 +67,40 @@ private[exts] object EventStreams:
       }
 
     /** Each event's `data` decoded as JSON with the converter. The first event that does not
-      * decode fails the stream with `FetchError.Decode`, after the events before it.
+      * decode fails the stream with `FetchError.Decode`, after the events before it; the events
+      * after it are not decoded.
       */
     def typed[E: {NativeConverter, Tag}, S](status: Int, events: Stream[ServerEvent, S])(using Frame): Stream[E, S & Abort[FetchError]] =
       Stream[E, S & Abort[FetchError]](
         Var.run(0L)(
           events.foreachChunk(chunk =>
             Var.use[Long] { count =>
-              val decoded       = chunk.toVector.zipWithIndex.map((event, offset) => decodedEvent[E](status, event, count + offset + 1))
-              val (good, wrong) = decoded.span(_.isRight)
-              val values        = good.collect { case Right(value) => value }
-              val emitted       = if values.isEmpty then Kyo.unit else Emit.value(Chunk.from(values))
-              Var.setDiscard(count + chunk.size).andThen(emitted).andThen(wrong.headOption match
-                  case Some(Left(error)) => Abort.fail(error)
-                  case _                 => Kyo.unit)
+              val (values, failure) =
+                untilFailure(chunk.iterator.zipWithIndex.map((event, offset) => decodedEvent[E](status, event, count + offset + 1)))
+              val emitted = if values.isEmpty then Kyo.unit else Emit.value(Chunk.from(values))
+              Var.setDiscard(count + chunk.size).andThen(emitted).andThen(failure match
+                  case Some(error) => Abort.fail(error)
+                  case None        => Kyo.unit)
             },
           ),
         ),
       )
 
-    /** One event's `data` as JSON for `E`. The reason names the event by its position in the
-      * stream (from 1) and its type, never by its data: a converter's message quotes the values it
-      * rejects.
+    /** The values before the first failure, and that failure. Stops reading `results` there. */
+    private def untilFailure[E](results: Iterator[Either[FetchError, E]]): (Vector[E], Option[FetchError]) =
+      val values                      = Vector.newBuilder[E]
+      var failure: Option[FetchError] = None
+      while failure.isEmpty && results.hasNext do
+          results.next() match
+              case Right(value) => values += value
+              case Left(error)  => failure = Some(error)
+      (values.result(), failure)
+
+    /** One event's `data` as JSON for `E`, with `FetchResponse.decoded`. The reason names the
+      * event by its position in the stream (from 1) and its type, never by its data: a converter's
+      * message quotes the values it rejects.
       */
-    def decodedEvent[E](status: Int, event: ServerEvent, index: Long)(using converter: NativeConverter[E]): Either[FetchError, E] =
+    def decodedEvent[E: NativeConverter](status: Int, event: ServerEvent, index: Long): Either[FetchError, E] =
       val named = s"event $index${event.event.fold("")(name => s" (${js.JSON.stringify(name)})")}"
-      BodyDecoding.parseJson(Some(event.data)) match
-          case Left(_)       => Left(FetchError.Decode(status, s"the data of $named is not valid JSON"))
-          case Right(native) =>
-            val input: js.Any = if js.isUndefined(native) then null else native
-            try Right(converter.fromNative(input))
-            catch
-                case _: VirtualMachineError => Left(FetchError.Decode(status, s"the converter failed on the data of $named"))
-                case NonFatal(_)            => Left(FetchError.Decode(status, s"the converter rejected the data of $named"))
+      FetchResponse.decoded[E](status, event.data, s"the data of $named")
 end EventStreams

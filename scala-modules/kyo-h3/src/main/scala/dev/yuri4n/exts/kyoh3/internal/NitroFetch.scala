@@ -182,10 +182,15 @@ private[exts] object NitroFetch:
             error => Abort.fail(FetchError.Failed(message(error.failureOrPanic))),
           ))
 
-        // claude 2026-10-20: changed: a read that fails is FetchError.BodyFailed, not a panic (ADR-0005, Q14)
+        // claude 2026-10-20: changed: a read that fails is FetchError.BodyFailed, not a panic (ADR-0005, Q14); a body of strings loses one leading byte order mark, as a UTF-8 decode does (ADR-0007)
         /** The body as text chunks, read once. Each read is one pull of the callee's stream. A read
           * that fails (the callee's stream failed after its head, or the connection closed) fails
           * the stream with `FetchError.BodyFailed`.
+          *
+          * The text is the body after one UTF-8 decode, which removes one leading byte order mark
+          * (U+FEFF). Bytes go through a `TextDecoder`, which does that. A JavaScript route can
+          * answer in-process with a stream of strings, which skip the decoder, so the first string
+          * loses one leading U+FEFF here: the text is the same as for the string's UTF-8 bytes.
           */
         private def body(status: Int)(using Frame): Stream[String, Async & Scope & Abort[FetchError]] =
           Stream[String, Async & Abort[FetchError]] {
@@ -199,6 +204,7 @@ private[exts] object NitroFetch:
               else
                   reader = native.getReader()
                   val decoder = js.Dynamic.newInstance(js.Dynamic.global.TextDecoder)()
+                  var started = false
                   Loop.foreach {
                     readStep(status, reader.read().asInstanceOf[js.Promise[js.Dynamic]]).map { step =>
                       if step.done.asInstanceOf[Boolean] then
@@ -208,7 +214,11 @@ private[exts] object NitroFetch:
                       else
                           val value = step.value
                           val text  =
-                            if js.typeOf(value) == "string" then value.asInstanceOf[String]
+                            if js.typeOf(value) == "string" then
+                                val chunk = value.asInstanceOf[String]
+                                val first = !started
+                                if chunk.nonEmpty then started = true
+                                if first && chunk.startsWith("\uFEFF") then chunk.substring(1) else chunk
                             else decoder.decode(value, js.Dynamic.literal(stream = true)).asInstanceOf[String]
                           if text.isEmpty then Loop.continue else Emit.valueWith(Chunk(text))(Loop.continue)
                     }

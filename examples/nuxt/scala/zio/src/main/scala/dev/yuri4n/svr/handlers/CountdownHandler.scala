@@ -1,4 +1,3 @@
-// claude 2026-10-20: created: the server-sent events route that the streaming guide shows, the ZIO counterpart of the Kyo countdown (ADR-0007)
 package dev.yuri4n.svr.handlers
 
 import dev.yuri4n.exts.ntcvzioschema.NativeSchema
@@ -9,6 +8,7 @@ import zio.stream.ZStream
 
 import scala.scalajs.js.annotation.JSExportTopLevel
 
+// claude 2026-10-20: created: the server-sent events route that the streaming guide shows, the ZIO counterpart of the Kyo countdown (ADR-0007)
 // #region sse-handler
 /** One event of the countdown: the seconds that remain. */
 final case class Countdown(remaining: Int) derives Schema, NativeSchema

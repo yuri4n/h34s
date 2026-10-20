@@ -464,6 +464,27 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
           data <- closing(server)(ok[String](app, "/api/caller"))
         yield assertTrue(data == "2,1")
       },
+      // claude 2026-10-20: created: the negative control of review B1: the body's one UTF-8 decode removes one byte order mark, and the decoder removes none (ADR-0007)
+      test("events: the body is decoded as UTF-8 once, so of two leading byte order marks only the first is removed") {
+        val app = NitroLocal.App()
+        def sending(text: String): EventHandler =
+          ZHandler.define(_ => Response.header("content-type", "text/event-stream") *> Response.sendStream(ZStream(text)))
+        // In-process, h34s sends the text as UTF-8 bytes: EF BB BF for each U+FEFF.
+        app.route("/api/one-bom", sending("\uFEFFdata: a\n\n"))
+        // A WHATWG parser reads the first line's field name as "\uFEFFdata", an unknown field.
+        app.route("/api/two-boms", sending("\uFEFF\uFEFFdata: a\n\ndata: b\n\n"))
+        app.route(
+          "/api/caller",
+          ZHandler.define { _ =>
+            for
+              one <- ZHandler.$fetch.events(FetchRequest("/api/one-bom")).flatMap(_.runCollect)
+              two <- ZHandler.$fetch.events(FetchRequest("/api/two-boms")).flatMap(_.runCollect)
+            yield s"${one.map(_.data).mkString(",")} | ${two.map(_.data).mkString(",")}"
+          },
+        )
+        for data <- ok[String](app, "/api/caller")
+        yield assertTrue(data == "a | b")
+      },
       // Sequential: the base URL test installs the plugin's startup record, a global that every
       // in-process call of the other tests reads.
     ) @@ TestAspect.sequential @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)

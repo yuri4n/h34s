@@ -1,4 +1,3 @@
-// claude 2026-10-20: created: the server-sent events route that the streaming guide shows (ADR-0007)
 package dev.yuri4n.kyoexample
 
 import dev.yuri4n.exts.kyoh3.*
@@ -7,6 +6,7 @@ import kyo.*
 
 import scala.scalajs.js.annotation.JSExportTopLevel
 
+// claude 2026-10-20: created: the server-sent events route that the streaming guide shows (ADR-0007)
 // #region sse-handler
 /** One event of the countdown: the seconds that remain. */
 final case class Countdown(remaining: Int) derives Schema, NativeSchema

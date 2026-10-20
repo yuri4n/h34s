@@ -85,11 +85,11 @@ class ServerEventSuite extends FunSuite:
 
     // ---- The decoder: the WHATWG rules ----
 
-    test("decoder: one leading byte order mark is removed; a later one is part of its line") {
-      assertEquals(decode("﻿data: a\n\n"), Vector(ServerEvent("a")))
-      assertEquals(decode("﻿", "data: a\n\n"), Vector(ServerEvent("a")))
-      assertEquals(decode("data: a\n\n﻿data: b\n\n"), Vector(ServerEvent("a")))
-      assertEquals(decode("", "﻿data: a\n\n"), Vector(ServerEvent("a")), "an empty first chunk does not start the stream")
+    test("decoder: the input is decoded text, so a byte order mark is not removed; at the start it is part of the first field name") {
+      assertEquals(decode("\uFEFFdata: a\n\ndata: b\n\n"), Vector(ServerEvent("b")), "the first field name starts with U+FEFF: an unknown field")
+      assertEquals(decode("\uFEFF", "data: a\n\n"), Vector.empty)
+      assertEquals(decode("data: a\n\n\uFEFFdata: b\n\n"), Vector(ServerEvent("a")))
+      assertEquals(decode("data: \uFEFFa\n\n"), Vector(ServerEvent("\uFEFFa")))
     }
 
     test("decoder: lines end with CRLF, CR or LF, also when a CRLF is split between chunks") {
@@ -149,7 +149,7 @@ class ServerEventSuite extends FunSuite:
     // ---- Split points and round trips ----
 
     private val text =
-      "﻿: a comment\r\nid: 1\r\nevent: tick\r\ndata: {\"remaining\":3}\r\n\r\n" +
+      ": a comment\r\nid: 1\r\nevent: tick\r\ndata: {\"remaining\":3}\r\n\r\n" +
         "data: two\rdata: lines\r\rretry: 100\ndata: é😀\n\n" +
         "event: ignored\n\ndata\n\nid: a\u0000b\ndata: last\n\n" + "data: never dispatched\n"
 
@@ -173,8 +173,8 @@ class ServerEventSuite extends FunSuite:
     }
 
     // Explicit, seeded generators.
-    private val dataPieces  = List("a", "Z", " ", ":", "\n", "\r", "\r\n", "\u0000", "é", "😀", "data: ", "﻿", "\t", "id")
-    private val fieldPieces = List("a", "Z", " ", ":", "é", "😀", "﻿", "\t", "data")
+    private val dataPieces  = List("a", "Z", " ", ":", "\n", "\r", "\r\n", "\u0000", "é", "😀", "data: ", "\uFEFF", "\t", "id")
+    private val fieldPieces = List("a", "Z", " ", ":", "é", "😀", "\uFEFF", "\t", "data")
 
     private def randomText(random: Random, pieces: List[String], max: Int): String =
       List.fill(random.nextInt(max + 1))(pieces(random.nextInt(pieces.size))).mkString

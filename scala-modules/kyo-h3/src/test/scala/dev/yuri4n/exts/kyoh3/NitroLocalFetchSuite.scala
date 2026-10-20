@@ -797,4 +797,46 @@ class NitroLocalFetchSuite extends FunSuite:
         app.fetch("/api/caller").flatMap(body).transformWith(result => server.close().flatMap(_ => Future.fromTry(result)))
       }).map(data => assertEquals(data.asInstanceOf[String], "2,1"))
     }
+
+    // claude 2026-10-20: created: the negative control of review B1: the body's one UTF-8 decode removes one byte order mark, and the decoder removes none (ADR-0007)
+    test("events: the body is decoded as UTF-8 once, so of two leading byte order marks only the first is removed") {
+      val app = NitroLocal.App()
+      def sending(text: String): EventHandler =
+        KHandler.define(_ => Response.header("content-type", "text/event-stream").andThen(Response.sendStream(Stream.init(Seq(text)))))
+      // In-process, h34s sends the text as UTF-8 bytes: EF BB BF for each U+FEFF.
+      app.route("/api/one-bom", sending("\uFEFFdata: a\n\n"))
+      // A WHATWG parser reads the first line's field name as "\uFEFFdata", an unknown field.
+      app.route("/api/two-boms", sending("\uFEFF\uFEFFdata: a\n\ndata: b\n\n"))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          for
+            one <- KHandler.$fetch.events(FetchRequest("/api/one-bom")).map(_.run)
+            two <- KHandler.$fetch.events(FetchRequest("/api/two-boms")).map(_.run)
+          yield s"${one.map(_.data).mkString(",")} | ${two.map(_.data).mkString(",")}"
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map(data => assertEquals(data.asInstanceOf[String], "a | b"))
+    }
+
+    // claude 2026-10-20: created: a JavaScript body of strings gets the one byte order mark removal of a UTF-8 decode, as its bytes would (review B1, ADR-0007)
+    test("events: a JavaScript stream of strings loses one leading byte order mark, as its UTF-8 bytes would") {
+      val app = NitroLocal.App()
+      // A route that returns a ReadableStream of strings: in-process, its chunks reach $fetch as strings.
+      val strings: js.Function1[js.Dynamic, js.Any] = event => {
+        event.node.res.setHeader("content-type", "text/event-stream")
+        val start: js.Function1[js.Dynamic, Unit] = controller => {
+          Seq("\uFEFFdata: a\n\n", "\uFEFFdata: b\n\n", "data: c\n\n").foreach(chunk => controller.enqueue(chunk))
+          controller.close()
+          ()
+        }
+        js.Dynamic.newInstance(js.Dynamic.global.ReadableStream)(js.Dynamic.literal(start = start))
+      }
+      app.routeNative("/api/js-strings", strings)
+      app.route(
+        "/api/caller",
+        KHandler.define(_ => KHandler.$fetch.events(FetchRequest("/api/js-strings")).map(_.run).map(_.map(_.data).mkString(","))),
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map(data => assertEquals(data.asInstanceOf[String], "a,c"))
+    }
 end NitroLocalFetchSuite

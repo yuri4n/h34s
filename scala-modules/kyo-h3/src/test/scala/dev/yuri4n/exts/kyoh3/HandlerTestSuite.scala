@@ -187,4 +187,31 @@ class HandlerTestSuite extends FunSuite:
         assertEquals(fetch.requests.map(_.headers), List(Seq("accept" -> "text/event-stream"), Seq("Accept" -> "text/event-stream;q=1")))
       }
     }
+
+    // claude 2026-10-20: created: events compares the media type without its parameters and letter case; a longer type is not an event stream (review N1, ADR-0007)
+    test("$fetch.events: a content type with parameters or in another letter case is an event stream; text/event-streams is not") {
+      val fetch = Fetch.fake(Map(
+        "/api/charset" -> FetchResponse.Plain(200, Map("content-type" -> "text/event-stream; charset=utf-8"), "data: {\"message\":\"one\"}\n\n"),
+        "/api/case"    -> FetchResponse.Plain(200, Map("content-type" -> "Text/Event-Stream"), "data: {\"message\":\"two\"}\n\n"),
+        "/api/longer"  -> FetchResponse.Plain(200, Map("content-type" -> "text/event-streams"), "data: {\"message\":\"three\"}\n\n"),
+      ))
+      val handler: Request => String < HandlerEffects = _ =>
+        for
+          charset <- KHandler.$fetch.events[Greeting]("/api/charset").map(_.run)
+          cased <- KHandler.$fetch.events[Greeting]("/api/case").map(_.run)
+          longer <- Abort.run[FetchError](KHandler.$fetch.events[Greeting]("/api/longer").map(_.run))
+        yield
+            val refused = longer.fold(
+              _ => "ended",
+              {
+                case FetchError.NotEvents(status, contentType) => s"NotEvents($status, ${contentType.getOrElse("-")})"
+                case other                                     => other.getClass.getSimpleName
+              },
+              panic => s"panic $panic",
+            )
+            s"${(charset ++ cased).map(_.message).mkString(",")} $refused"
+      response(KHandler.test(handler)(Request.fake(), fetch)).map { result =>
+        assertEquals(result.body, TestResponse.Body.Value("one,two NotEvents(200, text/event-streams)"))
+      }
+    }
 end HandlerTestSuite
