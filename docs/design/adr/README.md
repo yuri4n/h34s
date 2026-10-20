@@ -6,22 +6,23 @@ An architecture decision record (ADR) records one decision: its context, the dec
 
 ## Index
 
-<!-- claude 2026-10-20: created: index -->
+<!-- claude 2026-10-20: changed: the ADR-0013 row, and ADR-0003 is superseded -->
 
-| Number                                                   | Title                                                                                  | Status   | Date       | Source issue |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------- | ---------- | ------------ |
-| [ADR-0001](0001-delivery-process.md)                     | Delivery process: the orchestrating session merges green pull requests                 | accepted | 2026-10-20 | #51          |
-| [ADR-0002](0002-next-release-name.md)                    | The next release is 0.3.0-alpha.1                                                      | accepted | 2026-10-20 | #51          |
-| [ADR-0003](0003-registries-stay-private.md)              | The package registries stay private this round                                         | accepted | 2026-10-20 | #54, #21     |
-| [ADR-0004](0004-streams-are-sent.md)                     | Streams are sent with `Response.sendStream`, not returned                              | accepted | 2026-10-20 | #51          |
-| [ADR-0005](0005-fetch-in-handlers.md)                    | `$fetch` in handlers: Nitro's `event.fetch`, in-process credentials only               | accepted | 2026-10-20 | #51          |
-| [ADR-0006](0006-handler-environment-and-test-helpers.md) | One merged handler environment, and public test helpers                                | accepted | 2026-10-20 | #51          |
-| [ADR-0007](0007-server-sent-events.md)                   | Server-sent events through an h34s helper over `sendStream`                            | accepted | 2026-10-20 | #51          |
-| [ADR-0008](0008-streaming-support-limits.md)             | Streaming support limits: document, list tested presets only, check the h3 copy        | accepted | 2026-10-20 | #51, #36     |
-| [ADR-0009](0009-scaffolding-adoption-paths.md)           | Scaffold the three adoption paths with `h34s-scala init`                               | accepted | 2026-10-20 | #54          |
-| [ADR-0010](0010-homepage-mini-project-view.md)           | Homepage mini-project view: an in-place Kyo \| ZIO toggle and a project tour component | accepted | 2026-10-20 | #52          |
-| [ADR-0011](0011-no-content-body-typing.md)               | A no-content body keeps the 204 rule and the `undefined` type                          | accepted | 2026-10-20 | #46          |
-| [ADR-0012](0012-inner-scope-finalizer-semantics.md)      | Finalizer failures in a handler's own scopes follow each runtime's rules               | accepted | 2026-10-20 | #50, #40     |
+| Number                                                   | Title                                                                                                     | Status                 | Date       | Source issue |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------- | ---------- | ------------ |
+| [ADR-0001](0001-delivery-process.md)                     | Delivery process: the orchestrating session merges green pull requests                                    | accepted               | 2026-10-20 | #51          |
+| [ADR-0002](0002-next-release-name.md)                    | The next release is 0.3.0-alpha.1                                                                         | accepted               | 2026-10-20 | #51          |
+| [ADR-0003](0003-registries-stay-private.md)              | The package registries stay private this round                                                            | superseded by ADR-0013 | 2026-10-20 | #54, #21     |
+| [ADR-0004](0004-streams-are-sent.md)                     | Streams are sent with `Response.sendStream`, not returned                                                 | accepted               | 2026-10-20 | #51          |
+| [ADR-0005](0005-fetch-in-handlers.md)                    | `$fetch` in handlers: Nitro's `event.fetch`, in-process credentials only                                  | accepted               | 2026-10-20 | #51          |
+| [ADR-0006](0006-handler-environment-and-test-helpers.md) | One merged handler environment, and public test helpers                                                   | accepted               | 2026-10-20 | #51          |
+| [ADR-0007](0007-server-sent-events.md)                   | Server-sent events through an h34s helper over `sendStream`                                               | accepted               | 2026-10-20 | #51          |
+| [ADR-0008](0008-streaming-support-limits.md)             | Streaming support limits: document, list tested presets only, check the h3 copy                           | accepted               | 2026-10-20 | #51, #36     |
+| [ADR-0009](0009-scaffolding-adoption-paths.md)           | Scaffold the three adoption paths with `h34s-scala init`                                                  | accepted               | 2026-10-20 | #54          |
+| [ADR-0010](0010-homepage-mini-project-view.md)           | Homepage mini-project view: an in-place Kyo \| ZIO toggle and a project tour component                    | accepted               | 2026-10-20 | #52          |
+| [ADR-0011](0011-no-content-body-typing.md)               | A no-content body keeps the 204 rule and the `undefined` type                                             | accepted               | 2026-10-20 | #46          |
+| [ADR-0012](0012-inner-scope-finalizer-semantics.md)      | Finalizer failures in a handler's own scopes follow each runtime's rules                                  | accepted               | 2026-10-20 | #50, #40     |
+| [ADR-0013](0013-public-repository-and-registries.md)     | The repository is public, releases stay alpha, and the registries go public after the coordinate decision | accepted               | 2026-10-20 | #21          |
 
 ## When to write an ADR
 
