@@ -167,6 +167,7 @@ These rules apply to every agent session: on the maintainer's Mac (8 CPUs, 16 GB
 - Run one workflow at a time. Before a run of more than 10 agents, tell the user how many agents will run and what they do.
 - Make each agent write its report file when it starts, and add each finding as soon as it is verified. Keep durable notes in the repository (through a pull request) or in the tracking issue. Session scratch space can disappear.
 - Create release tags and use the Vercel CLI only on the maintainer's Mac, and only with the user's explicit approval.
+- Prefer the best cost-effective solution. When the chosen solution looks inadequate in the long term, open an issue that names the better option and link it from the decision's ADR (maintainer instruction, 2026-10-20). <!-- claude 2026-10-20: created: the cost rule -->
 
 ### Models, shapes and briefs
 
