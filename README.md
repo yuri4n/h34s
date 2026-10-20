@@ -51,6 +51,8 @@ Expected body: `{"data":{"message":"Hello, Scala!"}}`. Send `{"name":"  "}` to s
 
 <!-- claude 2026-10-20: created: the "Set up with a coding assistant" entry in the Start column -->
 
+<!-- claude 2026-10-20: changed: a Getting started row and the guides' new paths under docs/content/ (issue #25) -->
+
 | Start | Build | Operate |
 | --- | --- | --- |
 | [Getting started](docs/content/1.guide/01.getting-started.md) | [Configuration and secrets](docs/content/1.guide/05.configuration.md) | [Debugging](docs/content/1.guide/12.debugging.md) |

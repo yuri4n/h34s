@@ -94,8 +94,8 @@ export function checkRelease(root = repository, environment = process.env, { all
       existsSync(resolve(root, `.github/release-notes/${version}.md`)),
       `Write .github/release-notes/${version}.md before tagging`,
     )
-    // claude 2026-10-19: created: the placeholder must become this version's notes (docs/maintainers/releases.md, step 3)
-    // claude 2026-10-20: changed: the release procedure moved to docs/maintainers/releases.md
+    // claude 2026-10-19: created: the placeholder must become this version's notes (docs/releases.md, step 3)
+    // claude 2026-10-20: changed: the release procedure that the note above names moved to docs/maintainers/releases.md, step 3 (issue #25)
     assert(
       !existsSync(resolve(root, '.github/release-notes/unreleased.md')),
       `.github/release-notes/unreleased.md still exists: rename it to ${version}.md before tagging`,
