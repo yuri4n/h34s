@@ -8,7 +8,7 @@ This page records why h34s is built the way it is. It covers the decisions the u
 
 **Keep it current.** When you change one of these decisions or behaviors, update this page in the same pull request. When the user makes a new decision, also record it in `AGENTS.md`.
 
-**Decision records.** From 2026-10-20 on, decisions are also recorded as architecture decision records (ADRs) under [`docs/design/adr/`](adr/README.md), one decision per record, with the options that were considered and the reasons. This page keeps the narrative and the numbered decision items, and links to the ADRs. [ADR-0001](adr/0001-delivery-process.md) replaces the merge rule of section 1, "Recorded before the refactor": the orchestrating session merges green pull requests, and force-pushes and publication still need the user's explicit approval. Five of the records touch the Kyo core and the ZIO adapter: [ADR-0004](adr/0004-streams-are-sent.md) (streams are sent with `Response.sendStream`), [ADR-0005](adr/0005-fetch-in-handlers.md) (`$fetch` in handlers), [ADR-0006](adr/0006-handler-environment-and-test-helpers.md) (the handler environment and the test helpers), [ADR-0007](adr/0007-server-sent-events.md) (server-sent events) and [ADR-0008](adr/0008-streaming-support-limits.md) (streaming support limits). None of the five is implemented yet: the sections below still describe the code as it is. <!-- claude 2026-10-20: created: pointer to the ADRs under docs/design/adr/ and the ADR-0001 merge rule -->
+**Decision records.** From 2026-10-20 on, decisions are also recorded as architecture decision records (ADRs) under [`docs/design/adr/`](adr/README.md), one decision per record, with the options that were considered and the reasons. This page keeps the narrative and the numbered decision items, and links to the ADRs. [ADR-0001](adr/0001-delivery-process.md) replaces the merge rule of section 1, "Recorded before the refactor": the orchestrating session merges green pull requests, and force-pushes and publication still need the user's explicit approval. Five of the records touch the Kyo core and the ZIO adapter: [ADR-0004](adr/0004-streams-are-sent.md) (streams are sent with `Response.sendStream`), [ADR-0005](adr/0005-fetch-in-handlers.md) (`$fetch` in handlers), [ADR-0006](adr/0006-handler-environment-and-test-helpers.md) (the handler environment and the test helpers), [ADR-0007](adr/0007-server-sent-events.md) (server-sent events) and [ADR-0008](adr/0008-streaming-support-limits.md) (streaming support limits). ADR-0004 and ADR-0006 are implemented (items 27 and 28 below); the Kyo `$fetch` of the spike is in the code without the policies of ADR-0005, and the streaming guide documents the unread socketless stream of ADR-0008. ADR-0007 is not implemented yet. <!-- claude 2026-10-20: created: pointer to the ADRs under docs/design/adr/ and the ADR-0001 merge rule --> <!-- claude 2026-10-20: changed: ADR-0004 and ADR-0006 are implemented -->
 
 Tags such as *(dev. 4)*, *(B2-1)* and *(D-1)* are the deviation numbers from the original design notes. Review IDs such as R3, SEC-4, AD-9 and B1 are the findings of the adversarial review of PR #14; some test comments use them.
 
@@ -53,8 +53,8 @@ These are binding. The lasting ones are also in `AGENTS.md`; the release steps a
 5. **Schemas.** `NativeConverter` stays the default type class that h34s APIs ask for. h34s internals, the example and yurian.land use one schema derivation per model that gives JSON, `NativeConverter` and YAML. Write the `NativeConverter` bridges for Kyo Schema (new) and ZIO Schema (existing).
 6. Design and review with the `functional-design` and `scala-functional-design` skills: pure values, a thin effectful shell, one wiring point (`AppHandler`), typed error domains, one resource per scope, separate models at boundaries.
 7. Order of work: the h34s pull request first, then move yurian.land PR [#15](https://github.com/yuri4n/yurian.land/pull/15) onto the new API.
-8. **HTTP model.** A handler is a function (a Kleisli arrow) from an immutable `Request` snapshot to the response body. Status, headers and cookies are local state of the computation (Kyo `Var[ResponseHead]`, ZIO `ZState[ResponseHead]`), with per-entry `OnFailure.Keep` and handler-level defaults. See [section 4](#4-the-http-model).
-9. **Handler options and wire format.** `{ "data": ... }` for values, `{ "errors": [{ "message", "path"? }] }` for errors, 204 for `Unit`, unwrapped streams, all selectable through `HandlerOptions`.
+8. **HTTP model.** A handler is a function (a Kleisli arrow) from an immutable `Request` snapshot to the response body, or it sends a stream with `sendStream` and returns the `Sent` value it gives (item 27). Status, headers and cookies are local state of the computation (Kyo `Var[ResponseHead]`, ZIO `ZState[ResponseHead]`), with per-entry `OnFailure.Keep` and handler-level defaults. See [section 4](#4-the-http-model). <!-- claude 2026-10-20: changed: the rule sentence for sent streams (ADR-0004) -->
+9. **Handler options and wire format.** `{ "data": ... }` for values, `{ "errors": [{ "message", "path"? }] }` for errors, 204 for `Unit`, unwrapped sent streams, all selectable through `HandlerOptions`. <!-- claude 2026-10-20: changed: sent streams (ADR-0004) -->
 10. **Client disconnects.** Both runtimes interrupt the handler, wait for every request-scope and stream finalizer, write nothing, and only then settle the request. Guides must explain rollback risk and show a tested way to make a step finish.
 11. The yurian.land port is verified against a locally published `0.2.0-SNAPSHOT`. Its CI may stay red until an h34s release. Publish nothing yet.
 12. After the user approves PR #14, publish `0.2.0-alpha.1` to private GitHub Packages (Maven and npm) with matching tags and prereleases, then move yurian.land to it.
@@ -78,6 +78,13 @@ These are binding. The lasting ones are also in `AGENTS.md`; the release steps a
 24. **`HandlerOptions.requireJsonContentType` is on by default from `0.3.0-alpha.1`** ([#41](https://github.com/yuri4n/h34s/issues/41)), with a test, a migration-guide entry and a release note. Until the implementing pull request lands, [section 4.3](#43-body-reading) and *(D-6)* describe today's opt-in default. <!-- claude 2026-10-19: created: the JSON content-type default decision (#41) -->
 25. **The stale draft pull requests are closed** ([#26](https://github.com/yuri4n/h34s/issues/26)): #2, #3, #12 and #13, without merging. Their branches stay. <!-- claude 2026-10-19: created: the draft PR triage outcome (#26) -->
 26. **The tracking model** ([#17](https://github.com/yuri4n/h34s/issues/17)). Every remaining item is a sub-issue of #17, labeled `area:*` and `kind:*` and shown on the maintainer's nuxt4s project board. `kind:decision` is the maintainer's inbox, and the milestone `0.3.0-alpha.1` is the provisional scope of the next prerelease. Decisions are recorded as comments on the sub-issues. <!-- claude 2026-10-19: created: the tracking model (#17) -->
+
+### 2026-10-20: streams are sent, and test helpers
+
+<!-- claude 2026-10-20: created: the decisions of ADR-0004 and ADR-0006, implemented in the sendStream pull request -->
+
+27. **Streams are sent with `Response.sendStream`, not returned** ([ADR-0004](adr/0004-streams-are-sent.md), issue [#51](https://github.com/yuri4n/h34s/issues/51)). Both runtimes offer `Response.sendStream(stream)`, which gives `Sent`; a streaming handler returns that `Sent`, and a returned `kyo.Stream` or `ZStream` is a compile error whose message names `Response.sendStream(stream)`. The head is written at the call on every transport, and flushed over a socket (Q1, option A). A stream failure after the head fails the `sendStream` step with the stream's error; the core logs it once and writes nothing more (Q3, option B). The ZIO operation is `zioh3.Response.sendStream`, and `ZHandler.sendStream` is gone (Q8, option B). A caller's cancel of an in-process stream waits for the callee's whole request cleanup (Q16). See [section 4](#4-the-http-model) and [section 8](#8-streaming).
+28. **One merged handler environment, and public test helpers** ([ADR-0006](adr/0006-handler-environment-and-test-helpers.md)). `HandlerEffects` carries one `Env[Fetch & HandlerTransport]`, because two entries break the documented `Env.run(service)(program(request))` wiring in Kyo RC7 (Q9, option A; see the appendix). `KHandler.test(handler)(request, fetch)` and `ZHandler.test(handler)(request)` provide the request scope, the head, a transport that collects a sent stream and (Kyo) a `Fetch`, and give a `TestResponse` with the head and the body (Q10, option B). `Fetch.fake` answers `$fetch` calls from a map and records them. `HandlerTransport.detached` is internal.
 
 ### Still open
 
@@ -136,24 +143,30 @@ Application      your AppHandler: config -> Shared resources -> Env / ZLayer wir
 
 - `development` and `debug` come only from the h34s Nitro plugin. A request can never set them.
 - The body is not part of the snapshot. It is a one-shot input that you read through runtime extensions (`request.body.json[A]`, `request.body.text()`). A second read returns the same bytes.
-- `Request.fake(...)` builds a request without h3, so a test can call a handler function directly.
+- `Request.fake(...)` builds a request without h3, so a test can call a handler function directly with `KHandler.test` or `ZHandler.test`. <!-- claude 2026-10-20: changed: the test helpers (ADR-0006) -->
 - `Request.toString` is redacted to `Request(<method> <path>)`, because headers can carry credentials.
 
 ### 4.2 Handler shape
 
+<!-- claude 2026-10-20: changed: the handler environment, Sent bodies and the test helpers (ADR-0004, ADR-0006) -->
+
 ```scala
 // Kyo core
-type HandlerEffects = Async & Scope & Abort[Throwable] & Var[ResponseHead]
+type HandlerEffects = Async & Scope & Abort[Throwable] & Var[ResponseHead] & Env[Fetch & HandlerTransport]
 KHandler.define(request => program)                 // program: B < HandlerEffects
 KHandler.define(options: HandlerOptions)(request => program)
+Response.sendStream(stream)                         // Sent < HandlerEffects
+KHandler.test(handler)(request, fetch)              // TestResponse[B] < (Async & Abort[Throwable])
 
 // ZIO adapter
-type HandlerEnv = ZState[ResponseHead] & Scope
+type HandlerEnv = ZState[ResponseHead] & Scope & HandlerTransport
 ZHandler.define(request => program)                 // program: ZIO[HandlerEnv, ErrorResponse | Throwable, B]
 ZHandler.define(options)(request => program)
+Response.sendStream(stream)                         // ZIO[ZState[ResponseHead] & HandlerTransport, Throwable, Sent]
+ZHandler.test(handler)(request)                     // IO[E, TestResponse[B]]
 ```
 
-The body type needs a `ResponseBody[B]` (Kyo) or `ZResponseBody[B]` (ZIO) instance: any type with a `NativeConverter`, `Unit`, or a stream of strings. There is no `Env[Request]` and no method that mutates the native response while the program runs.
+The body type needs a `ResponseBody[B]` (Kyo) or `ZResponseBody[B]` (ZIO) instance: any type with a `NativeConverter`, `Unit`, or `Sent`. There is no `Env[Request]`, and `sendStream` is the only method that writes the native response while the program runs. `HandlerTransport` is the request's native response; only h34s builds one (`define` per request, the test helpers in tests).
 
 ### 4.3 Body reading
 
@@ -174,7 +187,7 @@ The default limit is 1 MiB (`BodyLimit.default`); `HandlerOptions.bodyLimit` cha
 
 - Status, headers and cookies live in `Var[ResponseHead]` (Kyo) or `ZState[ResponseHead]` (ZIO). `Response.status`, `header`, `appendHeader`, `cookie`, `deleteCookie`, `redirect` and `head` change or read it.
 - The state starts at `ResponseHead.empty`. The core composes the handler defaults with what the program set, using the pure `ResponseHead.forSuccess` and `forFailure`.
-- h34s writes the head and the body once, after the program and its finalizers finish. A streamed body writes the head just before the first chunk.
+- For a value or `Unit` body, h34s writes the head and the body once, after the program and its finalizers finish. A streaming handler ends with `sendStream`, which writes the head as it stands at the call and then the elements; over a Node socket it also flushes the head at once (`flushHeaders`). The request scope stays open until the stream ends or is cancelled. No other public API writes the native response while the program runs. <!-- claude 2026-10-20: changed: the head of a sent stream is written at the call (ADR-0004, Q1) -->
 
 ### 4.5 The failure rule
 
@@ -185,13 +198,14 @@ Inside the program, recovering from a failure does not roll the head back. This 
 ### 4.6 HandlerOptions and the wire format
 
 <!-- claude 2026-10-19: changed: `requireJsonContentType` defaults to `true` (issue #41) -->
+<!-- claude 2026-10-20: changed: the stream row: sent streams (ADR-0004) -->
 `HandlerOptions(success, errors, defaults, bodyLimit, requireJsonContentType)`; `HandlerOptions.default` is `Data`, `List`, no defaults, 1 MiB, `true`.
 
 | Outcome | Status | Body with the default options |
 | --- | --- | --- |
 | A value | 200, or the status the program set | `{"data": <value>}`. With `SuccessEnvelope.Raw`: the value itself, see below |
 | `Unit` | 204 | None |
-| A stream | 200, or the status the program set | The streamed strings, never wrapped |
+| A sent stream (`Sent`) | 200, or the status the program set before `sendStream` | The streamed strings, never wrapped |
 | A `SafeError` | Its status | `{"errors": [{"message": "..."}]}`; `InvalidInput` gives one entry per app-authored problem, with `path` when known, never input values |
 | Anything else | 500 | `{"errors": [{"message": "Internal server error"}]}` |
 
@@ -284,18 +298,23 @@ Both break the disconnect rule, so they are not used on request paths. The oppos
 
 - **`ZioCall`.** It forks the ZIO effect on the given `Runtime` and observes its `Exit`. The observer completes two Kyo promises: an interruptible one for the normal wait, and an uninterruptible one that a `Scope.ensure` finalizer in the request scope waits on. On Kyo interruption the finalizer interrupts the ZIO fiber and waits for its `Exit`, so ZIO finalizers finish before the core settles the request.
 - **One ZIO fiber per request** (`internal/ZioRequest.scala`). It runs inside `uninterruptibleMask` and owns the `ZState` head: `ZIO.stateful(ResponseHead.empty)(program.exit.zip(ZIO.getState[ResponseHead]))`. The Kyo side then sets its `Var` to that head and re-raises the `Exit`. The core runs `Var` outside `Abort`, so the failure renderer still sees the head.
-- **The request `Scope`.** The Kyo side creates the ZIO `Scope` and always closes it after `stop`, whatever the fiber's `Exit` was (closing twice is a no-op) *(D-13)*. <!-- claude 2026-10-19: changed: a dying finalizer is logged (issue #40) --> For value and `Unit` bodies the fiber closes it first; a dying finalizer is logged and the program's `Exit` stays as it was (see 4.7). For stream bodies it stays open until the core has finished or cancelled the stream *(dev. 26)*.
+- **The request `Scope`.** The Kyo side creates the ZIO `Scope` and always closes it after `stop`, whatever the fiber's `Exit` was (closing twice is a no-op) *(D-13)*. <!-- claude 2026-10-19: changed: a dying finalizer is logged (issue #40) --> For every body the fiber closes it first, after the program; a dying finalizer is logged and the program's `Exit` stays as it was (see 4.7). A stream sent with `Response.sendStream` has ended or was cancelled by then, because the program waits inside `sendStream` *(dev. 26, changed by ADR-0004)*. <!-- claude 2026-10-20: changed: streams are sent inside the program, so the fiber closes the scope for every body (ADR-0004) -->
 - **Exit mapping.** See *(dev. 27)* below. In short: a single typed `SafeError` or `ErrorResponse` stays approved; everything else becomes an internal `ZioDefect` carrying `Cause.prettyPrint` for diagnostics, and renders as the opaque 500.
 - **Runtime.** `ZHandler.define` and `ZShared.layer` take `(using runtime: Runtime[Any] = Runtime.default)`.
 
 ## 8. Streaming
 
-- A handler returns a `kyo.Stream[String, S]` or a `ZStream[Any, E, String]` as its body. Node writes only strings and bytes, so element types other than `String` are not offered *(D-3)*. Encode structured elements yourself, for example as NDJSON.
+<!-- claude 2026-10-20: changed: streams are sent with Response.sendStream (ADR-0004): the head at the call, a failure after it fails the step, in-process streams -->
+
+- **Sent, not returned.** A handler sends a `kyo.Stream[String, S]` or a `ZStream[Any, E, String]` with `Response.sendStream(stream)` and returns the `Sent` value it gives *(item 27)*. `Sent` carries its request's transport, so a `Sent` of another request is a defect. A second `sendStream` in one request is a defect too; the first stream stays the response. Node writes only strings and bytes, so element types other than `String` are not offered *(D-3)*. Encode structured elements yourself, for example as NDJSON.
+- **The transport.** `HandlerTransport` holds the h3 event, the options and three hooks: settle the h3 promise early (socketless), end the connection after a failure (`abandon`: it stops listening for a disconnect, then destroys the socket, so ending it does not interrupt the program), and a promise that completes after the whole request finished. Its state is `Open` (the core writes), `Streaming` (the head is not out yet) or `Sent` (the head is out; the core writes nothing more).
 - **Kyo: one producer fiber, demand-gated.** The producer runs the whole stream (and its resources) in its own scope. Two capacity-1 channels carry requests and deliveries, so no chunk is computed before the Web `ReadableStream` pulls it. The producer runs under the same never-interrupted supervisor as requests (`internal/Supervised.scala`), so a cancel awaits the stream's finalizers *(dev. 6)*.
-- **ZIO: a hand-written pull.** One forked ZIO fiber per chunk and one producer-scope finalizer that stops an in-flight pull and closes the ZIO stream scope, both awaited. Empty chunks are skipped *(dev. 28)*.
-- **Head and failures.** The head is written just before the first chunk, or before an empty stream closes, so a failure before the first chunk still uses the failure rule. A stream without a content type gets `text/plain; charset=utf-8` and `X-Content-Type-Options: nosniff`. A failure after the first chunk destroys the socket. A stream that fails before anything was sent clears the success head it applied. A failed write is reported instead of the producer's interruption.
-- **Needs a real socket.** A stream over Nitro's in-process local fetch (for example a server-side `$fetch` to your own route) is rejected before any stream resource is acquired: an opaque 500.
-- A disconnect interrupts the producer and waits for its cleanup, then releases the request scope.
+- **ZIO: a hand-written pull.** One forked ZIO fiber per chunk and one producer-scope finalizer that stops an in-flight pull and closes the ZIO stream scope, both awaited. Empty chunks are skipped. `zioh3.Response.sendStream` runs the core's send through `internal/KyoCall` (a supervised Kyo worker whose interruption waits for its scope), and it keeps the stream's own `Cause` for the program's failure: the core carries it as a `Throwable`, and a `tapErrorCause` records the original (an interruption alone is a cancel, not a failure).
+- **The head at the call** *(Q1)*. `sendStream` composes the defaults with the head the program set, adds `x-h34s-stream: 1` and, without a content type, `text/plain; charset=utf-8` and `X-Content-Type-Options: nosniff`, and writes it when it is called. Over a Node socket it then calls `flushHeaders()`, so the head leaves before the first element. A head that cannot be written is cleared, and the call fails before anything reached the client, so the core answers with the failure rule.
+- **A failure after the head** *(Q3)*. The status is fixed. Over a socket, the transport abandons the connection (no final chunk, so the response cannot look complete); without one, the caller's reads fail. The `sendStream` step fails with the stream's error (the producer's own failure or panic; the write error when the writer side failed), so the program and a scope or transaction around the step see it. The core logs one failure after the program: the program's own, or the stream's when the program recovered from it.
+- **Without a socket** (Nitro's in-process local fetch, node-mock-http). h3's `sendStream` keeps the stream in `res._data` and resolves at once. h34s writes the head first, encodes chunks as UTF-8 bytes (a Web `Response` accepts only `Uint8Array`), and settles the h3 promise at once, because the local fetch copies status and headers when it settles. The program and the request scope then wait until the caller reads the stream to its end or cancels it. A cancel interrupts the producer and resolves only after the producer and the callee's whole request finished *(Q16)*. Nothing signals a disconnect in-process, so an unread body that nobody cancels keeps the callee open ([ADR-0008](adr/0008-streaming-support-limits.md)).
+- **A disconnect** interrupts the handler and the producer, waits for the stream's finalizers and every scope around `sendStream`, then releases the request scope. A client disconnect after the head is not logged as a failure.
+- **Tests.** The core test helpers collect a sent stream (`TestResponse.Body.Streamed`) in the stream's own scope, so its resources close when it ends, as in a real request.
 
 <!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
 
@@ -361,13 +380,14 @@ Each item says what differs from the first plan and why. Superseded items are fo
 - **Forked Kyo work is awaited** *(D-2, R3 disproved)*. The review expected Kyo to settle before cleanup in work forked by `Async.timeout`, `race`, `gather`, `zip` and a concurrent `foreach`. A test with a 300 ms asynchronous release shows the cleanup finishes first; it stays as a regression test. Only unowned fibers (`Fiber.initUnscoped` without a scope) are not awaited.
 - **`Shared` registers its close hook after a successful acquisition** *(dev. 13)*, not at construction, because route modules can load before Nitro plugins run. `close` returns to idle, and a later `get` acquires again. Waiting promises are uninterruptible, so one cancelled request cannot cancel a shared acquisition.
 - **`close` during the first acquisition** *(D-14, R7)* makes the waiting `get`s fail with `IllegalStateException` instead of handing them a released value. The Nitro hook cannot trigger this, because `Shared` registers only after success; an explicit `close` can.
-- **ZIO request scope** *(dev. 26, D-13, R4, issue #40)*. Value and `Unit` bodies close the ZIO scope inside the fiber. Until `0.2.0-alpha.1`, a dying ZIO finalizer was a 500 even after a success; since the next release (provisionally `0.3.0-alpha.1`) it is logged and the program's `Exit` is kept (see 4.7). This also applies to a streaming handler that fails before it returns its stream. On a client disconnect, the fiber also logs a failed close and keeps the interrupt as its `Exit`; a finalizer that ends in interruption is logged on these in-fiber paths, while `closeScope` after `stop` skips an interruption alone. Stream bodies keep it open until a Kyo request finalizer closes it after the core cancelled or finished the stream (a failure there is logged; the response is already decided). The scope is created on the Kyo side and always closed after `stop`, because an interrupt inside the mask could otherwise drop the `Exit` that carried it. `ZioRequest.run` has an `afterProgram` test seam for that case.
+- **ZIO request scope** *(dev. 26, D-13, R4, issue #40)*. Value and `Unit` bodies close the ZIO scope inside the fiber. Until `0.2.0-alpha.1`, a dying ZIO finalizer was a 500 even after a success; since the next release (provisionally `0.3.0-alpha.1`) it is logged and the program's `Exit` is kept (see 4.7). This applies to streaming handlers too, which send their stream inside the program. <!-- claude 2026-10-20: changed: streams are sent inside the program (ADR-0004) --> On a client disconnect, the fiber also logs a failed close and keeps the interrupt as its `Exit`; a finalizer that ends in interruption is logged on these in-fiber paths, while `closeScope` after `stop` skips an interruption alone. The scope is created on the Kyo side and always closed after `stop`, because an interrupt inside the mask could otherwise drop the `Exit` that carried it. `ZioRequest.run` has an `afterProgram` test seam for that case.
 
 ### 9.7 Streaming
 
 - **Demand-gated Kyo bridge** *(dev. 6)*; see [section 8](#8-streaming).
 - **String streams only** *(D-3, R6, AD-1; replaces dev. 5)*. The first version accepted any element with a `NativeConverter` (and needed `Tag[A]` for Kyo's `Emit`). Node's `res.write` throws for objects and numbers, and the failure surfaced as an `Interrupted` 500 that kept the success head. `null` elements now fail the stream.
-- **ZStream bodies** *(dev. 28)*. Instances exist for `ZStream[Any, E <: Throwable, String]` and a separate one for `ZStream[Any, Nothing, String]`, because type inference does not pick `Nothing`.
+- **ZStream bodies** *(dev. 28, superseded on 2026-10-20 by item 27)*. `0.2.0-alpha.1` had body instances for `ZStream[Any, E <: Throwable, String]` and a separate one for `ZStream[Any, Nothing, String]`, because type inference does not pick `Nothing`. Streams are no longer bodies: `zioh3.Response.sendStream[E <: Throwable](stream: ZStream[Any, E, String])` takes both, because `E` is a type parameter of the method, and `ZResponseBody` has a `Sent` instance instead. <!-- claude 2026-10-20: changed: dev. 28 superseded (ADR-0004) -->
+- **The head at the call and a failing step** *(item 27)*. The prototype of the spike wrote the head lazily over a socket and gave `Sent` after a stream failure. The implementation writes and flushes the head at the call (Q1) and fails the step (Q3); the spike memo records the measurements ([`spike-sendstream-fetch.md`](spike-sendstream-fetch.md), sections 2 and 5). <!-- claude 2026-10-20: created: the deviation from the spike prototype -->
 
 ### 9.8 Configuration, the Nitro plugin and the Nuxt module
 
@@ -424,6 +444,8 @@ These facts come from reading library sources and from experiments during the re
 
 ### Kyo 1.0.0-RC7
 
+<!-- claude 2026-10-20: changed: the merged Env, naming and outcome-aware Scope.ensure facts (ADR-0004, ADR-0006) -->
+
 | Fact | Source |
 | --- | --- |
 | `Abort.run[Throwable]` (and `Abort.catching[Throwable]`) turns every *thrown* exception into a typed `Failure`, because the handler checks `ConcreteTag[Throwable].accepts(ex)`. Only `Abort.run[Any]` keeps thrown exceptions as `Panic`. | kyo-prelude `kyo/Abort.scala` (`runWith`, `catching`) |
@@ -438,6 +460,9 @@ These facts come from reading library sources and from experiments during the re
 | Fatal errors are `VirtualMachineError` or `ControlThrowable`. Kernel handlers skip them; `IOTask.run` completes the fiber with a `Panic` and rethrows into the macrotask. | kyo-data `kyo/IsFatal.scala`; kyo-core `IOTask.scala` |
 | `Frame` cannot be derived inside a package named `kyo`, so h34s code stays in `dev.yuri4n...` and takes `(using Frame)`. | kyo-data `kyo/Frame.scala` |
 | `Promise.init[E, A]` names its type parameters `E, A` but they mean value and effects: call `Promise.init[Value, Abort[Err]]`. | kyo-core `kyo/Fiber.scala` |
+| With two `Env` entries in an effect alias, `Env.run(service)(program)` cannot reduce the remaining pending set (`?1.SReduced` from `kyo.internal.Reducible`), so `KHandler.define(request => Env.run(config)(program(request)))` stops compiling. One entry with an intersection type, `Env[Fetch & HandlerTransport]`, compiles, and two nested `Env.run` calls with the two values eliminate it. | kyo-prelude `kyo/Env.scala`, `kyo/internal/Reducible.scala`; spike memo, section 2.7 |
+| `kyo.Exchange` exists, so a public `kyoh3.Exchange` resolves to Kyo's under `import kyo.*`; the transport is named `HandlerTransport`. A definition named `$fetch` warns `E230` in Scala 3.9.0; `@annotation.nowarn("id=E230")` at the definition silences it, and call sites do not warn. | kyo-core; Scala 3.9.0; spike memo, section 2.7 |
+| `Scope.ensure` has an overload that receives the outcome (`Maybe[Result.Error[Any]]`, `Absent` on success). A `Scope.run` inside a handler passes it an `Abort` failure of its body, and a client disconnect still waits for its asynchronous finalizers. | kyo-core `kyo/Scope.scala`; h34s `HttpStreamSuite` |
 | `Layer.run` memoizes only within one `Memo.run`. Running layers per request rebuilds them per request; build application services once. There is no `Layer.scoped`. | kyo-prelude `kyo/Layer.scala`, `kyo/Memo.scala` |
 | Kyo artifacts pull `locales-full-currencies-db` (about 40 MB of fastLink output). Applications can exclude it. Skunk brings `locales-minimal-en_us-db`, which shadows the full database by classpath order in the ZIO demo. | kyo-data POM; skunk-core 1.0.0-M12 POM |
 
@@ -474,6 +499,8 @@ These facts come from reading library sources and from experiments during the re
 
 ### Nitro, Nuxt and h3
 
+<!-- claude 2026-10-20: changed: the sendStream, local-fetch and preset facts of the spike (ADR-0004, ADR-0008) -->
+
 | Fact | Source |
 | --- | --- |
 | `useRuntimeConfig()` without an event returns a frozen copy with the environment applied once at startup. With an event it deep-clones the config, applies the environment again, and caches the result on `event.context.nitro.runtimeConfig`. | nitropack 2.13.1 and 2.13.3 `dist/runtime/internal/config.mjs` |
@@ -486,6 +513,9 @@ These facts come from reading library sources and from experiments during the re
 | h3 sends a `null` handler result as 204 (`sendNoContent`). In a plain `createApp`, `undefined` falls through to the next handler; in a preemptive router (Nitro) it becomes `null`. A string is sent as `text/html`; an object with a `buffer` key is sent as bytes. | h3 1.15.4 / 1.15.5 `handleHandlerResponse` |
 | h3's `readBody` parses JSON and URL-encoded bodies whatever the content type, with no size limit. `deleteCookie` sends only the options you pass (no `Secure` by default). | h3 1.15.4 `dist/index.mjs` |
 | h34s sets h3's private `_handled` field on a disconnect so h3 sends no fallback 404 for a response h34s ended. It is tested with h3 1.15.4; keep h3 pinned. | h34s `RequestLifecycle.scala` |
+| h3's `sendStream` stores the stream in `res._data`. Without `res.socket` it sets `_handled` and resolves at once without reading the stream; with a socket it pipes a Web stream into `res.write`, ends the response after the last chunk, and never calls `flushHeaders`. It has no close or abort wiring for Web streams. | h3 1.15.4 / 1.15.5 `sendStream`; spike memo, sections 2.1 and 2.2 |
+| Nitro's `localFetch` answers a path that starts with `/` in-process through node-mock-http, whose mock response has no socket, and copies status, headers and `res._data` when the h3 handler promise settles. So a head written later is lost, and a Web `Response` body accepts only `Uint8Array` chunks. No in-process response carries `content-length`. In-process, nothing signals a disconnect; only `ReadableStream.cancel` on the body reaches the callee. | nitropack 2.13.1 `dist/runtime/internal/app.mjs`; node-mock-http 1.0.4; spike memo, sections 2.1 to 2.4 and 2.6 |
+| Many Nitro presets (Cloudflare, Deno, Bun, Vercel Edge, Netlify, AWS Lambda) serve every request through the socketless local call; the node-server preset and the dev worker use `node:http`. No preset was built to check streaming. | nitropack 2.13.1 presets; spike memo, section 2.2 |
 
 ### Node, ZIO and other libraries
 
