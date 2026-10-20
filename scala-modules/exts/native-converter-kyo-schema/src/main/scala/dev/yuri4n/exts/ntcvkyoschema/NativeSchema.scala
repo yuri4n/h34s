@@ -1,7 +1,7 @@
 package dev.yuri4n.exts.ntcvkyoschema
 
-import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, Secret}
-import dev.yuri4n.exts.ntcvkyoschema.internal.NativeValues
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, Secret, WireType}
+import dev.yuri4n.exts.ntcvkyoschema.internal.{NativeTypes, NativeValues}
 import kyo.{Frame, Schema, Structure, ValidationFailedException}
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 
@@ -25,8 +25,18 @@ import scala.scalajs.js
   *
   * There is no blanket instance: only types that derive it, or that call `NativeSchema[A]`, get one.
   * A type can keep a separately derived `NativeConverter`; the two do not conflict.
+  *
+  * The converter also knows the TypeScript type of what it writes (`WireType.Described`), so h34s
+  * types the response of a route that returns it. Records are objects with the field names the
+  * encoder writes (`@rename` included), optional fields may be absent or `null`, collections are
+  * arrays, string-keyed maps are records, `Long` and the other integers are numbers, `Float` and
+  * `Double` are numbers or the strings `"NaN"`, `"Infinity"`, `"-Infinity"`, big numbers,
+  * instants, durations and bytes are strings, and sealed traits and enums are one-key objects (or
+  * objects with the `@discriminator` field). The type is checked against the encoder with sample
+  * values; a schema whose output the structure does not show (fluent `rename`, `drop`, `add`,
+  * omit policies, other union representations) gets `unknown`, never a wrong type.
   */
-trait NativeSchema[A] extends NativeConverter[A]
+trait NativeSchema[A] extends NativeConverter[A] with WireType.Described
 
 /** A Kyo `Schema` for h34s `Secret`: a string on the wire.
   *
@@ -49,6 +59,15 @@ object NativeSchema:
 
         // The structure is only a shape hint; build it on first use, not when the given is created.
         private lazy val shape: Option[Structure.Type] = Some(schema.structure)
+
+        /** Built when a route declaration is written, never while a request runs. */
+        lazy val wireType: WireType = NativeTypes.describe(schema, roundTrip)
+
+        /** Reads a sample with the schema, without its checks, and writes it again. */
+        private def roundTrip(native: js.Any): Option[js.Any] =
+          NativeTypes.attempt(NativeValues.read(native, shape))
+            .flatMap(tree => Structure.decode[A](tree).fold(Some(_), _ => None, _ => None))
+            .flatMap(value => NativeTypes.attempt(value.toNative))
 
         extension (value: A) def toNative: js.Any = NativeValues.write(Structure.encode(value), shape)
 

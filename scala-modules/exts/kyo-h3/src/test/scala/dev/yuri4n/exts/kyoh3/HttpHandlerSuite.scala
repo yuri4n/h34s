@@ -347,6 +347,46 @@ class HttpHandlerSuite extends FunSuite:
         assertEquals(chosen._2.get("content-type").map(_.toString), Some("text/html; charset=utf-8"))
     }
 
+    // claude 2026-10-19: created: JSON text turns NaN and the infinities into null, which the generated `number` does not describe
+    test("a value body with NaN or an infinite number is an opaque 500; finite numbers answer as before") {
+      val raw = HandlerOptions(success = SuccessEnvelope.Raw)
+      val nonFinite: List[(String, EventHandler)] = List(
+        "NaN"                    -> KHandler.define(_ => Double.NaN),
+        "Infinity"               -> KHandler.define(_ => Double.PositiveInfinity),
+        "-Infinity in a List"    -> KHandler.define(_ => List(1.0, Double.NegativeInfinity)),
+        "Float NaN in an Option" -> KHandler.define(_ => Option(Float.NaN)),
+        "Raw NaN"                -> KHandler.define(raw)(_ => Double.NaN),
+        "Raw NaN in a Map"       -> KHandler.define(raw)(_ => Map("x" -> Double.NaN)),
+      )
+      // The failure rule holds: handler defaults and OnFailure.Keep entries survive, other entries go.
+      val kept = KHandler.define(HandlerOptions(defaults = ResponseHead.noStore))(_ =>
+        Response.header("x-request-id", "abc", OnFailure.Keep)
+          .andThen(Response.header("x-success-only", "1"))
+          .andThen(Double.NaN),
+      )
+      def call(handler: EventHandler) =
+        withServer(handler)((server, port) => exchange(port, Nil, Map.empty).map((_, server.transportErrors)))
+      val rejected = nonFinite.foldLeft(Future.unit) { case (previous, (label, handler)) =>
+        previous.flatMap(_ => call(handler)).map { case ((status, _, body), transportErrors) =>
+          assertEquals((status, body), (500, KyoTesting.opaque), label)
+          assertEquals(transportErrors, 0, label)
+        }
+      }
+      for
+        _ <- rejected
+        ((keptStatus, keptHeaders, _), _) <- call(kept)
+        ((finite, _, finiteBody), _) <- call(KHandler.define(_ => List(1.5, -0.0, Double.MaxValue)))
+        ((rawFinite, rawHeaders, rawBody), _) <- call(KHandler.define(raw)(_ => 1.5))
+      yield
+        assertEquals(keptStatus, 500)
+        assertEquals(keptHeaders.get("cache-control").map(_.toString), Some("no-store"))
+        assertEquals(keptHeaders.get("x-request-id").map(_.toString), Some("abc"))
+        assertEquals(keptHeaders.get("x-success-only"), None)
+        assertEquals((finite, finiteBody), (200, "{\"data\":[1.5,0,1.7976931348623157e+308]}"))
+        assertEquals((rawFinite, rawBody), (200, "1.5"))
+        assertEquals(rawHeaders.get("content-type").map(_.toString), Some("application/json"))
+    }
+
     /** Starts one request, waits for `started`, then destroys the client side of it. */
     private def abortAfter(port: Int, started: Future[Unit]): Future[Unit] =
       val request = NodeHttp.request(js.Dynamic.literal(hostname = "127.0.0.1", port = port, path = "/pending"), _ => ())

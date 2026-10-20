@@ -1,8 +1,11 @@
-import { spawnSync } from 'node:child_process'
-import { lstatSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { lstatSync, mkdirSync, realpathSync, rmSync, statSync, watch } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { writeRoutes } from './routes.mjs'
+
+export { manifestFile, readRoutes, writeRoutes } from './routes.mjs'
 
 function inside(parent, child) {
   const path = relative(parent, child)
@@ -68,9 +71,12 @@ export function defineConfig(config) {
       throw new TypeError('Scala.js output directories must not overlap')
     }
     outputs.push(directory)
+    // Optional: without entries, the linked output must contain at least one h34s handler.
+    if (module.entries === undefined)
+      continue
     if (!Array.isArray(module.entries) || module.entries.length === 0) {
       throw new TypeError(
-        'Each Scala.js module needs at least one expected entry',
+        'entries must be a nonempty list of expected .js entries, or omitted',
       )
     }
     for (const entry of module.entries) {
@@ -115,7 +121,7 @@ export function verifyScalaOutputs({ root = process.cwd(), config }) {
   defineConfig(config)
   const directories = outputPaths(root, config)
   for (const [index, module] of config.modules.entries()) {
-    for (const entry of module.entries) {
+    for (const entry of module.entries ?? []) {
       const output = resolve(directories[index], entry)
       const file = statSync(output, { throwIfNoEntry: false })
       if (
@@ -177,4 +183,65 @@ export function linkScala({
 
 export function buildScala(options) {
   return linkScala({ ...options, mode: 'build' })
+}
+
+/**
+ * Keeps sbt linking on source changes, and writes the route manifests and declarations again
+ * after each link. Resolves when sbt exits.
+ */
+export function watchScala({
+  root = process.cwd(),
+  config,
+  start = spawn,
+  collect = writeRoutes,
+  quiet = 300,
+  log = console,
+} = {}) {
+  defineConfig(config)
+  root = resolve(root)
+  const directories = outputPaths(root, config)
+  const tasks = [...new Set(config.modules.map(module => `${module.project ? `${module.project}/` : ''}fastLinkJS`))]
+  const windows = process.platform === 'win32'
+  const child = start(windows ? 'sbt.bat' : 'sbt', ['-Dsbt.supershell=false', '-batch', `~;${tasks.join(';')}`], {
+    cwd: root,
+    stdio: 'inherit',
+    ...(windows ? { shell: true } : {}),
+  })
+  let timer
+  let running = Promise.resolve()
+  function scheduled() {
+    clearTimeout(timer)
+    // The linker writes several files: collect once they are all written.
+    timer = setTimeout(() => {
+      running = running.then(() => collect({ root, config })).then(
+        () => log.info('[h34s] Routes and declarations updated'),
+        error => log.error(`[h34s] ${error.message}`),
+      )
+    }, quiet)
+  }
+  const watchers = directories.map((directory) => {
+    mkdirSync(directory, { recursive: true })
+    return watch(directory, (_event, file) => {
+      if (typeof file === 'string' && file.endsWith('.js'))
+        scheduled()
+    })
+  })
+  return new Promise((resolvePromise, reject) => {
+    function stop() {
+      clearTimeout(timer)
+      for (const watcher of watchers)
+        watcher.close()
+    }
+    child.once('error', (error) => {
+      stop()
+      reject(error)
+    })
+    child.once('exit', (code, signal) => {
+      stop()
+      if (signal || code !== 0)
+        reject(new Error(`Scala watch linking stopped (${signal || `exit ${code}`})`))
+      else
+        resolvePromise()
+    })
+  })
 }

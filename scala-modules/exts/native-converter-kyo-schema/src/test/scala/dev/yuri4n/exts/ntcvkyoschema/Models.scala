@@ -94,6 +94,16 @@ object Models:
         def make(value: Int): Either[String, Even] = if value % 2 == 0 then Right(new Even(value) {}) else Left("odd")
         given Schema[Even] = Schema.derivedVia(make)
 
+    /** A fluent rename: the structure still says `street`, the encoder writes `road`. */
+    final case class Road(street: String, zip: Option[String])
+    object Road:
+        given Schema[Road] = Schema[Road].rename("street", "road")
+
+    /** A derived schema whose nested field type has the fluent rename. */
+    final case class Trip(name: String, road: Road) derives NativeSchema
+    object Trip:
+        given Schema[Trip] = Schema.derived
+
     /** Keeps its own derived NativeConverter; a NativeSchema can still be built explicitly. */
     final case class Message(text: String) derives NativeConverter
     object Message:

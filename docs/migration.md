@@ -122,7 +122,7 @@ val createNote: EventHandler = AppHandler.define(create)
 
 ## 4. Update your clients
 
-The wire format changed. Update your TypeScript types and `fetch` code:
+The wire format changed. Update your `fetch` code, and remove the TypeScript interfaces you wrote for these bodies: the generated declarations type `$fetch` (see [routes and typed `$fetch`](routes.md)):
 
 | Response | 0.1.0-alpha.1 | Now (default options) |
 | --- | --- | --- |
@@ -131,6 +131,9 @@ The wire format changed. Update your TypeScript types and `fetch` code:
 | A stream | Through `sendStream` | The stream of strings as the body, as UTF-8 text; `text/plain; charset=utf-8` unless you set a content type |
 | A safe error | `{"errors": ["message"]}` | `{"errors": [{"message": "..."}]}`, with `path` for schema entries |
 | An internal error | `{"errors": ["Internal server error"]}`, plus top-level `debug` in development | `{"errors": [{"message": "Internal server error"}]}`; in development or debug mode the entry carries `debug.cause` |
+
+<!-- claude 2026-10-19: changed: added the change for NaN and infinite numbers -->
+A value body that contains `NaN` or an infinite number (`Double`, `Float`) is now the opaque 500. `0.1.0-alpha.1` and `0.2.0-alpha.1` sent these numbers as `null`. If a value can be non-finite, return an `Option` or a string for it instead.
 
 To keep the old success shape for a handler, pass `HandlerOptions(success = SuccessEnvelope.Raw)`. A `Raw` string is sent as `text/plain; charset=utf-8` and any other value as JSON text with `application/json`, unless you set a content type; h3 no longer guesses (it sent strings as `text/html`). There is no option for the old string-array errors.
 
@@ -147,6 +150,16 @@ Body problems now have their own statuses: 415 for a non-JSON content type, 413 
 Keep `@yuri4n/h34s-nuxt` in `modules`. Its Nitro plugin is now `runtime/h34s.mjs` and supplies the development and debug flags, runtime config, storage and the close hook. The module registers it for you. If you registered `runtime/development.mjs` yourself, remove that entry; the old file still re-exports the new plugin for one release.
 
 The module also declares `runtimeConfig.h34s.debug: false`, so `NUXT_H34S_DEBUG=true` turns on diagnostics at runtime. Nuxt's own `debug` option does not turn them on. Keep debug mode off in production; see [debugging](debugging.md).
+
+<!-- claude 2026-10-19: changed: merged main's wording with the route-generation additions -->
+Mount your handlers from Scala, then delete the route files:
+
+1. Add `.at(Route.get("/api/notes"))` (with the route and method of the file) to each exported handler.
+2. Remove `entries` from `h34s.config.mjs`, or keep them for outputs that still have route files.
+3. Link with `h34s-scala dev`. It prints the routes it found and writes `h34s-routes.json` and the `.d.ts` files.
+4. Delete the `server/api` files that re-export the linked modules, and the hand-written `declare module` types for them. A route file and `.at` for the same route register the handler twice.
+
+Route files keep working if you want to move later. See [routes and typed `$fetch`](routes.md).
 
 Use the package version that matches your Scala libraries: `@yuri4n/h34s-nuxt@0.2.0-alpha.1`. The `0.1.0-alpha.1` package lacks the new plugin records, and `RuntimeConfig` and `KHubKv.mount` then fail with `ConfigError`.
 

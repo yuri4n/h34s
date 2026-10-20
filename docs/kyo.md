@@ -26,19 +26,15 @@ import scala.scalajs.js.annotation.JSExportTopLevel
 final case class Greeting(message: String) derives NativeConverter
 
 @JSExportTopLevel("default", "hello-get")
-val hello: EventHandler = KHandler.define: request =>
-    Greeting(s"Hello from ${request.path}")
+val hello: EventHandler = KHandler
+  .define: request =>
+      Greeting(s"Hello from ${request.path}")
+  .at(Route.get("/api/hello"))
 ```
 
 The response is `200` with `{"data":{"message":"Hello from <path>"}}`. The function runs once per request, never when the module loads.
 
-Export each handler as the `default` export of its own Scala.js module, as above. Then mount it with a one-line route file in your Nuxt app, for example `server/api/hello.get.ts`:
-
-```ts
-export { default } from '../.scala/hello-get.js'
-```
-
-This route file is the one piece of JavaScript you still write. Generated route registration is planned.
+Export each handler as the `default` export of its own Scala.js module, as above, and give it a route with `.at`. After `h34s-scala` links your modules, the Nuxt module mounts the route, and Nuxt types `$fetch('/api/hello')` from the generated declaration. You write no route file. See [routes and typed `$fetch`](routes.md).
 
 ## Read the request
 
@@ -154,6 +150,9 @@ Pass `HandlerOptions` to `KHandler.define(options)(program)`:
 
 Streams and `Unit` bodies are never wrapped.
 
+<!-- claude 2026-10-19: changed: added the rule for NaN and infinite numbers -->
+JSON has no `NaN` or infinity, and `JSON.stringify` would send them as `null`. So h34s answers a value body that contains one with the opaque 500, in both envelopes, and a `number` in the generated type is always a finite number.
+
 ## Compose services in your AppHandler
 
 Write one wiring point that provides your services to every handler. The demo calls it `AppHandler`; you choose the name. Define your service first:
@@ -182,11 +181,13 @@ Endpoints then ask for the service:
 
 ```scala
 @JSExportTopLevel("default", "kyo-greeting-post")
-val personalizedGreeting: EventHandler = AppHandler.define: request =>
-    for
-      input    <- request.body.json[GreetingRequest]
-      greeting <- Env.use[Greetings](_.greet(input.name))
-    yield greeting
+val personalizedGreeting: EventHandler = AppHandler
+  .define: request =>
+      for
+        input    <- request.body.json[GreetingRequest]
+        greeting <- Env.use[Greetings](_.greet(input.name))
+      yield greeting
+  .at(Route.post("/api/kyo/greeting"))
 ```
 
 `HandlerEffects` is `Async & Scope & Abort[Throwable] & Var[ResponseHead]`: the effects the core handles. Resolve every other effect, such as `Env[Greetings]`, before you pass the program to `KHandler.define`.
