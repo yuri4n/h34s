@@ -54,23 +54,26 @@ object HandlerTestSpec extends ZIOSpecDefault:
         )
         // endregion guide-zio-services
       },
-      test("a sent stream is collected in order; the stream's scope closes before the request scope") {
+      test("the guide's stream example: a sent stream is collected in order") {
+        // region guide-zio-stream
+        val handler: Request => ZIO[HandlerEnv, Throwable, Sent] = _ =>
+          Response.header("content-type", "application/x-ndjson") *> Response.sendStream(ZStream("1\n", "2\n"))
+
+        for response <- ZHandler.test(handler)(Request.fake())
+        yield assertTrue(response.body == TestResponse.Body.Streamed(List("1\n", "2\n")))
+        // endregion guide-zio-stream
+      },
+      test("a sent stream's scope closes before the request scope") {
         for
           events <- Ref.make(Vector.empty[String])
           stream = ZStream.unwrapScoped(
             ZIO.acquireRelease(ZIO.unit)(_ => events.update(_ :+ "stream released")).as(ZStream("1\n", "2\n")),
           )
-          // region guide-zio-stream
-          handler = (_: Request) =>
-            ZIO.addFinalizer(events.update(_ :+ "request released")) *>
-              Response.header("content-type", "application/x-ndjson") *>
-              Response.sendStream(stream)
+          handler = (_: Request) => ZIO.addFinalizer(events.update(_ :+ "request released")) *> Response.sendStream(stream)
           response <- ZHandler.test(handler)(Request.fake())
-          // endregion guide-zio-stream
           order <- events.get
         yield assertTrue(
           response.body == TestResponse.Body.Streamed(List("1\n", "2\n")),
-          response.header("content-type").contains("application/x-ndjson"),
           order == Vector("stream released", "request released"),
         )
       },

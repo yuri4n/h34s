@@ -34,11 +34,14 @@ class HandlerTestSuite extends FunSuite:
       val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = Some("""{"name":"Scala"}"""))
       val program = KHandler.test(handler)(request)
       // program: TestResponse[Greeting] < (Async & Abort[Throwable])
-      // endregion guide-kyo-test
-      response(program).map { result =>
-        assertEquals(result.status, Some(Status.Created))
-        assertEquals(result.body, TestResponse.Body.Value(Greeting("Hello, Scala")))
+
+      import AllowUnsafe.embrace.danger
+      Fiber.Unsafe.init(Abort.run[Throwable](program)).toFuture().map { result =>
+        val response = result.getOrThrow
+        assertEquals(response.status, Some(Status.Created))
+        assertEquals(response.body, TestResponse.Body.Value(Greeting("Hello, Scala")))
       }
+      // endregion guide-kyo-test
     }
 
     test("services are provided inside the function with Env.run, as for KHandler.define") {
@@ -55,22 +58,29 @@ class HandlerTestSuite extends FunSuite:
       response(program).map(result => assertEquals(result.body, TestResponse.Body.Value(Greeting("Hi, Ada"))))
     }
 
-    test("a sent stream is collected in order; its scope closes when it ends, before the request scope") {
-      var events = Vector.empty[String]
-      val stream = Stream[String, Async & Scope] {
-        Scope.ensure(Sync.defer { events = events :+ "stream released" }).andThen(Emit.value(Chunk("1\n", "2\n")))
-      }
+    test("the guide's stream example: a sent stream is collected in order") {
       // region guide-kyo-stream
       val handler: Request => Sent < HandlerEffects = _ =>
-        Scope.ensure(Sync.defer { events = events :+ "request released" })
-          .andThen(Response.header("content-type", "application/x-ndjson"))
-          .andThen(Response.sendStream(stream))
+        Response.header("content-type", "application/x-ndjson").andThen(Response.sendStream(Stream.init(Seq("1\n", "2\n"))))
 
       val program = KHandler.test(handler)(Request.fake())
+      // the body of the result: TestResponse.Body.Streamed(List("1\n", "2\n"))
       // endregion guide-kyo-stream
       response(program).map { result =>
         assertEquals(result.body, TestResponse.Body.Streamed(List("1\n", "2\n")))
         assertEquals(result.header("content-type"), Some("application/x-ndjson"))
+      }
+    }
+
+    test("a sent stream's scope closes when the stream ends, before the request scope") {
+      var events = Vector.empty[String]
+      val stream = Stream[String, Async & Scope] {
+        Scope.ensure(Sync.defer { events = events :+ "stream released" }).andThen(Emit.value(Chunk("1\n", "2\n")))
+      }
+      val handler: Request => Sent < HandlerEffects = _ =>
+        Scope.ensure(Sync.defer { events = events :+ "request released" }).andThen(Response.sendStream(stream))
+      response(KHandler.test(handler)(Request.fake())).map { result =>
+        assertEquals(result.body, TestResponse.Body.Streamed(List("1\n", "2\n")))
         assertEquals(events, Vector("stream released", "request released"))
       }
     }

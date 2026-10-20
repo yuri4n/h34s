@@ -39,6 +39,19 @@ class HttpStreamSuite extends FunSuite:
       }
     }
 
+    // claude 2026-10-20: created: the streaming guide's Kyo example (docs/content/1.guide/09.streaming.md); keep them equal
+    test("the guide's example sends abc with status 202") {
+      val call = Call("/stream")
+      val letters: EventHandler = KHandler.define: _ =>
+          Response.status(Status.Accepted)
+            .andThen(Response.header("content-type", "text/plain"))
+            .andThen(Response.sendStream(Stream.init(Seq("a", "b", "c"))))
+      call.invoke(letters).map { _ =>
+        assertEquals(call.response.status, 202)
+        assertEquals(call.response.chunks.mkString, "abc")
+      }
+    }
+
     test("an empty stream still writes the head and ends the response") {
       val call = Call("/stream")
       call.invoke(KHandler.define(_ => Response.status(Status.NoContent).andThen(Response.sendStream(Stream.empty[String])))).map { _ =>
@@ -207,6 +220,32 @@ class HttpStreamSuite extends FunSuite:
         assertEquals(call.response.writes, 0)
         assertEquals(logged.count(_.contains("the third element failed")), 1, logged.toString)
       }
+    }
+
+    // claude 2026-10-20: created: a Scope.run around sendStream keeps the disconnect order (ADR-0004, Q3 guidance)
+    test("a disconnect waits for the asynchronous finalizers of a Scope.run around sendStream before the request settles") {
+      var events = Vector.empty[String]
+      val call = Call("/stream")
+      val stream = Stream[String, Async & Scope] {
+        Scope.ensure(Async.sleep(30.millis).andThen(Sync.defer { events = events :+ "stream released" }))
+          .andThen(Emit.value(Chunk("first")))
+          .andThen(Async.never[Unit])
+      }
+      val handler = KHandler.define { _ =>
+        Scope.run(
+          Scope.ensure(Async.sleep(30.millis).andThen(Sync.defer { events = events :+ "inner scope released" }))
+            .andThen(Response.sendStream(stream)),
+        )
+      }
+      val running = call.invoke(handler)
+      val checked = for
+        _ <- call.response.firstWrite.future
+        _ = call.response.disconnect()
+        body <- running
+      yield
+        assert(js.isUndefined(body))
+        assertEquals(events, Vector("stream released", "inner scope released"))
+      TestDeadline(checked)
     }
 
     // claude 2026-10-20: created: a stream failure on the socketless path errors the caller's reads and fails the step (ADR-0004, Q3)

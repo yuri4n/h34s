@@ -31,6 +31,15 @@ object HttpStreamSpec extends ZIOSpecDefault:
           call.response.ended, !call.response.hasListener, call.handled,
         )
       },
+      // claude 2026-10-20: created: the streaming guide's ZIO example (docs/content/1.guide/09.streaming.md); keep them equal
+      test("the guide's example sends abc with status 202") {
+        val call = Call("/stream")
+        val letters: EventHandler = ZHandler.define(_ =>
+          Response.status(Status.Accepted) *> Response.header("content-type", "text/plain") *> Response.sendStream(ZStream("a", "b", "c")),
+        )
+        for _ <- call.invoke(letters)
+        yield assertTrue(call.response.status == 202, call.response.chunks.mkString == "abc")
+      },
       test("an empty stream still writes the head and ends the response") {
         val call = Call("/stream")
         for _ <- call.invoke(ZHandler.define(_ => Response.status(Status.NoContent) *> Response.sendStream(ZStream.empty)))
