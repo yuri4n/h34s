@@ -67,6 +67,20 @@ test('a tag needs its release notes before anything is published', (t) => {
   assert.equal(checkRelease(root, tag), '0.2.0')
 })
 
+// claude 2026-10-19: created: a tag must not leave the placeholder notes behind
+test('a tag refuses the placeholder notes that were not renamed', (t) => {
+  const root = fixture(t)
+  const tag = { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v0.2.0' }
+  mkdirSync(join(root, '.github/release-notes'), { recursive: true })
+  writeFileSync(join(root, '.github/release-notes/0.2.0.md'), 'Notes\n')
+  writeFileSync(join(root, '.github/release-notes/unreleased.md'), 'Placeholder\n')
+  assert.throws(() => checkRelease(root, tag), /unreleased\.md still exists/)
+  // Pull request validation keeps accepting the placeholder while work lands.
+  assert.equal(checkRelease(root, {}), '0.2.0')
+  rmSync(join(root, '.github/release-notes/unreleased.md'))
+  assert.equal(checkRelease(root, tag), '0.2.0')
+})
+
 test('a snapshot passes only pull request validation, never a tag', (t) => {
   const root = fixture(t, { version: '0.2.0-SNAPSHOT' })
   assert.throws(() => checkRelease(root, {}), /concrete release version/)

@@ -105,3 +105,99 @@ jobs:
         run: sbt -batch releasePublishLocal
       - name: Verify independent Maven consumers
         run: node scripts/check-consumers.mjs
+
+  # claude 2026-10-19: created: the demo and the database guide's kyo-sql code against PostgreSQL 16 (issue #29)
+  postgres:
+    # Release tags validate the libraries only (maintainer decision, 2026-10-19). In a workflow that
+    # release.yml calls, github.ref is the tag.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: h34s
+          POSTGRES_DB: h34s
+          # A throwaway password for this job's database only. It is not a secret.
+          POSTGRES_PASSWORD: h34s-ci-only
+          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U h34s -d h34s"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NUXT_DATABASE_HOST: 127.0.0.1
+      NUXT_DATABASE_PORT: '5432'
+      NUXT_DATABASE_USER: h34s
+      NUXT_DATABASE_NAME: h34s
+      NUXT_DATABASE_PASSWORD: h34s-ci-only
+      PGPASSWORD: h34s-ci-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: sbt/setup-sbt@v1
+        with:
+          sbt-runner-version: 1.11.7
+          disk-cache: false
+      - name: Install JavaScript dependencies with their install scripts
+        # The Nuxt build needs the better-sqlite3 addon and `nuxt prepare`.
+        run: pnpm install --frozen-lockfile
+      - name: Check SCRAM authentication and apply the example schema
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U h34s -d h34s -tAc "select left(rolpassword, 14) from pg_authid where rolname = 'h34s'" | grep -Fx 'SCRAM-SHA-256$'
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U h34s -d h34s -f examples/nuxt/scala/zio/src/main/resources/sql/01-init.sql
+      - name: Run the database guide's kyo-sql code
+        env:
+          H34S_POSTGRES_URL: postgres://h34s:h34s-ci-only@127.0.0.1:5432/h34s
+          # Fail instead of skipping when the URL is missing.
+          H34S_POSTGRES_REQUIRED: 'true'
+        run: sbt -batch kyoExample/test
+      # claude 2026-10-19: created: the suite's cleanup only logs a failure, so check its result here
+      - name: Check that the kyo-sql suite removed its rows
+        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U h34s -d h34s -tAc "select count(*) from notes where text like 'h34s kyo-sql %'" | grep -Fx 0
+      - name: Build the example for production
+        run: pnpm build
+      - name: Serve the build, run the smoke checks, and stop it with SIGTERM
+        working-directory: examples/nuxt
+        run: |
+          set -euo pipefail
+          # Count client sessions only: here h34s is the bootstrap superuser, which also owns the
+          # logical replication launcher.
+          sessions() {
+            psql -h 127.0.0.1 -U h34s -d h34s -tAc "select count(*) from pg_stat_activity where usename = 'h34s' and backend_type = 'client backend' and pid <> pg_backend_pid()"
+          }
+          node .output/server/index.mjs > "$RUNNER_TEMP/server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true; cat "$RUNNER_TEMP/server.log"' EXIT
+          for _ in $(seq 60); do curl -fs -o /dev/null http://127.0.0.1:3000/api/test && break; sleep 1; done
+          node ../../scripts/smoke.mjs
+          requests=()
+          for _ in $(seq 8); do curl -fsS -o /dev/null http://127.0.0.1:3000/api/notes & requests+=($!); done
+          for request in "${requests[@]}"; do wait "$request"; done
+          open=$(sessions)
+          echo "Open sessions before SIGTERM: $open"
+          test "$open" -gt 0
+          kill -TERM "$server"
+          status=0
+          wait "$server" || status=$?
+          echo "Server exit status: $status"
+          test "$status" -eq 0
+          for _ in $(seq 20); do [ "$(sessions)" -eq 0 ] && break; sleep 0.5; done
+          echo "Open sessions after SIGTERM: $(sessions)"
+          test "$(sessions)" -eq 0
