@@ -25,7 +25,7 @@ const shim = join(app, '.nuxt/h34s-vue-shim.d.ts')
 writeFileSync(shim, 'declare module \'*.vue\' {\n  const component: unknown\n  export default component\n}\n')
 writeFileSync(config, JSON.stringify({
   extends: './tsconfig.app.json',
-  include: ['./nuxt.d.ts', './h34s-vue-shim.d.ts', '../app/utils/scala-api.ts', '../test/route-types.ts'],
+  include: ['./nuxt.d.ts', './h34s-vue-shim.d.ts', '../app/utils/scala-api.ts', '../app/composables/useNotes.ts', '../test/route-types.ts'], // claude 2026-10-20: changed: also the composable that types useAsyncData with NoteView (ADR-0014)
 }))
 try {
   const tsc = createRequire(join(app, 'package.json')).resolve('typescript/bin/tsc')

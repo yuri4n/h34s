@@ -12,8 +12,11 @@ import zio.{Scope, Task, ZEnvironment, ZIO, ZLayer}
 /** A note in the application: what the service creates and lists. It has no wire or table format. */
 final case class Note(id: Int, text: String)
 
+// claude 2026-10-20: changed: the region that the routes guide shows (ADR-0014)
+// region guide-models-scala
 /** The JSON that the Notes routes send. One derivation: the ZIO Schema and the native converter. */
 final case class NoteView(id: Int, text: String) derives Schema, NativeSchema
+// endregion guide-models-scala
 
 object NoteView:
     def from(note: Note): NoteView = NoteView(note.id, note.text)

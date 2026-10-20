@@ -1,6 +1,9 @@
+import type { NoteView } from '#h34s/models'
+
 // Calls to the Scala handlers. Their response types come from the `.d.ts` files that
 // `h34s-scala` writes next to the linked modules, so `$fetch` is typed without hand-written
-// interfaces. Errors use `{ errors: [{ message, path? }] }`: read them from `FetchError.data`.
+// interfaces. The models they return, such as `NoteView`, come from `#h34s/models`.
+// Errors use `{ errors: [{ message, path? }] }`: read them from `FetchError.data`.
 
 /** The Kyo greeting: `GET /api/kyo/greeting`, or `POST` with a name. */
 export async function fetchGreeting(name?: string): Promise<string> {
@@ -11,7 +14,7 @@ export async function fetchGreeting(name?: string): Promise<string> {
 }
 
 /** The ZIO notes: `GET /api/notes`. Needs PostgreSQL. */
-export async function fetchNotes(): Promise<{ id: number, text: string }[]> {
+export async function fetchNotes(): Promise<NoteView[]> {
   const { data } = await $fetch('/api/notes')
   return data
 }
