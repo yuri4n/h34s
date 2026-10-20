@@ -27,6 +27,8 @@ export default defineConfig({
 
 `project` is an sbt project ID; omit it for the root project. `entries` (for example `['notes-get.js']`) is optional: list the linked files that you mount with your own route files. Without it, the output must contain at least one h34s handler. Configure both `fastLinkJS` and `fullLinkJS` in `build.sbt` to emit ES modules into `output`, with development source maps enabled. The package does not change those Scala settings. Keep only generated files in `output`: a production build clears its previous contents.
 
+`sbtRoot` is optional: the directory of your sbt build, where the CLI runs sbt, relative to the config file (default `'.'`, the config file's directory). Set `sbtRoot: '..'` for a Nuxt app in `web/` below the sbt build, or `sbtRoot: '../scala-server'` for an sbt build next to the app. The outputs stay relative to the application root, and in development the module also embeds the Scala sources under `sbtRoot` in the source maps. The CLI stops before sbt starts when `sbtRoot` has no `build.sbt` and no `project/` directory. <!-- claude 2026-10-20: created: the sbtRoot key (ADR-0009) -->
+
 Enable the Nuxt module:
 
 ```ts
@@ -60,7 +62,7 @@ After each link, the CLI loads the linked modules in a separate Node process and
 
 `build` clears previous output, runs `fullLinkJS`, verifies every configured entry, and writes the route manifests and declarations before succeeding. Keep this step before Nuxt production builds. The Nuxt module does not run a production link automatically.
 
-The CLI accepts `--root <directory>` and `--config <file>`. Point the CLI and the Nuxt module at the same application config; sbt is resolved from `PATH`. <!-- claude 2026-10-19: changed: module options moved to their own list -->
+The CLI accepts `--root <directory>`, the application root (default: the current directory), and `--config <file>`, relative to that root. Point the CLI and the Nuxt module at the same application config; sbt is resolved from `PATH`. <!-- claude 2026-10-20: changed: the flags' defaults (ADR-0009) -->
 
 The Nuxt module accepts these options, for example `modules: [['@yuri4n/h34s-nuxt', { scalaPrerender: 'stub' }]]`: <!-- claude 2026-10-19: created: module options list -->
 
