@@ -9,9 +9,9 @@
     "generate": "pnpm run scala:full && node --max-old-space-size=8192 node_modules/nuxt/bin/nuxt.mjs generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "scala:fast": "pnpm --dir ../.. run scala:fast",
-    "scala:full": "pnpm --dir ../.. run scala:full",
-    "scala:watch": "pnpm --dir ../.. run scala:watch",
+    "scala:fast": "h34s-scala dev",
+    "scala:full": "h34s-scala build",
+    "scala:watch": "h34s-scala watch",
     "dev:scala": "pnpm run scala:fast && pnpm run dev"
   },
   "devDependencies": {
