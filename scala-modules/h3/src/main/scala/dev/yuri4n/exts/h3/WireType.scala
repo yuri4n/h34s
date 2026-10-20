@@ -42,29 +42,30 @@ enum WireType:
       *
       * `scalaType` is the Scala type's full name, when it is known: error messages and the models
       * file's comments show it. Inside the structure of a model, a `Named` with the same name
-      * refers to that model (a recursive type). Elsewhere, a `Named` whose target is `Unknown` has nothing to declare: it renders as
-      * `unknown` and is not exported. A name that is not a TypeScript identifier, or that h34s
-      * uses itself (see `WireType.reservedNames`), is not exported either: its structure is
-      * written out where it is used.
+      * refers to that model (a recursive type). Elsewhere, a `Named` whose target is `Unknown` has
+      * nothing to declare: it renders as `unknown` and is not exported. A name that is not a
+      * TypeScript identifier, or that TypeScript or h34s use themselves (a keyword, `Array`,
+      * `Record`, `Promise`, `SuccessBody`, `ErrorBody`, `EventHandler` or `EventHandlerRequest`),
+      * is not exported either: its structure is written out where it is used.
       */
     case Named(name: String, target: WireType, scalaType: Option[String] = None)
 
     /** The TypeScript syntax of this type, with every model written out. */
     def render: String = WireType.render(this, _ => false)
 
-    // claude 2026-10-20: created: the rendering with references to named models (ADR-0014)
+    // claude 2026-10-20: created: the rendering with references to named models, internal to h34s (ADR-0014)
     /** The TypeScript syntax of this type, with a reference to each named model, for example
       * `Array<Note>`. `models` gives the declarations of those names.
       */
-    def renderNamed: String = WireType.render(this, WireType.refers(Nil))
+    private[exts] def renderNamed: String = WireType.render(this, WireType.refers(Nil))
 
-    // claude 2026-10-20: created: the named models of this type (ADR-0014)
+    // claude 2026-10-20: created: the named models of this type, internal to h34s (ADR-0014)
     /** The named models that `renderNamed` refers to, directly or through other models, each once,
       * in dependency order: a model comes after the models it uses (a recursive model refers to
       * itself). Two models with the same name and different definitions are both listed:
       * `h34s-scala` reports them.
       */
-    def models: List[WireModel] = WireType.modelsOf(List(this))
+    private[exts] def models: List[WireModel] = WireType.modelsOf(List(this))
 
     /** Whether this type describes `value`, a native value as it reaches the client (after
       * `JSON.parse(JSON.stringify(...))`). An object must not have keys that the type does not list.
@@ -75,13 +76,18 @@ enum WireType:
 /** One field of an object type. An optional field may be absent from the object. */
 final case class WireField(name: String, fieldType: WireType, optional: Boolean = false)
 
-// claude 2026-10-20: created: one declaration of the models file (ADR-0014)
+// claude 2026-10-20: created: one declaration of the models file, internal to h34s (ADR-0014)
 /** The declaration of one named model: `export type <name> = <definition>`.
   *
   * `definition` refers to other models by name; `uses` lists the names it refers to directly.
   * `scalaType` is the Scala type's full name, when it is known.
   */
-final case class WireModel(name: String, definition: String, scalaType: Option[String], uses: List[String])
+private[exts] final case class WireModel(
+    name: String,
+    definition: String,
+    scalaType: Option[String],
+    uses: List[String],
+)
 
 object WireType:
     /** A converter that knows the TypeScript type of the values it writes.
@@ -172,13 +178,13 @@ object WireType:
         case named: Named       => if reference(named) then named else strip(named.target, reference)
         case other              => other
 
-    // claude 2026-10-20: created: names that h34s never exports (ADR-0014)
+    // claude 2026-10-20: created: names that h34s never exports, internal to h34s (ADR-0014)
     /** Names that a model never gets: TypeScript and JavaScript keywords, the built-in types that
       * the declarations use (`Array`, `Record`, `Promise`), and the names that each route
       * declaration declares or imports (`SuccessBody`, `ErrorBody`, `EventHandler`,
       * `EventHandlerRequest`). A model with one of these names is written out where it is used.
       */
-    val reservedNames: Set[String] = Set(
+    private[exts] val reservedNames: Set[String] = Set(
       // JavaScript reserved words, also in strict mode
       "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do",
       "else", "enum", "export", "extends", "false", "finally", "for", "function", "if", "implements", "import",

@@ -51,7 +51,6 @@ export dev.yuri4n.exts.h3.{
   SuccessEnvelope,
   TestResponse, // claude 2026-10-20: changed: export TestResponse (ADR-0006)
   WireField,
-  WireModel, // claude 2026-10-20: changed: export WireModel (ADR-0014)
   WireShape,
   WireType,
 }
