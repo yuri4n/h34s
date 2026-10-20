@@ -439,7 +439,7 @@ class NitroLocalFetchSuite extends FunSuite:
       }
     }
 
-    // claude 2026-10-20: created: the Kyo guide's $fetch example (docs/content/1.guide/03.kyo.md, "Call your routes with $fetch"); keep them equal
+    // claude 2026-10-20: created: the Kyo guide's $fetch example (docs/content/1.guide/03.kyo.md, "Call other routes with $fetch"); keep them equal
     test("the guide's $fetch example: get decodes the envelope, and raw streams a body that the caller reads in part") {
       val app = NitroLocal.App()
       app.route("/api/greeting", KHandler.define(_ => Greeting("hi")))

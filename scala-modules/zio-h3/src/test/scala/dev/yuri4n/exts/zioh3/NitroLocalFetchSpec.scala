@@ -74,7 +74,7 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
           seen.times.last >= 550,
         )
       },
-      // The ZIO guide's example (docs/content/1.guide/04.zio.md, "Call your routes with $fetch"): keep them equal.
+      // The ZIO guide's example (docs/content/1.guide/04.zio.md, "Call other routes with $fetch"): keep them equal.
       test("the guide's $fetch example: get decodes the envelope, and raw streams a body that the caller reads in part") {
         val app = NitroLocal.App()
         app.route("/api/greeting", ZHandler.define(_ => ZIO.succeed(Greeting("hi"))))
