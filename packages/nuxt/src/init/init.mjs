@@ -8,7 +8,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
 import { packageVersion } from '../version.mjs'
-import { addModule } from './nuxt-config-edit.mjs'
+import { addModule, hasModule } from './nuxt-config-edit.mjs'
 import * as appVue from './templates/app-vue.mjs'
 import * as buildProperties from './templates/build-properties.mjs'
 import * as gitignore from './templates/gitignore.mjs'
@@ -355,7 +355,7 @@ function planPackageJson(plan, path, params, { create, edit, shown }) {
   edit(path, before, `${JSON.stringify(next, null, indent).replaceAll('\n', eol)}${eol}`, changes.join('; '))
 }
 
-// claude 2026-10-20: created: the nuxt.config text edit, or the printed line (ADR-0009, decision 2)
+// claude 2026-10-20: changed: the nuxt.config text edit, or the printed line; only an entry of the parsed modules array lists the module (ADR-0009, decision 2, review P2)
 function planNuxtConfig(plan, app, { create, edit, shown }) {
   const path = nuxtConfigFile(app)
   if (!path) {
@@ -367,7 +367,7 @@ function planNuxtConfig(plan, app, { create, edit, shown }) {
   const preset = /\bpreset\s*:\s*['"`]([^'"`]+)['"`]/.exec(before)?.[1]
   if (preset && !preset.startsWith('node'))
     plan.warnings.push(`${shown(path)} sets the Nitro preset '${preset}'; h34s supports Node presets only, such as 'node-server'.`)
-  if (before.includes(nuxtConfig.moduleName)) {
+  if (hasModule(before, nuxtConfig.moduleName)) {
     plan.kept.push(`${shown(path)}, which already lists ${nuxtConfig.moduleName}`)
     return
   }

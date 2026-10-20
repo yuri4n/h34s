@@ -11,7 +11,7 @@ import process from 'node:process'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { applyPlan, planInit } from '../src/init/init.mjs' // claude 2026-10-20: created: the plan's order and the write step (review S2, N5)
-import { addModule } from '../src/init/nuxt-config-edit.mjs'
+import { addModule, hasModule } from '../src/init/nuxt-config-edit.mjs' // claude 2026-10-20: changed: also hasModule (review P2)
 
 // claude 2026-10-20: created: the CLI, the package version and a fake token (ADR-0009)
 const cli = fileURLToPath(new URL('../src/cli.mjs', import.meta.url))
@@ -575,6 +575,50 @@ test('the nuxt.config edit gives up on the shapes it does not read safely', () =
     'export default defineNuxtConfig({\n  title: \'open\n})\n',
   ]) {
     assert.equal(addModule(text, '@yuri4n/h34s-nuxt'), null, text)
+  }
+})
+
+// claude 2026-10-20: created: the test "path 2: only an entry of the top-level modules array ..." (review P2)
+test('path 2: only an entry of the top-level modules array lists the module; a comment or another string does not', (t) => {
+  const config = body => `export default defineNuxtConfig({\n${body}})\n`
+  for (const [name, before, after] of [
+    ['a commented-out entry', config('  modules: [\n    // \'@yuri4n/h34s-nuxt\',\n    \'@nuxt/eslint\',\n  ],\n'), config('  modules: [\n    \'@yuri4n/h34s-nuxt\',\n    // \'@yuri4n/h34s-nuxt\',\n    \'@nuxt/eslint\',\n  ],\n')],
+    ['a block comment', config('  /* modules: [\'@yuri4n/h34s-nuxt\'] */\n  ssr: true,\n'), config('  modules: [\'@yuri4n/h34s-nuxt\'],\n  /* modules: [\'@yuri4n/h34s-nuxt\'] */\n  ssr: true,\n')],
+    ['a string of another key', config('  app: { head: { title: \'@yuri4n/h34s-nuxt\' } },\n  modules: [\'@nuxt/eslint\'],\n'), config('  app: { head: { title: \'@yuri4n/h34s-nuxt\' } },\n  modules: [\'@yuri4n/h34s-nuxt\', \'@nuxt/eslint\'],\n')],
+    ['Nitro\'s modules', config('  nitro: { modules: [\'@yuri4n/h34s-nuxt\'] },\n'), config('  modules: [\'@yuri4n/h34s-nuxt\'],\n  nitro: { modules: [\'@yuri4n/h34s-nuxt\'] },\n')],
+    ['an entry', config('  modules: [\'@nuxt/eslint\', \'@yuri4n/h34s-nuxt\'],\n'), null],
+    ['an entry with options', config('  modules: [[\'@yuri4n/h34s-nuxt\', {}], \'@nuxt/eslint\'],\n'), null],
+  ]) {
+    const root = temporary(t)
+    write(root, { ...nuxtStarter, 'nuxt.config.ts': before })
+    const result = init(root)
+    assert.equal(result.status, 0, `${name}\n${result.output}`)
+    assert.equal(tree(root)['nuxt.config.ts'], after ?? before, name)
+    assert.equal(result.stdout.includes('  nuxt.config.ts, which already lists @yuri4n/h34s-nuxt\n'), after === null, `${name}: kept\n${result.stdout}`)
+    assert.equal(result.stdout.includes('  nuxt.config.ts: adds \'@yuri4n/h34s-nuxt\' to modules\n'), after !== null, `${name}: changed\n${result.stdout}`)
+  }
+})
+
+// claude 2026-10-20: created: the test "hasModule reads only the entries of the top-level modules array" (review P2)
+test('hasModule reads only the entries of the top-level modules array', () => {
+  const config = body => `export default defineNuxtConfig({\n${body}})\n`
+  for (const [text, listed] of [
+    [config('  modules: [\'@yuri4n/h34s-nuxt\'],\n'), true],
+    [config('  modules: ["@nuxt/ui", "@yuri4n/h34s-nuxt"],\n'), true],
+    [config('  modules: [[\'@yuri4n/h34s-nuxt\', { debug: true }]],\n'), true],
+    // A spread hides other keys, but the modules array literal lists the module.
+    [config('  ...base,\n  modules: [\'@yuri4n/h34s-nuxt\'],\n'), true],
+    [config('  modules: [\n    // \'@yuri4n/h34s-nuxt\',\n  ],\n'), false],
+    [config('  modules: [\'@nuxt/ui\', [\'@nuxtjs/i18n\', { label: \'@yuri4n/h34s-nuxt\' }]],\n'), false],
+    [config('  modules: [\'@yuri4n/h34s-nuxt-extra\'],\n'), false],
+    [config('  nitro: { modules: [\'@yuri4n/h34s-nuxt\'] },\n'), false],
+    [`// modules: ['@yuri4n/h34s-nuxt']\n${config('')}`, false],
+    // Shapes in which init cannot tell: it prints the line to add.
+    [config('  ...base,\n'), null],
+    [config('  modules: list,\n'), null],
+    [config('  vite: { include: [/\\.vue$/] },\n  modules: [\'@yuri4n/h34s-nuxt\'],\n'), null],
+  ]) {
+    assert.equal(hasModule(text, '@yuri4n/h34s-nuxt'), listed, text)
   }
 })
 

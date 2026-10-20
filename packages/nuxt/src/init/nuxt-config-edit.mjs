@@ -94,18 +94,14 @@ function insertFirst(text, at, close, entry) {
   return `${text.slice(0, at + 1)}${leading}${entry}, ${after.slice(leading.length)}`
 }
 
-// claude 2026-10-20: created: adds the module to the top-level modules of defineNuxtConfig({...}), or gives null (ADR-0009, decision 2)
+// claude 2026-10-20: created: the object of the one defineNuxtConfig({ ... }) and its top-level keys, or null (review P2)
 /**
- * Adds `name` as the first entry of the `modules` array in `defineNuxtConfig({ ... })`, or adds a
- * `modules` property when the object has none. Gives the new text, or null when the file is not
- * in a shape this edit reads safely: not exactly one `defineNuxtConfig({`, a `modules` value that
- * is not an array literal, two `modules` keys, a spread or a shorthand `modules` in the object, or
- * text that `tokens` cannot read. The quotes follow the file's string literals.
+ * Reads the object literal of the one `defineNuxtConfig({ ... })` in `list`: the index of its
+ * `{` and `}`, its top-level keys with the index of each key token, and whether a spread or a
+ * shorthand `modules` hides some of its keys. Gives null when there is not exactly one
+ * `defineNuxtConfig({` or the object does not close.
  */
-export function addModule(text, name) {
-  const list = tokens(text)
-  if (!list)
-    return null
+function configObject(list) {
   const calls = list
     .map((token, index) => ({ token, index }))
     .filter(({ token }) => token.kind === 'word' && token.value === 'defineNuxtConfig')
@@ -117,6 +113,7 @@ export function addModule(text, name) {
   const open = start + 2
   let depth = 0
   let close = -1
+  let hidden = false
   const keys = []
   for (let index = open; index < list.length; index++) {
     const token = list[index]
@@ -133,17 +130,69 @@ export function addModule(text, name) {
     else if (depth === 1) {
       const before = list[index - 1].kind
       const next = list[index + 1]?.kind
-      if (token.kind === 'spread')
-        return null
-      if ((token.kind === 'word' || token.kind === 'string') && (before === '{' || before === ',')) {
+      if (token.kind === 'spread') {
+        hidden = true
+      }
+      else if ((token.kind === 'word' || token.kind === 'string') && (before === '{' || before === ',')) {
         if (next === ':')
           keys.push({ name: token.value, index })
         else if (token.value === 'modules')
-          return null
+          hidden = true
       }
     }
   }
-  if (close === -1)
+  return close === -1 ? null : { open, close, keys, hidden }
+}
+
+// claude 2026-10-20: created: whether the top-level modules array of defineNuxtConfig({...}) lists a module (review P2)
+/**
+ * Whether the `modules` array literal of `defineNuxtConfig({ ... })` has `name` as an entry: the
+ * string itself, or an `[name, options]` array. A comment, Nitro's `modules` or another string
+ * that holds the name is not an entry. Gives null when it cannot tell: text that `tokens` cannot
+ * read, not exactly one `defineNuxtConfig({`, a `modules` value that is not one array literal, or
+ * no `modules` key beside a spread. `addModule` gives null for each of these too.
+ */
+export function hasModule(text, name) {
+  const list = tokens(text)
+  const object = list && configObject(list)
+  if (!object)
+    return null
+  const modules = object.keys.filter(key => key.name === 'modules')
+  if (modules.length === 0)
+    return object.hidden ? null : false
+  const open = modules[0].index + 2
+  if (modules.length > 1 || list[open]?.kind !== '[')
+    return null
+  const named = index => list[index]?.kind === 'string' && list[index].value === name && [',', ']'].includes(list[index + 1]?.kind)
+  let depth = 0
+  for (let index = open; index < list.length; index++) {
+    const token = list[index]
+    if ('([{'.includes(token.kind))
+      depth++
+    else if (')]}'.includes(token.kind) && --depth === 0)
+      return false
+    // An entry starts after the array's `[` and after each `,` between its entries.
+    if (depth === 1 && (index === open || token.kind === ',')) {
+      const entry = index + 1
+      if (named(entry) || (list[entry]?.kind === '[' && named(entry + 1)))
+        return true
+    }
+  }
+  return null
+}
+
+// claude 2026-10-20: changed: adds the module to the top-level modules of defineNuxtConfig({...}), or gives null; the object is read by configObject (ADR-0009, decision 2, review P2)
+/**
+ * Adds `name` as the first entry of the `modules` array in `defineNuxtConfig({ ... })`, or adds a
+ * `modules` property when the object has none. Gives the new text, or null when the file is not
+ * in a shape this edit reads safely: not exactly one `defineNuxtConfig({`, a `modules` value that
+ * is not an array literal, two `modules` keys, a spread or a shorthand `modules` in the object, or
+ * text that `tokens` cannot read. The quotes follow the file's string literals.
+ */
+export function addModule(text, name) {
+  const list = tokens(text)
+  const object = list && configObject(list)
+  if (!object || object.hidden)
     return null
   const strings = list.filter(token => token.kind === 'string')
   const quote = strings.filter(token => token.quote === '"').length
@@ -151,7 +200,7 @@ export function addModule(text, name) {
     ? '"'
     : '\''
   const entry = `${quote}${name}${quote}`
-  const modules = keys.filter(key => key.name === 'modules')
+  const modules = object.keys.filter(key => key.name === 'modules')
   if (modules.length > 1)
     return null
   if (modules.length === 1) {
@@ -160,5 +209,5 @@ export function addModule(text, name) {
       return null
     return insertFirst(text, value.at, ']', entry)
   }
-  return insertFirst(text, list[open].at, '}', `modules: [${entry}]`)
+  return insertFirst(text, list[object.open].at, '}', `modules: [${entry}]`)
 }
