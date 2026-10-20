@@ -49,8 +49,24 @@ class HandlerTypesSuite extends FunSuite:
       val handler = KHandler.define(_ => Point(1, 2)).at(Route.get("/api/point"))
       assertEquals(described, 0)
       assertEquals(types(handler)._1, "{ data: { x: number; y: number } }")
+      // claude 2026-10-20: changed: one call of types() builds the type once, for both renderings (ADR-0014)
       assertEquals(described, 1)
       val mounted = record(handler)
       assertEquals(List(mounted.route, mounted.method).map(_.asInstanceOf[String]), List("/api/point", "get"))
+    }
+
+    // claude 2026-10-20: created: a converter that names its type, as the record gives it to h34s-scala (ADR-0014)
+    test("a named model: the success type refers to it, and the record lists it with the names it uses") {
+      given NativeConverter[Point] = new NativeConverter[Point] with WireType.Described:
+          val wireType: WireType =
+            WireType.Named("Point", WireType.ObjectOf(List(WireField("x", WireType.NumberValue), WireField("y", WireType.NumberValue))))
+          extension (point: Point) def toNative: js.Any = js.Dynamic.literal(x = point.x, y = point.y)
+          def fromNative(state: org.getshaka.nativeconverter.ParseState): Point = Point(0, 0)
+      val all   = record(KHandler.define(_ => List(Point(1, 2)))).types.asInstanceOf[js.Function0[js.Dynamic]]()
+      val named = all.named
+      assertEquals(all.success.asInstanceOf[String], "{ data: Array<{ x: number; y: number }> }")
+      assertEquals(named.success.asInstanceOf[String], "{ data: Array<Point> }")
+      assertEquals(named.uses.asInstanceOf[js.Array[String]].toList, List("Point"))
+      assertEquals(js.JSON.stringify(named.models), """[{"name":"Point","type":"{ x: number; y: number }","uses":[]}]""")
     }
 end HandlerTypesSuite

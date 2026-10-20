@@ -2,7 +2,7 @@ package dev.yuri4n.exts.ntcvkyoschema
 
 import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, WireType}
 import dev.yuri4n.exts.ntcvkyoschema.Models.*
-import kyo.{Json, Schema, Span, Yaml}
+import kyo.{Json, Schema, Span, Structure, Yaml}
 import munit.{FunSuite, Location}
 import org.getshaka.nativeconverter.NativeConverter
 
@@ -104,6 +104,54 @@ class NativeSchemaSuite extends FunSuite:
       assertEquals(NativeSchema[Road].wireType, WireType.Unknown)
       assertEquals(wireType[Trip], WireType.Unknown)
       described(Trip("t", Road("Main", None)))
+    }
+
+    // claude 2026-10-20: created: the audit of Kyo's names and the named models of the bridge (ADR-0014)
+    test("records and sums are named models after their Scala type; a generic instantiation is written out") {
+      // What Kyo's Structure gives: the simple name, the full name in the tag, the type arguments.
+      val person = summon[Schema[Person]].structure.asInstanceOf[Structure.Type.Product]
+      assertEquals((person.name, person.tag.show, person.typeParams.size), ("Person", "dev.yuri4n.exts.ntcvkyoschema.Models$.Person", 0))
+      val page = summon[Schema[Page[Person]]].structure.asInstanceOf[Structure.Type.Product]
+      assertEquals((page.name, page.typeParams.toList.collect { case product: Structure.Type.Product => product.name }), ("Page", List("Person")))
+      val shape = summon[Schema[Shape]].structure.asInstanceOf[Structure.Type.Sum]
+      assertEquals((shape.name, shape.typeParams.size), ("Shape", 0))
+
+      wireType[Person] match
+          case WireType.Named(name, _, scalaType) => assertEquals((name, scalaType), ("Person", Some("dev.yuri4n.exts.ntcvkyoschema.Models.Person")))
+          case other                              => fail(s"not a named model: $other")
+      assertEquals(wireType[Person].renderNamed, "Person")
+      // A nested record that derives only a Schema is a model too, declared first.
+      assertEquals(
+        wireType[Person].models.map(model => (model.name, model.definition)),
+        List(
+          "Address" -> "{ street: string; zip?: string | null }",
+          "Person"  -> "{ name: string; age: number; address: Address; tags: Array<string>; nickname?: string | null }",
+        ),
+      )
+      // Sums are models; their variants keep today's rendering inside the sum.
+      val empty = "Record<string, never>"
+      assertEquals(
+        wireType[Drawing].models.map(model => (model.name, model.definition)),
+        List(
+          "Shape"   -> s"{ Circle: { radius: $decimal } } | { Rect: { width: $decimal; height: $decimal } } | { Empty: $empty }",
+          "Color"   -> s"{ Red: $empty } | { Green: $empty } | { Blue: $empty }",
+          "Drawing" -> "{ title: string; shapes: Array<Shape>; color: Color; background?: Color | null }",
+        ),
+      )
+      assertEquals(
+        wireType[Event].models.map(model => (model.name, model.definition)),
+        List("Event" -> "{ type: \"Joined\"; user: string; seat: number } | { type: \"Left\"; user: string }"),
+      )
+      // A generic instantiation is written out, with its models named inside.
+      val pages = NativeSchema[Page[Person]]
+      assertEquals(pages.wireType.renderNamed, "{ items: Array<Person>; total: number }")
+      assertEquals(pages.wireType.models.map(_.name), List("Address", "Person"))
+      locally {
+        given NativeConverter[Page[Person]] = pages
+        described(Page(List(Person("Ada", 36, Address("Main", None), Nil, None)), 1))
+      }
+      // A recursive Kyo model has an endless structure: it stays unknown.
+      assertEquals(wireType[Tree], WireType.Unknown)
     }
 
     private def show(value: js.Any): String = js.JSON.stringify(value)

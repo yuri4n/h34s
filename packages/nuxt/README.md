@@ -56,7 +56,7 @@ Remove copied development loaders, source-map hooks, and the `h34s-development` 
 
 `dev` runs `fastLinkJS`; `watch` runs continuous linking. Start Nuxt after the first link and keep the watcher in a second terminal. Nitro reloads its worker when generated output changes.
 
-After each link, the CLI loads the linked modules in a separate Node process and writes the route manifest and one `.d.ts` declaration per handler module into the output. Nuxt types `$fetch` for those routes from the declarations. Keep top-level handler values free of side effects: loading runs them.
+After each link, the CLI loads the linked modules in a separate Node process and writes the route manifest, one `.d.ts` declaration per handler module and `h34s-models.d.ts`, the named models that the routes return, into the output. Nuxt types `$fetch` for those routes from the declarations, and the module maps `#h34s/models` to the models, so your app writes `import type { Note } from '#h34s/models'`. Two Scala types with one TypeScript name and different structures stop the CLI with a message that names both. Keep top-level handler values free of side effects: loading runs them. <!-- claude 2026-10-20: changed: the models file and #h34s/models (ADR-0014) -->
 
 `build` clears previous output, runs `fullLinkJS`, verifies every configured entry, and writes the route manifests and declarations before succeeding. Keep this step before Nuxt production builds. The Nuxt module does not run a production link automatically.
 

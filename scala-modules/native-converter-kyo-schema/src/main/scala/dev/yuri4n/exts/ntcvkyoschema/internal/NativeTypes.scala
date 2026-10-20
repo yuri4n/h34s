@@ -36,7 +36,12 @@ private[ntcvkyoschema] object NativeTypes:
 
     // ---- The type ----
 
-    private def of(shape: Type, depth: Int): WireType =
+    // claude 2026-10-20: changed: records and sums carry their Scala name; the variants of a sum do not (ADR-0014)
+    /** The type of `shape`. A record or a sum is a `WireType.Named` after its Scala type, unless it
+      * is a generic instantiation (`Page[Note]`) or `named` is false: the variants of a sum keep
+      * their place inside the sum's type.
+      */
+    private def of(shape: Type, depth: Int, named: Boolean = true): WireType =
       if depth > MaxDepth then WireType.Unknown
       else
           shape match
@@ -50,21 +55,38 @@ private[ntcvkyoschema] object NativeTypes:
                       WireField("key", of(keyType, depth + 1)),
                       WireField("value", of(valueType, depth + 1)),
                     )))
-              case product: Type.Product => record(product, depth)
-              case sum: Type.Sum         =>
-                tag(sum) match
-                    case None      =>
-                      WireType.OneOf(sum.variants.toList.map(variant =>
-                        WireType.ObjectOf(List(WireField(wireName(variant.name, variant.annotations), of(variant.variantType, depth + 1)))),
-                      ))
-                    case Some(key) =>
-                      WireType.OneOf(sum.variants.toList.map { variant =>
-                        of(variant.variantType, depth + 1) match
-                            case WireType.ObjectOf(fields) =>
-                              WireType.ObjectOf(WireField(key, WireType.StringLiteral(wireName(variant.name, variant.annotations))) :: fields)
-                            case _ => WireType.Unknown
-                      })
+              case product: Type.Product =>
+                model(named, product.name, product.tag, product.typeParams)(record(product, depth))
+              case sum: Type.Sum =>
+                model(named, sum.name, sum.tag, sum.typeParams) {
+                  tag(sum) match
+                      case None      =>
+                        WireType.OneOf(sum.variants.toList.map(variant =>
+                          WireType.ObjectOf(List(
+                            WireField(wireName(variant.name, variant.annotations), of(variant.variantType, depth + 1, named = false)),
+                          )),
+                        ))
+                      case Some(key) =>
+                        WireType.OneOf(sum.variants.toList.map { variant =>
+                          of(variant.variantType, depth + 1, named = false) match
+                              case WireType.ObjectOf(fields) =>
+                                WireType.ObjectOf(WireField(key, WireType.StringLiteral(wireName(variant.name, variant.annotations))) :: fields)
+                              case _ => WireType.Unknown
+                        })
+                }
               case _ => WireType.Unknown
+
+    // claude 2026-10-20: created: the named model of a record or a sum (ADR-0014)
+    /** `structure` named after the Scala type, when `named` holds and the type has no type
+      * arguments. Kyo's `name` is the simple name (`Note`); the tag gives the full name
+      * (`app.Models$.Note` reads `app.Models.Note`) for error messages and the models file's
+      * comments.
+      */
+    private def model(named: Boolean, name: String, typeTag: kyo.Tag[Any], typeParams: Chunk[Type])(structure: WireType): WireType =
+      if !named || typeParams.nonEmpty || name.isEmpty then structure
+      else
+          val full = attempt(typeTag.show).map(_.replace("$.", ".").stripSuffix("$")).filter(full => full == name || full.endsWith(s".$name"))
+          WireType.Named(name, structure, full)
 
     /** Optional fields may be absent or `null`; the samples check both. */
     private def record(product: Type.Product, depth: Int): WireType =

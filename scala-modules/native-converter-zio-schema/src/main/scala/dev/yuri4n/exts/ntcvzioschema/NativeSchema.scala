@@ -4,11 +4,12 @@ import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, Secret, WireField, WireType
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 import zio.schema.annotation.validate
 import zio.schema.validation.{Validation, ValidationError}
-import zio.schema.{Schema, StandardType}
+import zio.schema.{Schema, StandardType, TypeId}
 import zio.{Chunk, Unsafe}
 
 import scala.scalajs.js
 
+// claude 2026-10-20: changed: the Scaladoc names the models (ADR-0014)
 /** A `NativeConverter` derived from a ZIO `Schema`. Opt in per type:
   *
   * {{{
@@ -28,6 +29,10 @@ import scala.scalajs.js
   * types the response of a route that returns it: records are objects with the schema's field
   * names (transient fields left out), `Option` is `T | null`, sequences are arrays, and `String`,
   * `Boolean`, `Int` and `Double` are strings, booleans and numbers.
+  *
+  * Records are named models (`WireType.Named`) after their `TypeId`: `h34s-scala` declares each
+  * one once, as `export type NoteView = ...` in `h34s-models.d.ts`, and the application imports it
+  * from `#h34s/models`.
   */
 trait NativeSchema[A] extends NativeConverter[A] with WireType.Described
 
@@ -247,11 +252,19 @@ object NativeSchema:
               }
             }
 
-    /** The TypeScript type of what `write` produces, case by case. A schema that refers to itself
-      * (through `Schema.Lazy`) is `unknown` where it repeats.
+    // claude 2026-10-20: changed: a record is a WireType.Named after its TypeId; a repeated record refers to its name (ADR-0014)
+    /** The TypeScript type of what `write` produces, case by case. A record is a `WireType.Named`
+      * after its nominal `TypeId` (`Note`, with the full name for error messages). A schema that
+      * refers to itself (through `Schema.Lazy`) is `unknown` where it repeats; a repeated record
+      * there refers to its model by name, so `renderNamed` gives `type Tree = { children: Array<Tree> }`.
+      *
+      * ZIO's `TypeId` has no type arguments, so a generic record (`Page[Note]`) is named `Page`
+      * like any other record. `h34s-scala` writes such a model out where it is used when two of
+      * its instantiations meet (ADR-0014).
       */
     private def describe(schema: Schema[?], seen: List[Schema[?]]): WireType =
-      if seen.exists(previous => previous.asInstanceOf[AnyRef] eq schema.asInstanceOf[AnyRef]) then WireType.Unknown
+      if seen.exists(previous => previous.asInstanceOf[AnyRef] eq schema.asInstanceOf[AnyRef]) then
+        nominal(schema).fold(WireType.Unknown)((name, full) => WireType.Named(name, WireType.Unknown, Some(full)))
       else
         val next = schema :: seen
         schema match
@@ -262,14 +275,25 @@ object NativeSchema:
                   case StandardType.IntType | StandardType.DoubleType => WireType.NumberValue
                   case _                                         => WireType.Unknown
             case record: Schema.Record[?] =>
-              WireType.ObjectOf(record.fields.toList.filterNot(_.transient).map(field =>
+              val structure = WireType.ObjectOf(record.fields.toList.filterNot(_.transient).map(field =>
                 WireField(field.fieldName, describe(field.schema, next)),
               ))
+              nominal(record).fold(structure)((name, full) => WireType.Named(name, structure, Some(full)))
             case optional: Schema.Optional[?]         => WireType.nullable(describe(optional.schema, next))
             case sequence: Schema.Sequence[?, ?, ?]   => WireType.ArrayOf(describe(sequence.elementSchema, next))
             case transform: Schema.Transform[?, ?, ?] => describe(transform.schema, next)
             case deferred: Schema.Lazy[?]             => describe(deferred.schema, next)
             case _                                    => WireType.Unknown
+
+    // claude 2026-10-20: created: the simple and full name of a nominal record (ADR-0014)
+    /** The simple and the full name of a record with a nominal `TypeId`, also behind `Schema.Lazy`. */
+    private def nominal(schema: Schema[?]): Option[(String, String)] = schema match
+        case record: Schema.Record[?] =>
+          record.id match
+              case id: TypeId.Nominal if id.typeName.nonEmpty => Some((id.typeName, id.fullyQualified))
+              case _                                          => None
+        case deferred: Schema.Lazy[?] => nominal(deferred.schema)
+        case _                        => None
 
     private def write(schema: Schema[?], value: Any, depth: Int): js.Any =
       require(depth <= maxDepth, "Native schema value exceeds maximum depth")

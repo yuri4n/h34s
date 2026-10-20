@@ -5,6 +5,7 @@ import munit.FunSuite
 import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 
 import scala.scalajs.js
+import scala.util.Random
 
 final case class Point(x: Int, y: Int) derives NativeConverter
 
@@ -138,6 +139,162 @@ class RouteTypesSuite extends FunSuite:
       assert(!WireType.RecordOf(WireType.BooleanValue).describes(js.Array()))
       assert(WireType.nullable(WireType.StringValue).describes(null))
       assert(WireType.Unknown.describes(js.undefined))
+    }
+
+    // ---- Named models (ADR-0014) ----
+
+    // claude 2026-10-20: created: the Note fixture of the named-model tests (ADR-0014)
+    private val noteFields = WireType.ObjectOf(List(WireField("id", WireType.NumberValue), WireField("text", WireType.StringValue)))
+    private val note       = WireType.Named("Note", noteFields, Some("app.Note"))
+
+    // claude 2026-10-20: created: the named rendering, the models and their order (ADR-0014)
+    test("a named model renders as its name with renderNamed and as its structure with render") {
+      val board = WireType.Named(
+        "Board",
+        WireType.ObjectOf(List(WireField("notes", WireType.ArrayOf(note)), WireField("pinned", WireType.nullable(note)))),
+      )
+      assertEquals(WireType.ArrayOf(note).render, "Array<{ id: number; text: string }>")
+      assertEquals(WireType.ArrayOf(note).renderNamed, "Array<Note>")
+      assertEquals(board.renderNamed, "Board")
+      // A model comes after the models it uses, each once.
+      assertEquals(
+        WireType.ObjectOf(List(WireField("board", board), WireField("first", note))).models,
+        List(
+          WireModel("Note", "{ id: number; text: string }", Some("app.Note"), Nil),
+          WireModel("Board", "{ notes: Array<Note>; pinned: Note | null }", None, List("Note")),
+        ),
+      )
+      assert(board.describes(js.Dynamic.literal(notes = js.Array(js.Dynamic.literal(id = 1, text = "a")), pinned = null)))
+      assert(!board.describes(js.Dynamic.literal(notes = js.Array(js.Dynamic.literal(id = "1", text = "a")), pinned = null)))
+    }
+
+    // claude 2026-10-20: created: recursion, unknown targets and names that are not exported (ADR-0014)
+    test("a recursive model refers to its own name; unknown, invalid and reserved names are written out") {
+      val tree = WireType.Named(
+        "Tree",
+        WireType.ObjectOf(List(
+          WireField("value", WireType.NumberValue),
+          WireField("children", WireType.ArrayOf(WireType.Named("Tree", WireType.Unknown, Some("app.Tree")))),
+        )),
+        Some("app.Tree"),
+      )
+      assertEquals(tree.renderNamed, "Tree")
+      assertEquals(tree.models, List(WireModel("Tree", "{ value: number; children: Array<Tree> }", Some("app.Tree"), List("Tree"))))
+      assertEquals(tree.render, "{ value: number; children: Array<unknown> }")
+      // Outside its own model, a name without a structure is unknown and has no declaration.
+      val opaque = WireType.Named("Opaque", WireType.Unknown)
+      assertEquals((opaque.renderNamed, opaque.models), ("unknown", Nil))
+      assertEquals(WireType.OneOf(List(opaque, WireType.StringValue)).renderNamed, "unknown")
+      for name <- List("Record", "Array", "SuccessBody", "string", "class", "my-model", "1st", "") do
+          val model = WireType.Named(name, WireType.ObjectOf(List(WireField("a", note))))
+          assertEquals(model.renderNamed, "{ a: Note }", name)
+          assertEquals(model.models.map(_.name), List("Note"), name)
+    }
+
+    // claude 2026-10-20: created: two models with one name: identical ones merge, different ones are both listed (ADR-0014)
+    test("models with the same name: an identical structure is one declaration, a different one is listed again") {
+      val other = WireType.Named("Note", WireType.ObjectOf(List(WireField("body", WireType.StringValue))), Some("other.Note"))
+      val again = WireType.Named("Note", noteFields, Some("copy.Note"))
+      assertEquals(WireType.OneOf(List(note, again)).models.map(model => (model.name, model.scalaType)), List(("Note", Some("app.Note"))))
+      assertEquals(
+        WireType.ObjectOf(List(WireField("a", note), WireField("b", other))).models.map(_.definition),
+        List("{ id: number; text: string }", "{ body: string }"),
+      )
+      // A different model of the same name inside a model is its own model, not a recursion.
+      val outer = WireType.Named("Note", WireType.ObjectOf(List(WireField("inner", other))), Some("app.Note"))
+      assertEquals(outer.models.map(_.definition), List("{ body: string }", "{ inner: Note }"))
+    }
+
+    // claude 2026-10-20: created: the record's named success type and models (ADR-0014)
+    test("types() also gives the success type with model names, the names it uses and the models") {
+      def named(options: HandlerOptions, wire: WireType): (String, js.Dynamic) =
+        val described = HandlerMetadata.describe(handler(_ => "ok").toNative, options, internal.BodyShape.Value(() => wire))
+        val types     = HandlerMetadata.read(described).get.types.asInstanceOf[js.Function0[js.Dynamic]]()
+        (types.success.asInstanceOf[String], types.named)
+      val (inline, list) = named(HandlerOptions.default, WireType.ArrayOf(note))
+      assertEquals(inline, "{ data: Array<{ id: number; text: string }> }")
+      assertEquals(list.success.asInstanceOf[String], "{ data: Array<Note> }")
+      assertEquals(list.uses.asInstanceOf[js.Array[String]].toList, List("Note"))
+      assertEquals(js.JSON.stringify(list.models), """[{"name":"Note","type":"{ id: number; text: string }","uses":[],"scala":"app.Note"}]""")
+      val raw = HandlerOptions(success = SuccessEnvelope.Raw)
+      // Raw: the top-level null is no content, also inside a named model.
+      assertEquals(named(raw, WireType.nullable(note))._2.success.asInstanceOf[String], "Note | undefined")
+      assertEquals(named(raw, WireType.Named("Maybe", WireType.nullable(note)))._2.success.asInstanceOf[String], "Note | undefined")
+      assertEquals(named(raw, WireType.Named("Maybe", WireType.nullable(note)))._1, "{ id: number; text: string } | undefined")
+      assertEquals(named(raw, note)._2.success.asInstanceOf[String], "Note")
+      val plain = named(HandlerOptions.default, WireType.StringValue)._2
+      assertEquals((plain.success.asInstanceOf[String], plain.models.asInstanceOf[js.Array[js.Any]].length), ("{ data: string }", 0))
+    }
+
+    // ---- The inline rendering against its oracle (RenderOracle, commit 5f894e9) ----
+
+    // claude 2026-10-20: created: the field names, model names and texts of the generator (ADR-0014)
+    private val names  = List("id", "text", "full-name", "", "say \"hi\"", "a b", "_x", "$y")
+    private val models = List("Note", "Board", "Tree", "Record", "my-model")
+    private val texts  = List("", "a", "say \"hi\"\n", "\u2028", "\u0000", "naïve")
+
+    // claude 2026-10-20: created: the generator of random wire types (ADR-0014)
+    /** A random wire type; `named` also puts `Named` at random places. Explicit, seeded generators. */
+    private def wire(random: Random, depth: Int, named: Boolean): WireType =
+      def pick[A](values: List[A]): A = values(random.nextInt(values.size))
+      val choices = if depth <= 0 then 6 else if named then 11 else 10
+      random.nextInt(choices) match
+          case 0 => WireType.Unknown
+          case 1 => WireType.NullValue
+          case 2 => WireType.StringValue
+          case 3 => WireType.NumberValue
+          case 4 => WireType.BooleanValue
+          case 5 => WireType.StringLiteral(pick(texts))
+          case 6 => WireType.ArrayOf(wire(random, depth - 1, named))
+          case 7 =>
+            WireType.ObjectOf(List.fill(random.nextInt(3))(WireField(pick(names), wire(random, depth - 1, named), random.nextBoolean())))
+          case 8 => WireType.RecordOf(wire(random, depth - 1, named))
+          case 9 => WireType.OneOf(List.fill(random.nextInt(4))(wire(random, depth - 1, named)))
+          case _ => WireType.Named(pick(models), wire(random, depth - 1, named), pick(List(None, Some("a.Note"), Some("b.Note"))))
+
+    // claude 2026-10-20: created: a type without its names, for the oracle (ADR-0014)
+    /** The type without its names: what the oracle, which has no `Named`, can render. */
+    private def plain(wire: WireType): WireType = wire match
+        case WireType.Named(_, target, _) => plain(target)
+        case WireType.ArrayOf(element)    => WireType.ArrayOf(plain(element))
+        case WireType.ObjectOf(fields)    => WireType.ObjectOf(fields.map(field => field.copy(fieldType = plain(field.fieldType))))
+        case WireType.RecordOf(value)     => WireType.RecordOf(plain(value))
+        case WireType.OneOf(members)      => WireType.OneOf(members.map(plain))
+        case other                        => other
+
+    // claude 2026-10-20: created: the record's success type of a wire type (ADR-0014)
+    private def success(options: HandlerOptions, wire: WireType): String =
+      internal.RouteTypes.success(options.success, internal.BodyShape.Value(() => wire))
+
+    // claude 2026-10-20: created: the options of a raw success body (ADR-0014)
+    private val raw = HandlerOptions(success = SuccessEnvelope.Raw)
+
+    // claude 2026-10-20: created: the oracle property of the inline rendering without names (ADR-0014)
+    test("property: without names, render, renderNamed and the success types equal the oracle (200 samples)") {
+      val random = Random(20261020L)
+      (1 to 200).foreach { _ =>
+        val sample = wire(random, 4, named = false)
+        val shown  = RenderOracle.render(sample)
+        assertEquals(sample.render, shown)
+        assertEquals(sample.renderNamed, shown)
+        assertEquals(sample.models, Nil)
+        assertEquals(success(HandlerOptions.default, sample), s"{ data: $shown }")
+        assertEquals(success(raw, sample), RenderOracle.raw(sample))
+      }
+    }
+
+    // claude 2026-10-20: created: the oracle property of the inline rendering with names, and the closure of the models (ADR-0014)
+    test("property: with names, render and the success types equal the oracle of the type without names (200 samples)") {
+      val random = Random(66L)
+      (1 to 200).foreach { _ =>
+        val sample = wire(random, 5, named = true)
+        assertEquals(sample.render, RenderOracle.render(plain(sample)), sample.toString)
+        assertEquals(success(raw, sample), RenderOracle.raw(plain(sample)), sample.toString)
+        // Every name that the named rendering or a model uses is declared.
+        val declared = sample.models.map(_.name).toSet
+        assert(WireType.references(sample).forall(declared), sample.toString)
+        assert(sample.models.flatMap(_.uses).forall(declared), sample.toString)
+      }
     }
 
     // ---- WireShape over native-converter's own converters ----

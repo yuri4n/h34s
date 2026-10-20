@@ -129,7 +129,7 @@ function routeModule(file, route, method, revision) {
   write(join(app, 'server/.scala', file), `const handler = event => ({ data: { message: ${JSON.stringify(`${method} ${revision}`)} }, linkedUrl: import.meta.url, method: event.method })
 handler.__is_handler__ = true
 Object.defineProperty(handler, Symbol.for('h34s.handler'), {
-  value: { version: 1, route: ${JSON.stringify(route)}, method: ${JSON.stringify(method)}, types: () => ({ success: '{ data: { message: string } }', errors: '{ errors: Array<{ message: string }> }' }) },
+  value: { version: 1, route: ${JSON.stringify(route)}, method: ${JSON.stringify(method)}, types: () => ({ success: '{ data: { message: string } }', errors: '{ errors: Array<{ message: string }> }', named: { success: '{ data: Greeting }', uses: ['Greeting'], models: [{ name: 'Greeting', type: '{ message: string }', uses: [], scala: 'app.Greeting' }] } }) },
 })
 export default handler
 `)
@@ -239,7 +239,9 @@ export default defineConfig({ modules: [{ output: 'server/.scala', entries: ['he
   // A Scala route without a route file: the manifest mounts it, and its declaration types $fetch.
   routeModule('greeting-get.js', '/api/greeting', 'get', 'first')
   collectRoutes()
-  assert.match(readFileSync(join(app, 'server/.scala/greeting-get.d.ts'), 'utf8'), /export type SuccessBody = \{ data: \{ message: string \} \}/)
+  // claude 2026-10-20: changed: the declaration refers to the named model, which the models file declares (ADR-0014)
+  assert.match(readFileSync(join(app, 'server/.scala/greeting-get.d.ts'), 'utf8'), /import type \{ Greeting \} from '\.\/h34s-models'[\s\S]*export type SuccessBody = \{ data: Greeting \}/)
+  assert.match(readFileSync(join(app, 'server/.scala/h34s-models.d.ts'), 'utf8'), /export type Greeting = \{ message: string \}/)
   // The probe reads the h34s Nitro records the way the Scala.js handlers do: the request record
   // (development, debug, runtime config, storage) and the startup record (runtime config, storage,
   // close hooks). Storage and runtime config come from the plugin's `nitropack/runtime` import.
@@ -291,6 +293,12 @@ export default defineEventHandler(async (event) => {
   const greeting = await routed(greetingUrl, dev, {}, 'get first')
   assert.equal(greeting.linkedUrl, pathToFileURL(join(app, 'server/.scala/greeting-get.js')).href, 'Development loads the Scala route module directly')
   const routeTypes = readFileSync(join(app, '.nuxt/types/nitro-routes.d.ts'), 'utf8')
+  // claude 2026-10-20: created: Nuxt maps the module's #h34s/models alias in its tsconfig (ADR-0014)
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(app, '.nuxt/tsconfig.app.json'), 'utf8')).compilerOptions.paths['#h34s/models'],
+    ['../server/.scala/h34s-models'],
+    'Nuxt maps #h34s/models to the models file of the only output',
+  )
   assert.match(routeTypes, /'\/api\/greeting': \{\s*'get': Simplify<Serialize<Awaited<ReturnType<typeof import\('\.\.\/\.\.\/server\/\.scala\/greeting-get'\)\.default>>>>/, 'Nitro types the manifest route from its declaration')
   linkedModule('second')
   const second = await response(devUrl, dev, 'second')
