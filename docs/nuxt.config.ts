@@ -1,11 +1,26 @@
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+// claude 2026-10-20: created: the remark plugin that maps guide links to routes
+import remarkMdLinks from './remark/md-links.mjs'
 
 const description = 'Use h34s to write Nuxt server routes in Scala.js: '
   + 'a Kyo core, a first-class ZIO adapter, optional bridges, and build tooling.'
 const docsLayerApp = fileURLToPath(
   new URL('./vendor/yuri4n.dev/layers/docs/app/', import.meta.url),
 )
+// claude 2026-10-20: created: where the plugin lives and what it maps
+// @nuxtjs/mdc imports the plugin from `src` in its generated template;
+// @nuxt/content uses `instance`. See docs/README.md, "Links".
+const mdLinks = {
+  src: fileURLToPath(new URL('./remark/md-links.mjs', import.meta.url)),
+  instance: remarkMdLinks,
+  options: {
+    contentRoot: fileURLToPath(new URL('./content/', import.meta.url)),
+    repositoryRoot: fileURLToPath(new URL('../', import.meta.url)),
+    repository: 'https://github.com/yuri4n/h34s',
+    branch: 'main',
+  },
+}
 
 export default defineNuxtConfig({
   extends: ['@yuri4n/nuxt-docs'],
@@ -41,6 +56,8 @@ export default defineNuxtConfig({
             dark: 'github-dark',
           },
         },
+        // claude 2026-10-20: created: relative .md links become site routes
+        remarkPlugins: { 'h34s-md-links': mdLinks },
       },
     },
   },

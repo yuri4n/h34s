@@ -45,6 +45,47 @@ injects `VERCEL_OIDC_TOKEN`. It provides `/llms.txt`, `/llms-full.txt`, raw
 Markdown, and the MCP endpoint. System fonts and bundled icons avoid
 external font and icon requests.
 
+## Links
+
+<!-- claude 2026-10-20: created: the link rule and the plugin that maps links for the site (issue #25) -->
+
+Write each link as a relative path to the real `.md` file, with GitHub's
+heading slug as the fragment, for example
+`[cancellation](09.streaming.md#cancellation)` or
+`[migration guide](../2.reference/4.migration.md)`. GitHub, editors and
+pull request reviews follow these links as they are. Do not write site
+routes such as `/guide/kyo` under `content/`.
+
+For the site, the remark plugin `remark/md-links.mjs`, registered in
+`nuxt.config.ts`, rewrites each link before Nuxt Content renders the page:
+
+- A link to a `.md` file under `content/` becomes an absolute route:
+  `03.kyo.md#fail-safely` becomes `/guide/kyo#fail-safely`.
+- A link to another file of the repository becomes a GitHub URL on
+  `main`, for example
+  `https://github.com/yuri4n/h34s/blob/main/docs/development.md`.
+- A fragment that targets a content page gets the site's heading id. The
+  site adds `_` before a leading digit, so `#1-start-a-new-project`
+  becomes `#_1-start-a-new-project`.
+- When the frontmatter has a `title`, the plugin removes the page's first
+  `#` heading, because the site shows the title above the page. Keep that
+  heading for GitHub.
+
+The plugin has these limits:
+
+- It compares absolute POSIX paths. When a link resolves outside the
+  repository, it leaves the link unchanged, and the build log shows a
+  `[h34s-md-links]` warning.
+- It does not map images. The content test rejects relative images under
+  `content/`, so extend the plugin before you add the first image.
+- GitHub URLs point at `main`, also in pull request previews.
+- Nuxt Content keeps parsed pages in `.data/`. After you change the
+  plugin's code, delete `.data/` before you start `pnpm docs:dev` again.
+
+`test/md-links.test.mjs` tests the plugin. `test/content.test.mjs` checks
+that every relative link in `docs/` points at an existing file and, for a
+`.md` target with a fragment, at one of its headings.
+
 ## Validate and build
 
 ```sh
