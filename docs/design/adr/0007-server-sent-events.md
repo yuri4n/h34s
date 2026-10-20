@@ -45,9 +45,19 @@ The memo does not name the ZIO twin. This record does not name it either; the im
 - A JavaScript route that uses h3's `createEventStream` still reaches a Scala caller as `Streamed`, through its `text/event-stream` content type ([ADR-0005](0005-fetch-in-handlers.md), Q2).
 - The caller decodes typed events with `$fetch.events[E]`. Decision 4's `$fetch.stream[E]` for NDJSON is not settled by this record.
 
+<!-- claude 2026-10-20: created: the 2026-10-20 addendum: the ServerEvent shape and the typed error of the implementation (issue #51, round 3) -->
+
+**Addendum (2026-10-20), from the implementation.** This addendum records what the decision above left open; it does not change the decision. See the [design record](../kyo-core.md), item 33.
+
+- **The `ServerEvent` shape.** `final case class ServerEvent(data: String, event: Option[String] = None, id: Option[String] = None, retry: Option[Int] = None)`, a shared pure value of the native layer (`h3-ext`), exported by `kyoh3` and `zioh3`. `ServerEvent.json(value, event, id)` writes `data` as JSON through the value's `NativeConverter`, and `ServerEvent.frame` writes the `text/event-stream` frame: `id:`, `event:` and `retry:` when set (h3's order), one `data:` line per line of `data`, and an empty line. The constructor rejects a CR or LF in `event` or `id`, U+0000 in `id`, an empty `event` and a negative `retry` with an `IllegalArgumentException`; h34s does not escape or strip them (h3 1.15.11 strips CR and LF; 1.15.4 and 1.15.5 write them raw).
+- **The headers.** `sendEvents` sets h3 1.15's `createEventStream` headers on the program's head, as `Response.header` would: `content-type`, `cache-control`, `x-accel-buffering` and, except over HTTP/2, `connection`. It does not force status 200, as h3's `send()` does; the guides say to keep it.
+- **The caller side and the typed error.** `$fetch.events[E](url, ...)` and `$fetch.events(request: FetchRequest)` (the untyped form gives `ServerEvent` values) return at the head, as `raw` does. A status that is not 2xx fails with `FetchError.Status`; a 2xx response whose content type is not `text/event-stream` fails with a new case, `FetchError.NotEvents(status, contentType)`, rather than `FetchError.Decode`, which keeps its meaning of "the data is not JSON for the model". An event whose data is not JSON for `E` fails the stream with `FetchError.Decode`, which names the event by its position and type. The decoder follows the WHATWG `EventSource` parsing rules as a pure function over chunks; each decoded event has the fields of its own frame.
+- **Not in this round.** No heartbeat comments, and no typed NDJSON decoder (`$fetch.stream[E]` stays unsettled).
+
 ## Follow-ups
 
-<!-- claude 2026-10-20: created: follow-ups -->
+<!-- claude 2026-10-20: changed: follow-ups: the helper and the guide section are done; the heartbeat, the NDJSON decoder and the type of the events' data stay open -->
 
-- Implement the helper after `sendStream` and the Kyo `$fetch` (memo, gap 7; about one implementer day, section 6).
-- Add a server-sent events section to `docs/streaming.md` in the same pull request.
+- Done: the helper in both runtimes, `$fetch.events` and the tests (issue #51, round 3; design record, item 33).
+- Done: the "Server-sent events" section of the streaming guide (`docs/content/1.guide/09.streaming.md`), with the example's countdown routes and its `EventSource` page.
+- Open: heartbeat comments for idle proxies, a typed NDJSON decoder (decision 4's `$fetch.stream[E]`), and a generated TypeScript type for an event route's data (today the route is typed `string`).
