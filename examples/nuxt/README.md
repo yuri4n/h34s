@@ -4,7 +4,7 @@ Run this optional application to try h34s handlers inside Nuxt/Nitro. It combine
 
 - `scala/kyo/`: Kyo greeting handlers, models, and application service composition. No database is required.
 - `scala/zio/`: ZIO handlers, streaming, and an optional PostgreSQL/Skunk Notes example.
-- `server/api/`: TypeScript route files that mount the exported Scala handlers.
+- No route files: each Scala handler declares its route with `.at(Route...)`, and the h34s Nuxt module mounts it. `app/utils/scala-api.ts` calls the routes with typed `$fetch`; `test/route-types.ts` checks those types.
 - `app/`, `content/`, and `public/`: the demo frontend and its content.
 
 The documentation site lives in [`../../website/`](../../website/README.md). The reusable toolbox lives in `../../scala-modules/` and `../../packages/`. This demo is excluded from library publication.
@@ -27,6 +27,6 @@ Configure the example in `h34s.config.mjs`. The Nuxt module resolves paths relat
 
 ## Use h34s in your application
 
-Follow the [adoption guide](../../docs/adoption.md) to install the published libraries and npm tooling in your own Nuxt project. Choose Kyo or ZIO, define your models and services, and create route files for your exported handlers. Add Schema or database dependencies only when you need them.
+Follow the [adoption guide](../../docs/adoption.md) to install the published libraries and npm tooling in your own Nuxt project. Choose Kyo or ZIO, define your models and services, and give each exported handler its route. Add Schema or database dependencies only when you need them.
 
 If several handlers share environment setup, write your own `AppHandler` wrapper. The wrappers in `scala/kyo/` and `scala/zio/` show how to provide services before calling `KHandler.define` or `ZHandler.define`. Adapt that composition to your application; `AppHandler` is an example-owned convention.

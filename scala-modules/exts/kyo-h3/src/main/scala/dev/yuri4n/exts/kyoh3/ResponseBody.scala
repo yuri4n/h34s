@@ -1,5 +1,7 @@
 package dev.yuri4n.exts.kyoh3
 
+import dev.yuri4n.exts.h3.WireShape
+import dev.yuri4n.exts.h3.internal.BodyShape
 import kyo.{Abort, Async, Frame, Scope, Stream, Sync, Tag, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 
@@ -19,6 +21,9 @@ import scala.scalajs.js
 trait ResponseBody[B]:
     private[exts] def encode(body: B)(using Frame): ResponseBody.Outgoing < Sync
 
+    /** What the body looks like on the wire, for the route's generated TypeScript declaration. */
+    private[exts] def shape: BodyShape
+
 object ResponseBody extends LowPriorityResponseBody:
     type StreamEffects = Async & Abort[Throwable] & Scope
 
@@ -30,11 +35,14 @@ object ResponseBody extends LowPriorityResponseBody:
 
     given unit: ResponseBody[Unit]:
         private[exts] def encode(body: Unit)(using Frame): Outgoing < Sync = Outgoing.Empty
+        private[exts] def shape: BodyShape                                  = BodyShape.Empty
 
     /** Node writes only strings and bytes to a response, so stream elements are strings. */
     given stream: [S >: StreamEffects] => ResponseBody[Stream[String, S]]:
         private[exts] def encode(body: Stream[String, S])(using Frame): Outgoing < Sync =
           Outgoing.Streamed(chunks(body)(text))
+
+        private[exts] def shape: BodyShape = BodyShape.Text
 
     /** A null element would fail the response write; fail the stream instead (a defect). */
     private[exts] def text(element: String): js.Any =
@@ -50,6 +58,9 @@ object ResponseBody extends LowPriorityResponseBody:
 end ResponseBody
 
 trait LowPriorityResponseBody:
-    given native: [A: NativeConverter] => ResponseBody[A]:
+    /** `WireShape` finds the TypeScript type of what the converter writes; every type has one. */
+    given native: [A: {NativeConverter, WireShape}] => ResponseBody[A]:
         private[exts] def encode(body: A)(using Frame): ResponseBody.Outgoing < Sync =
           Sync.defer(ResponseBody.Outgoing.Value(summon[NativeConverter[A]].toNative(body)))
+
+        private[exts] def shape: BodyShape = BodyShape.Value(() => summon[WireShape[A]].of(summon[NativeConverter[A]]))

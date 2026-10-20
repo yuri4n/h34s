@@ -1,14 +1,23 @@
-# Migrate from 0.1.0-alpha.1
+# Migration guide
 
-The Kyo core refactor changes the module graph, the handler shape and the wire format. This guide lists every removed or renamed API with its replacement. Work through it in order: toolchain, dependencies, handlers, clients.
+<!-- claude 2026-10-19: changed: one guide for every upgrade path, newest first (issue #41 review) -->
+Each section lists every removed or renamed API with its replacement. Start with the section for the version you use now.
 
-**Status.** The new API is [`0.2.0-alpha.1`, which is published](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1). The `0.1.0-alpha.1` artifacts stay published and unchanged, so you can upgrade when you are ready.
-
-<!-- claude 2026-10-19: created: upgrade section for the next release (issue #40); changed: the streaming-before-return case and the request-scope boundary (review) -->
+<!-- claude 2026-10-19: created: upgrade section for the next release (issues #41 and #40); changed: the absent-body rule and the client list (review) -->
 ## Upgrade from 0.2.0-alpha.1 to 0.3.0-alpha.1
 
 **Status.** `0.3.0-alpha.1` is not released yet. This section collects its changes while they land on `main`.
 
+### JSON reads require a content type
+
+`HandlerOptions.requireJsonContentType` now defaults to `true`. `request.body.json[A]` answers 415 (`Request body must be JSON`) for a request that has a body but no `Content-Type`. A request without a body needs no content type: `json[Option[A]]` still gives `None` and a model still answers 422. In `0.2.0-alpha.1`, a body without a content type was read as JSON. Requests with `application/json` or `application/*+json` behave as before, and `text()` never checks the content type.
+
+1. Check your clients. `$fetch` with an object body and `curl --json` send `application/json`. A `fetch` or `navigator.sendBeacon` with a byte body (`Blob` without a type, `ArrayBuffer`, typed array) and no `content-type` header sends no content type; these clients now get 415. Clients that send another content type, such as `fetch` with a string body (`text/plain`) or `curl -d` (`application/x-www-form-urlencoded`), already got 415 in `0.2.0-alpha.1`.
+2. Make each client send `content-type: application/json`. This is the recommended fix.
+3. If a client cannot send it, keep the old behavior for that handler only: `KHandler.define(HandlerOptions(requireJsonContentType = false))(program)`, or the same options with `ZHandler.define`. Do not do this for a cookie-authenticated handler that changes state; see [cross-site requests](kyo.md#cross-site-requests).
+4. In unit tests, add `headers = Map("content-type" -> "application/json")` to each `Request.fake` with a body that you read with `json[A]`. `Request.fake` follows the same default; pass `requireJsonContentType = false` to test a handler that turns the option off.
+
+<!-- claude 2026-10-19: created: the #40 subsection (issue #40); changed: the streaming-before-return case and the request-scope boundary (review) -->
 ### A dying ZIO finalizer keeps the response
 
 In `0.2.0-alpha.1`, a ZIO finalizer that died after a value or `Unit` program turned the response into an opaque 500, and after a safe failure it replaced the approved error with the opaque 500. Now the ZIO adapter behaves like Kyo: it logs `h34s: a ZIO finalizer failed` with `Cause.prettyPrint` on the server, and the client gets the response that your program produced. This also applies to a streaming handler that fails before it returns its stream. Streamed bodies already behaved this way.
@@ -21,7 +30,14 @@ You do not need to change code that compiles. Check your handlers if you relied 
 
 The rule applies to the request scope. A release that dies inside your own `ZIO.scoped` block, or inside a scoped layer that you provide inside the handler, fails the program under ZIO's rules and answers 500, as before.
 
-## 1. Update the toolchain
+<!-- claude 2026-10-19: changed: heading for the 0.1-to-0.2 path, its steps and rollback nested one level down (issue #41 review) -->
+## Upgrade from 0.1.0-alpha.1 to 0.2.0-alpha.1
+
+The Kyo core refactor changes the module graph, the handler shape and the wire format. This section lists every removed or renamed API with its replacement. Work through it in order: toolchain, dependencies, handlers, clients.
+
+**Status.** The new API is [`0.2.0-alpha.1`, which is published](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1). The `0.1.0-alpha.1` artifacts stay published and unchanged, so you can upgrade when you are ready.
+
+### 1. Update the toolchain
 
 | | 0.1.0-alpha.1 | Now |
 | --- | --- | --- |
@@ -34,7 +50,7 @@ The rule applies to the request scope. A release that dies inside your own `ZIO.
 
 Set `scalaVersion := "3.9.0"` and run sbt with JDK 25. Production still runs on Node only.
 
-## 2. Update dependencies
+### 2. Update dependencies
 
 | Module | Change |
 | --- | --- |
@@ -49,11 +65,11 @@ Set `scalaVersion := "3.9.0"` and run sbt with JDK 25. Production still runs on 
 
 A ZIO application now pulls Kyo's dependency graph, including scala-java-locales' full currency database. If you do not need currency data, exclude it as described in [Kyo handlers](kyo.md#choose-locale-data-in-your-build).
 
-## 3. Rewrite handlers
+### 3. Rewrite handlers
 
 The handler is now a function from an immutable `Request` snapshot to the body. There is no event object in the environment, and no API changes the native response while your program runs.
 
-### Kyo
+#### Kyo
 
 | 0.1.0-alpha.1 | Now |
 | --- | --- |
@@ -87,7 +103,7 @@ val personalizedGreeting: EventHandler = AppHandler.define: request =>
 
 Your `AppHandler.define` now takes `Request => B < (HandlerEffects & ...)` and calls `KHandler.define(options)(request => ...)`. See [Kyo handlers](kyo.md#compose-services-in-your-apphandler).
 
-### ZIO
+#### ZIO
 
 | 0.1.0-alpha.1 | Now |
 | --- | --- |
@@ -137,9 +153,9 @@ val createNote: EventHandler = AppHandler.define(create)
 
 `CreateNote` now uses `derives NativeSchema` with its ZIO Schema in the companion. See [schemas](schema.md).
 
-## 4. Update your clients
+### 4. Update your clients
 
-The wire format changed. Update your TypeScript types and `fetch` code:
+The wire format changed. Update your `fetch` code, and remove the TypeScript interfaces you wrote for these bodies: the generated declarations type `$fetch` (see [routes and typed `$fetch`](routes.md)):
 
 | Response | 0.1.0-alpha.1 | Now (default options) |
 | --- | --- | --- |
@@ -149,24 +165,37 @@ The wire format changed. Update your TypeScript types and `fetch` code:
 | A safe error | `{"errors": ["message"]}` | `{"errors": [{"message": "..."}]}`, with `path` for schema entries |
 | An internal error | `{"errors": ["Internal server error"]}`, plus top-level `debug` in development | `{"errors": [{"message": "Internal server error"}]}`; in development or debug mode the entry carries `debug.cause` |
 
+<!-- claude 2026-10-19: changed: added the change for NaN and infinite numbers -->
+A value body that contains `NaN` or an infinite number (`Double`, `Float`) is now the opaque 500. `0.1.0-alpha.1` and `0.2.0-alpha.1` sent these numbers as `null`. If a value can be non-finite, return an `Option` or a string for it instead.
+
 To keep the old success shape for a handler, pass `HandlerOptions(success = SuccessEnvelope.Raw)`. A `Raw` string is sent as `text/plain; charset=utf-8` and any other value as JSON text with `application/json`, unless you set a content type; h3 no longer guesses (it sent strings as `text/html`). There is no option for the old string-array errors.
 
 Body problems now have their own statuses: 415 for a non-JSON content type, 413 for a body above the limit (1 MiB by default), 400 for invalid JSON, and 422 for a body that does not match the converter or schema. The old schema reader answered 422 for invalid JSON and `Request body does not match schema` for every rejection. A plain `readBody` failure used to be an opaque 500.
 
-## 5. Move configuration and storage into Scala
+### 5. Move configuration and storage into Scala
 
 - Read Nuxt runtime config with `RuntimeConfig` / `ZRuntimeConfig` instead of reading environment variables yourself. The demo moved from Ciris and `MY_APP_DB_*` to `runtimeConfig.database` and `NUXT_DATABASE_*`. See [configuration](configuration.md).
 - Replace application-side `@JSImport("@nuxthub/kv", "kv")` objects with `KHubKv.mount(base)` or `ZHubKv.mount(base)`. See [Nitro storage](nuxthub.md).
 - Replace per-request database connections with an application pool in `Shared` or `ZShared`. See [lifetimes](lifetimes.md).
 
-## 6. Check the Nuxt module
+### 6. Check the Nuxt module
 
 Keep `@yuri4n/h34s-nuxt` in `modules`. Its Nitro plugin is now `runtime/h34s.mjs` and supplies the development and debug flags, runtime config, storage and the close hook. The module registers it for you. If you registered `runtime/development.mjs` yourself, remove that entry; the old file still re-exports the new plugin for one release.
 
 The module also declares `runtimeConfig.h34s.debug: false`, so `NUXT_H34S_DEBUG=true` turns on diagnostics at runtime. Nuxt's own `debug` option does not turn them on. Keep debug mode off in production; see [debugging](debugging.md).
 
+<!-- claude 2026-10-19: changed: merged main's wording with the route-generation additions -->
+Mount your handlers from Scala, then delete the route files:
+
+1. Add `.at(Route.get("/api/notes"))` (with the route and method of the file) to each exported handler.
+2. Remove `entries` from `h34s.config.mjs`, or keep them for outputs that still have route files.
+3. Link with `h34s-scala dev`. It prints the routes it found and writes `h34s-routes.json` and the `.d.ts` files.
+4. Delete the `server/api` files that re-export the linked modules, and the hand-written `declare module` types for them. A route file and `.at` for the same route register the handler twice.
+
+Route files keep working if you want to move later. See [routes and typed `$fetch`](routes.md).
+
 Use the package version that matches your Scala libraries: `@yuri4n/h34s-nuxt@0.2.0-alpha.1`. The `0.1.0-alpha.1` package lacks the new plugin records, and `RuntimeConfig` and `KHubKv.mount` then fail with `ConfigError`.
 
-## Roll back
+### Roll back
 
 To stay on the old API, keep your dependencies at `0.1.0-alpha.1`, Scala 3.5.2 for ZIO code, and `@yuri4n/h34s-nuxt@0.1.0-alpha.1`. Both stay published. Do not mix modules from the two versions in one application: their `SafeError` types and module graphs differ.

@@ -4,7 +4,7 @@ Write Nuxt server routes in Scala.js.
 
 h34s is a toolbox for your Nuxt/Nitro application. Its core is written in Kyo: one runtime owns the request lifecycle, cancellation, streaming, error rendering, configuration and application resources. Write your handlers in Kyo, or in ZIO through a hand-written, first-class adapter over that core. Kyo applications never depend on ZIO; ZIO applications get Kyo through the adapter.
 
-You write ordinary Scala. A handler is a function from an immutable request to the response body. Configuration, storage and shared resources come from Scala APIs. Your models, services and databases stay in your application.
+You write ordinary Scala. A handler is a function from an immutable request to the response body, and it declares its own route. Configuration, storage and shared resources come from Scala APIs. Your models, services and databases stay in your application.
 
 **Status: [`0.2.0-alpha.1` is published](https://github.com/yuri4n/h34s/releases/tag/v0.2.0-alpha.1).** The nine `dev.yuri4n` libraries are in private GitHub Packages, and the matching build tooling is published as [`@yuri4n/h34s-nuxt@0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1). Both release workflows verified the packages through the authenticated registry. See the [installation and release guide](docs/releases.md) and the [release notes](.github/release-notes/0.2.0-alpha.1.md). The older [`0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/v0.1.0-alpha.1) libraries and [`@yuri4n/h34s-nuxt@0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) stay published, with an older API and two independent runtimes. The [migration guide](docs/migration.md) lists every change.
 
@@ -20,16 +20,10 @@ import scala.scalajs.js.annotation.JSExportTopLevel
 final case class Greeting(message: String) derives NativeConverter
 
 @JSExportTopLevel("default", "hello-get")
-val hello: EventHandler = KHandler.define(_ => Greeting("Hello from Scala"))
+val hello: EventHandler = KHandler.define(_ => Greeting("Hello from Scala")).at(Route.get("/api/hello"))
 ```
 
-Mount it with a one-line route file, `server/api/hello.get.ts`:
-
-```ts
-export { default } from '../.scala/hello-get.js'
-```
-
-`GET /api/hello` answers `{"data":{"message":"Hello from Scala"}}`. Errors are `{"errors":[{"message":"..."}]}`; only `SafeError` data reaches clients. Everything else is an opaque 500, with diagnostics only in Nuxt development mode or debug mode.
+After `h34s-scala` links it, the h34s Nuxt module mounts the route; you write no route file. Nuxt types `$fetch('/api/hello')` from the declaration that `h34s-scala` generates next to the linked module (see [routes and typed `$fetch`](docs/routes.md)). `GET /api/hello` answers `{"data":{"message":"Hello from Scala"}}`. Errors are `{"errors":[{"message":"..."}]}`; only `SafeError` data reaches clients. Everything else is an opaque 500, with diagnostics only in Nuxt development mode or debug mode.
 
 ## Try the demo
 
@@ -51,14 +45,17 @@ Expected body: `{"data":{"message":"Hello, Scala!"}}`. Send `{"name":"  "}` to s
 
 ## Guides
 
+<!-- claude 2026-10-20: created: the "Set up with a coding assistant" entry in the Start column -->
+
 | Start | Build | Operate |
 | --- | --- | --- |
 | [Adoption paths](docs/adoption.md) | [Configuration and secrets](docs/configuration.md) | [Debugging](docs/debugging.md) |
 | [Kyo handlers](docs/kyo.md) | [Lifetimes: `Shared`, request scopes](docs/lifetimes.md) | [npm tooling](docs/npm-tooling.md) |
+| [Routes and typed `$fetch`](docs/routes.md) | | |
 | [ZIO handlers](docs/zio.md) | [Schemas](docs/schema.md) | [Compatibility](docs/compatibility.md) |
 | [Architecture](docs/architecture.md) | [PostgreSQL with kyo-sql or Skunk](docs/database.md) | [Releases](docs/releases.md) |
 | [Migration from 0.1.0-alpha.1](docs/migration.md) | [Streaming and cancellation](docs/streaming.md) | [Development of this repository](docs/development.md) |
-| | [Testing](docs/testing.md) | |
+| [Set up with a coding assistant](docs/agent-setup.md) | [Testing](docs/testing.md) | |
 | | [Nitro storage and NuxtHub KV](docs/nuxthub.md) | |
 
 The documentation website in [`website/`](website/README.md) presents the same guides.
@@ -66,12 +63,12 @@ The documentation website in [`website/`](website/README.md) presents the same g
 ## What is here
 
 - `scala-modules/exts/`: the libraries. `h3` (effect-free native layer), `kyo-h3` (the Kyo core), `zio-h3` (the ZIO adapter), the Kyo and ZIO schema bridges, the ZIO converters, and the Kyo and ZIO storage modules. `zio-migrations` is an unpublished experiment.
-- `packages/nuxt/`: the npm package `@yuri4n/h34s-nuxt`: build CLI, Nuxt module, development loading, source maps and the Nitro plugin.
+- `packages/nuxt/`: the npm package `@yuri4n/h34s-nuxt`: build CLI (linking, route manifests and TypeScript declarations), Nuxt module (route registration), development loading, source maps and the Nitro plugin.
 - `examples/nuxt/`: an optional demo application. `scala/kyo/` has the Kyo greeting; `scala/zio/` has the ZIO stream and the Skunk Notes example. It is a reference, not a template.
 - `website/`: the documentation site, a separate Nuxt app.
 - `scripts/`: release, consumer and smoke checks.
 
-h34s does not generate route files, TypeScript types, application scaffolds, database layers or deployment packages yet. Route generation, Nix and sbt-native-packager support are planned.
+h34s mounts your Scala routes and types their response bodies. It does not generate request-body types, application scaffolds, database layers or deployment packages. Nix and sbt-native-packager support are planned.
 
 ## Contributing
 

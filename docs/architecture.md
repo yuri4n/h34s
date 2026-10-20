@@ -44,7 +44,7 @@ Pick the smallest set for your application:
 
 ## Follow one request
 
-1. Nuxt routes the request to a route file in `server/api/`. That file re-exports a linked Scala.js module. You write these one-line files yourself for now; automatic route registration is planned.
+1. Nitro routes the request to a linked Scala.js module. The h34s Nuxt module registered that module for the route that your handler declares with `.at(Route...)`; `h34s-scala` read the route after linking and wrote it into the output's route manifest. A one-line route file in `server/api/` that re-exports the module works too.
 2. The h34s Nitro plugin has attached a frozen record to `event.context.h34s`: the development and debug flags, the request's runtime config, and Nitro storage. Requests cannot change this record.
 3. `KHandler.define` takes one immutable `Request` snapshot. It runs your function `Request => B < HandlerEffects` once, on its own fiber, in a request `Scope`, with a `Var[ResponseHead]` that starts empty.
 4. Your program reads the body, calls your services, sets status, headers and cookies with `Response.*`, and returns the body.
@@ -75,7 +75,7 @@ A finalizer that fails behaves the same in both runtimes: the failure is logged 
 
 ## What h34s does not do
 
-- Register routes or generate TypeScript types. You write the route files; the wire types are yours for now.
+- Infer TypeScript types from Scala classes. The generated declarations describe what each converter writes; a converter that does not describe itself gives `unknown`. See [routes and typed `$fetch`](routes.md).
 - Supply a database client, a connection pool or migrations. Use kyo-sql or Skunk directly; see [database](database.md).
 - Package or deploy your application. Nix and sbt-native-packager support are planned.
 - Run anywhere but Node. The core needs a Node HTTP response for streaming. Other Nitro presets are untested.

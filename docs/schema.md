@@ -84,7 +84,7 @@ The native value is what `JSON.parse(Json.encode(x))` would give, built without 
 | `Double` NaN and infinities | The strings `"NaN"`, `"Infinity"`, `"-Infinity"` |
 | `Long` | A number; decoding accepts only safe integers (up to 2^53 - 1) |
 
-Write your TypeScript client types against these shapes.
+You do not write TypeScript types for these shapes: h34s generates them. See [TypeScript types](#typescript-types).
 
 ### Kyo validation rules
 
@@ -138,6 +138,17 @@ Enums, sealed traits, maps, sets, tuples, `Either` and other primitives are not 
 
 `NativeSchema(schema)` also returns an explicit `Codec` with `decode`, `validate` and `encode` for code that holds a native value. Ordinary handlers do not need it.
 
+## TypeScript types
+
+Both bridges' converters describe the TypeScript type of what they write (`WireType.Described`). A route that returns such a type gets that type in its generated declaration, so `$fetch` is typed without hand-written interfaces. See [routes and typed `$fetch`](routes.md).
+
+| Bridge | TypeScript type |
+| --- | --- |
+| Kyo | The shapes in the table above: records with their wire names (`@rename`), optional fields as `name?: T \| null`, collections as arrays, `Map[String, A]` as `Record<string, T>`, other maps as `{ key; value }` arrays, sealed traits and enums as one-key objects or `@discriminator` objects, `Double` and `Float` as `number \| "NaN" \| "Infinity" \| "-Infinity"`, big numbers, instants, durations and bytes as strings |
+| ZIO | Records with their wire names (`@fieldName`) and without `@transientField` fields, `Option` as `T \| null`, sequences as arrays, `String`, `Boolean`, `Int`, `Double`; a transform has its underlying type; a recursive type is `unknown` where it repeats |
+
+The ZIO type follows the bridge's encoder case by case. The Kyo type follows the schema's `Structure`, which does not show fluent changes such as `Schema.rename`, `drop`, `add` or omit policies, also in the schema of a nested type. So the Kyo bridge checks its type against its encoder: it reads and writes sample values of every shape (each union member, present and absent options, filled and empty collections) and gives `unknown` when an output does not match. A Kyo type with fluent changes is therefore `unknown`; prefer annotations (`@rename`, `@discriminator`) for types you send to TypeScript clients.
+
 ## Secrets in a schema type
 
 `Secret` has a `NativeConverter`, but no schema library knows it. Each bridge provides a `Schema[Secret]` that is a string on the wire: import `dev.yuri4n.exts.ntcvkyoschema.secretSchema` (Kyo) or `dev.yuri4n.exts.ntcvzioschema.secretSchema` (ZIO) where you derive a schema that holds a `Secret`, such as a config model. A wrong value type is the generic 422 (or a `ConfigError` for runtime config), without the value. JSON or YAML that you write with this schema contains the plain value, so do not encode a secret into a response or a log. See [configuration](configuration.md).
@@ -169,6 +180,6 @@ Both bridges use Scala 3.9.0 and NativeConverter 0.9.0. See [compatibility](comp
 
 What is tested:
 
-- Kyo bridge (`NativeSchemaSuite`, 25 tests with `H3BodySuite`): wire equality with kyo-schema-json for records, options, enums, sealed traits, collections, numeric edges, big numbers (and their length and exponent limits), times and bytes; strict decoding; validation messages and paths; no input values in messages; no JSON text round trip; no blanket instance; JSON and YAML round trips from the same schema; `secretSchema`; HTTP 422 entries.
-- ZIO bridge (`NativeSchemaSpec`, 20 tests, with `secretSchema`) and ZIO request bodies (`RequestBodySpec`): supported shapes, transforms, accumulated entries with paths, and the 400/422 statuses.
+- Kyo bridge (`NativeSchemaSuite`, 29 tests with `H3BodySuite`): TypeScript types of records, sums, numbers, scalars and collections checked against the encoder output, and `unknown` for a fluent rename at the root and in a nested type; wire equality with kyo-schema-json for records, options, enums, sealed traits, collections, numeric edges, big numbers (and their length and exponent limits), times and bytes; strict decoding; validation messages and paths; no input values in messages; no JSON text round trip; no blanket instance; JSON and YAML round trips from the same schema; `secretSchema`; HTTP 422 entries.
+- ZIO bridge (`NativeSchemaSpec`, 22 tests, with `secretSchema` and the TypeScript types of records, options, wire names, transient fields, transforms and recursion) and ZIO request bodies (`RequestBodySpec`): supported shapes, transforms, accumulated entries with paths, and the 400/422 statuses.
 - The demo's Kyo routes answered 422 with `must not be blank` and `length must be <= 80` over an h3 server; see [compatibility](compatibility.md).

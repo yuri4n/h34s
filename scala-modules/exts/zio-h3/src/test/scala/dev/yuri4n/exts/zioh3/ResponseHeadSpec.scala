@@ -193,7 +193,9 @@ object ResponseHeadSpec extends ZIOSpecDefault:
             again <- request.body.text()
             _ <- Response.status(Status.Created)
           yield Greeting(s"${first.name} $again")
-        for (head, greeting) <- direct(handler(Request.fake(method = "POST", body = Some("{\"name\":\"Scala\"}"))))
+        // claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41)
+        val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = Some("{\"name\":\"Scala\"}"))
+        for (head, greeting) <- direct(handler(request))
         yield assertTrue(head.status.contains(Status.Created), greeting == Greeting("Scala {\"name\":\"Scala\"}"))
       },
     ) @@ TestAspect.timeout(45.seconds)

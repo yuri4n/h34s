@@ -25,7 +25,7 @@ object NotesHandler:
       yield NoteView.from(note)
 
 @JSExportTopLevel("default", "notes-get")
-val listNotes: EventHandler = AppHandler.define(NotesHandler.list)
+val listNotes: EventHandler = AppHandler.define(NotesHandler.list).at(Route.get("/api/notes"))
 
 @JSExportTopLevel("default", "notes-post")
-val createNote: EventHandler = AppHandler.define(NotesHandler.create)
+val createNote: EventHandler = AppHandler.define(NotesHandler.create).at(Route.post("/api/notes"))

@@ -101,8 +101,10 @@ class ValuesSuite extends FunSuite:
       intercept[RuntimeException](converter.fromNative(js.undefined))
     }
 
-    test("HandlerOptions.default: data envelope, errors list, no defaults, 1 MiB") {
+    // claude 2026-10-19: changed: the default also requires a JSON content type (issue #41)
+    test("HandlerOptions.default: data envelope, errors list, no defaults, 1 MiB, JSON content type required") {
       val options = HandlerOptions.default
+      assert(options.requireJsonContentType)
       assertEquals(options.success, SuccessEnvelope.Data)
       assertEquals(options.errors, ErrorEnvelope.List)
       assertEquals(options.defaults, ResponseHead.empty)
