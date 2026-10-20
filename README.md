@@ -45,6 +45,8 @@ Expected body: `{"data":{"message":"Hello, Scala!"}}`. Send `{"name":"  "}` to s
 
 ## Guides
 
+<!-- claude 2026-10-20: created: the "Set up with a coding assistant" entry in the Start column -->
+
 | Start | Build | Operate |
 | --- | --- | --- |
 | [Adoption paths](docs/adoption.md) | [Configuration and secrets](docs/configuration.md) | [Debugging](docs/debugging.md) |
@@ -53,7 +55,7 @@ Expected body: `{"data":{"message":"Hello, Scala!"}}`. Send `{"name":"  "}` to s
 | [ZIO handlers](docs/zio.md) | [Schemas](docs/schema.md) | [Compatibility](docs/compatibility.md) |
 | [Architecture](docs/architecture.md) | [PostgreSQL with kyo-sql or Skunk](docs/database.md) | [Releases](docs/releases.md) |
 | [Migration from 0.1.0-alpha.1](docs/migration.md) | [Streaming and cancellation](docs/streaming.md) | [Development of this repository](docs/development.md) |
-| | [Testing](docs/testing.md) | |
+| [Set up with a coding assistant](docs/agent-setup.md) | [Testing](docs/testing.md) | |
 | | [Nitro storage and NuxtHub KV](docs/nuxthub.md) | |
 
 The documentation website in [`website/`](website/README.md) presents the same guides.
