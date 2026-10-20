@@ -21,7 +21,9 @@ In a Claude Code cloud session, the repository's SessionStart hook installs Java
 
 ## 1. Start from this repository
 
-Clone the private repository using your existing GitHub access, then run these commands from the repository root. The root scripts delegate to the demo:
+<!-- claude 2026-10-20: changed: the repository is public (ADR-0013) -->
+
+Clone the repository, then run these commands from the repository root. The root scripts delegate to the demo:
 
 ```sh
 pnpm install --frozen-lockfile
