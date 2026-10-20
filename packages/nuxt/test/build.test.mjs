@@ -354,7 +354,15 @@ test('a missing sbtRoot or one without an sbt build fails before sbt starts or a
     () => linkScala({ root: r.web, config: { sbtRoot: '../missing', modules: [{ output: 'server/.scala' }] }, run: () => assert.fail('must not start sbt') }),
     /resolves to .*missing, which does not exist\. Set sbtRoot in the h34s config to the directory of your sbt build, relative to the app root/,
   )
-  // A project/ directory alone is an sbt build, as for the sbt launcher.
+  // Without sbtRoot, such a config builds in the app root, and the message says so.
+  assert.throws(
+    () => linkScala({ root: r.web, config: { modules: [{ output: 'server/.scala' }] }, run: () => assert.fail('must not start sbt') }),
+    (error) => {
+      assert.ok(error.message.startsWith(`sbtRoot is not set, so the sbt build is the app root, ${r.web}, which has no build.sbt and no project/ directory.`), error.message)
+      return true
+    },
+  )
+  // h34s accepts a project/ directory alone; the sbt launcher itself also needs project/build.properties there.
   mkdirSync(join(r.root, 'project'))
   r.config('..', 'project-only.mjs')
   linkScala({

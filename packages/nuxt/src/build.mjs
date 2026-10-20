@@ -118,7 +118,8 @@ export async function loadConfig({
 /**
  * The directory where the CLI runs sbt: `config.sbtRoot` resolved against `root` (`loadConfig`
  * has already made it absolute, against the config file's directory). It must hold `build.sbt` or
- * a `project/` directory, as the sbt launcher requires.
+ * a `project/` directory, the files that sbt looks for. The sbt launcher itself also needs
+ * `project/build.properties` when `build.sbt` is missing.
  */
 function sbtDirectory(root, config) {
   const directory = resolve(root, config.sbtRoot ?? '.')
@@ -138,9 +139,11 @@ function sbtDirectory(root, config) {
     return directory
   const loaded = loadedConfigs.get(config)
   const written = loaded ? loaded.sbtRoot : config.sbtRoot
-  const key = written === undefined
-    ? `sbtRoot is not set, so the sbt build is the config file's directory, ${directory}, which`
-    : `sbtRoot '${written}' resolves to ${directory}, which`
+  const key = written !== undefined
+    ? `sbtRoot '${written}' resolves to ${directory}, which`
+    : loaded
+      ? `sbtRoot is not set, so the sbt build is the config file's directory, ${directory}, which`
+      : `sbtRoot is not set, so the sbt build is the app root, ${directory}, which`
   const fix = loaded
     ? `Set sbtRoot in ${loaded.file} to the directory of your sbt build, relative to that file, for example '..'.`
     : 'Set sbtRoot in the h34s config to the directory of your sbt build, relative to the app root, or load the config with loadConfig.'

@@ -13,15 +13,16 @@ import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { loadConfig, buildScala as runBuild, writeRoutes } from '@yuri4n/h34s-nuxt/build'
-import example from '../examples/nuxt/h34s.config.mjs'
+import example from '../examples/nuxt/h34s.config.mjs' // claude 2026-10-20: changed: the example's own config, not a second one (ADR-0009)
 
-// claude 2026-10-20: changed: the example's own config, whose sbtRoot is the repository build (ADR-0009)
+// claude 2026-10-20: changed: the helpers run in examples/nuxt with the example's sbtRoot (ADR-0009)
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** The example's config as `loadConfig` reads it from `<root>/examples/nuxt`. */
 const configIn = root => ({ ...example, sbtRoot: resolve(root, 'examples/nuxt', example.sbtRoot) })
 const buildScala = ({ root, ...options }) => runBuild({ ...options, root: join(root, 'examples/nuxt'), config: configIn(root) })
 const routesOf = root => writeRoutes({ root: join(root, 'examples/nuxt'), config: configIn(root) })
 
+// claude 2026-10-20: created: the example's sbtRoot is the repository build (ADR-0009)
 test('the example\'s config runs sbt in the repository build', async () => {
   assert.equal((await loadConfig({ root: join(repository, 'examples/nuxt') })).sbtRoot, repository)
 })
