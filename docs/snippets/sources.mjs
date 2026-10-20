@@ -24,6 +24,54 @@ const nuxtConfig = 'examples/nuxt/nuxt.config.ts'
 /** A region of a compiled source file, or a marked block of a guide. */
 const region = (file, name) => ({ kind: 'region', file, name })
 const guide = (file, name) => ({ kind: 'guide', file, name })
+// claude 2026-10-20: created: a guide fence that shows a region (#51)
+/** A guide fence marked `<!-- example: <name> -->`. */
+const example = (file, name) => ({ kind: 'example', file, name })
+
+// claude 2026-10-20: created: the files of the event examples (#51)
+const streaming = 'docs/content/1.guide/09.streaming.md'
+const kyoTests = 'scala-modules/kyo-h3/src/test/scala/dev/yuri4n/exts/kyoh3'
+const zioTests = 'scala-modules/zio-h3/src/test/scala/dev/yuri4n/exts/zioh3'
+const useCountdown = 'examples/nuxt/app/composables/useCountdown.ts'
+const testing = 'docs/content/1.guide/10.testing.md'
+
+// claude 2026-10-20: created: guide blocks that show a region (#51)
+/**
+ * Guide code blocks that show compiled code. Each `fence` is a guide fence
+ * marked `<!-- example: <name> -->`, and `source` is the region whose text
+ * it must equal. docs/test checks both, so a guide block cannot drift from
+ * the example application or the suite that compiles it.
+ */
+export const guideExamples = [
+  {
+    fence: example(streaming, 'sse-kyo'),
+    source: region(`${kyo}/Countdown.scala`, 'sse-handler'),
+  },
+  {
+    fence: example(streaming, 'sse-zio'),
+    source: region(`${zio}/handlers/CountdownHandler.scala`, 'sse-handler'),
+  },
+  {
+    fence: example(streaming, 'sse-browser'),
+    source: region(useCountdown, 'sse-browser'),
+  },
+  {
+    fence: example(streaming, 'sse-kyo-caller'),
+    source: region(`${kyoTests}/NitroLocalFetchSuite.scala`, 'kyo-events'),
+  },
+  {
+    fence: example(streaming, 'sse-zio-caller'),
+    source: region(`${zioTests}/NitroLocalFetchSpec.scala`, 'zio-events'),
+  },
+  {
+    fence: example(testing, 'kyo-test-events'),
+    source: region(`${kyoTests}/HandlerTestSuite.scala`, 'kyo-test-events'),
+  },
+  {
+    fence: example(testing, 'zio-test-events'),
+    source: region(`${zioTests}/HandlerTestSpec.scala`, 'zio-test-events'),
+  },
+]
 
 // claude 2026-10-20: created: the homepage's handler in both runtimes (#52)
 export const greeting = {
@@ -113,23 +161,25 @@ export const files = {
   'package.json': { lang: 'json', both: guide(npmTooling, 'package.json') },
 }
 
-// claude 2026-10-20: created: every source that the site reads (#52)
+// claude 2026-10-20: changed: also the guide examples (#51)
 /** Gives every region and guide marker that the site shows, flattened. */
 export function allSources() {
   return [
     ...Object.values(greeting),
     ...Object.values(files).flatMap(entry =>
       [entry.both, entry.kyo, entry.zio].filter(Boolean)),
+    ...guideExamples.flatMap(entry => [entry.fence, entry.source]),
   ]
 }
 
-// claude 2026-10-20: created: reads one source (#52)
+// claude 2026-10-20: changed: an example fence has its own marker (#51)
 /** Gives the text of a source. `read` maps a repository path to its text. */
 export function readSource(source, read) {
   const text = read(source.file)
-  return source.kind === 'region'
-    ? extractRegion(text, source.name, source.file)
-    : extractMarkedFence(text, source.name, source.file)
+  if (source.kind === 'region')
+    return extractRegion(text, source.name, source.file)
+  const kind = source.kind === 'example' ? 'example' : 'tour'
+  return extractMarkedFence(text, source.name, source.file, kind)
 }
 
 // claude 2026-10-20: created: the caption that names a text's source (#52)

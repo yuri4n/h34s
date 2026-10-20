@@ -2,12 +2,14 @@ package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.HeaderRules
 import dev.yuri4n.exts.kyoh3.ResponseBody.StreamEffects
-import dev.yuri4n.exts.kyoh3.internal.StreamResponse
-import kyo.{Env, Frame, Stream, Var, `<`}
+import dev.yuri4n.exts.kyoh3.internal.{EventStreams, StreamResponse}
+import kyo.{Env, Frame, Stream, Sync, Var, `<`}
 
+// claude 2026-10-20: changed: the Scaladoc names sendEvents (ADR-0007)
 /** Response head operations. They change local state only; the core writes the head once, after
   * the handler finishes. `Abort.recover` does not roll these changes back. `sendStream` is the one
-  * operation that writes: it sends the head and a stream, and its `Sent` result ends the handler.
+  * operation that writes: it sends the head and a stream, and its `Sent` result ends the handler;
+  * `sendEvents` is `sendStream` for server-sent events.
   *
   * Invalid header names, header values, cookie names or redirect statuses are programming errors.
   * The check runs when the operation runs, not when you build the value: the handler then fails
@@ -75,6 +77,30 @@ object Response:
       Var.use[ResponseHead](head =>
         Env.use[HandlerTransport](transport => StreamResponse.send(transport, head, ResponseBody.chunks(stream)(ResponseBody.text))),
       )
+
+    // claude 2026-10-20: created: sendEvents, server-sent events over sendStream (ADR-0007)
+    /** Sends the head set so far as a server-sent event stream, then one frame per event, and gives
+      * `Sent`. Make it the handler's last step: return its `Sent` as the body.
+      *
+      * It sets the headers of h3's `createEventStream`, as `Response.header` would:
+      * `content-type: text/event-stream`, `cache-control: private, no-cache, no-store,
+      * no-transform, must-revalidate, max-age=0`, `x-accel-buffering: no` and, except over HTTP/2,
+      * `connection: keep-alive`. They replace a value of the same name that you or the handler
+      * defaults set; your other headers, cookies and status stay. Keep the status 200: a browser's
+      * `EventSource` fails on any other status. Then it is `sendStream` over the frames
+      * (`ServerEvent.frame`), with the same rules: the head leaves at the call, the request scope
+      * stays open until the stream ends or the client goes away, a disconnect waits for the
+      * stream's finalizers, and a failure after the head ends the response and fails this step.
+      *
+      * {{{
+      * Response.sendEvents(Stream.init(Seq(3, 2, 1)).map(n => ServerEvent.json(Tick(n), event = Some("tick"))))
+      * }}}
+      *
+      * The events may use at most `Async & Abort[Throwable] & Scope`, as in `sendStream`.
+      */
+    def sendEvents[S >: StreamEffects](events: Stream[ServerEvent, S])(using Frame): Sent < HandlerEffects =
+      Env.use[HandlerTransport](transport => Var.updateDiscard[ResponseHead](EventStreams.head(transport, _)))
+        .andThen(sendStream(events.map(event => Sync.defer(ServerEvent.frame(event)))))
 
     /** The head that the handler has set so far (defaults passed to `define` are not included). */
     def head(using Frame): ResponseHead < Var[ResponseHead] = Var.get[ResponseHead]

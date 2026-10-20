@@ -8,6 +8,12 @@ on:
       - examples/nuxt/scala/**
       # claude 2026-10-20: created: the project tour reads two regions of this file (issue #52)
       - examples/nuxt/nuxt.config.ts
+      # claude 2026-10-20: created: the streaming and testing guides show regions of these files (ADR-0007)
+      - examples/nuxt/app/composables/useCountdown.ts
+      - scala-modules/kyo-h3/src/test/scala/dev/yuri4n/exts/kyoh3/NitroLocalFetchSuite.scala
+      - scala-modules/zio-h3/src/test/scala/dev/yuri4n/exts/zioh3/NitroLocalFetchSpec.scala
+      - scala-modules/kyo-h3/src/test/scala/dev/yuri4n/exts/kyoh3/HandlerTestSuite.scala
+      - scala-modules/zio-h3/src/test/scala/dev/yuri4n/exts/zioh3/HandlerTestSpec.scala
       - .gitmodules
       - pnpm-workspace.yaml
       - pnpm-lock.yaml
@@ -21,6 +27,12 @@ on:
       - examples/nuxt/scala/**
       # claude 2026-10-20: created: the project tour reads two regions of this file (issue #52)
       - examples/nuxt/nuxt.config.ts
+      # claude 2026-10-20: created: the streaming and testing guides show regions of these files (ADR-0007)
+      - examples/nuxt/app/composables/useCountdown.ts
+      - scala-modules/kyo-h3/src/test/scala/dev/yuri4n/exts/kyoh3/NitroLocalFetchSuite.scala
+      - scala-modules/zio-h3/src/test/scala/dev/yuri4n/exts/zioh3/NitroLocalFetchSpec.scala
+      - scala-modules/kyo-h3/src/test/scala/dev/yuri4n/exts/kyoh3/HandlerTestSuite.scala
+      - scala-modules/zio-h3/src/test/scala/dev/yuri4n/exts/zioh3/HandlerTestSpec.scala
       - .gitmodules
       - pnpm-workspace.yaml
       - pnpm-lock.yaml

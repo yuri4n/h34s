@@ -7,6 +7,7 @@ import test from 'node:test'
 import ts from 'typescript'
 
 import {
+  exampleMarkers,
   extractMarkedFence,
   extractRegion,
   lineDiff,
@@ -19,6 +20,7 @@ import {
   allSources,
   files,
   greeting,
+  guideExamples,
   loadSnippets,
   readRepositoryFile,
   readSource,
@@ -336,6 +338,51 @@ test('every region and tour marker is read by sources.mjs', async () => {
     }
   }
   assert.deepEqual(orphans, [], 'markers that no source in sources.mjs reads')
+})
+
+// claude 2026-10-20: created: a guide example block is its region (#51)
+test('every guide example block equals its example region', () => {
+  assert.ok(guideExamples.length > 0)
+  for (const { fence, source } of guideExamples) {
+    const shown = readSource(fence, readRepositoryFile)
+    const compiled = readSource(source, readRepositoryFile)
+    const marker = `<!-- example: ${fence.name} -->`
+    assert.equal(
+      shown,
+      compiled,
+      `${fence.file} ${marker} differs from ${source.file} ${source.name}`,
+    )
+  }
+})
+
+// claude 2026-10-20: created: no example marker without a region (#51)
+test('every example marker of a guide is listed in guideExamples', async () => {
+  const listed = new Set(guideExamples.map(({ fence }) =>
+    `${fence.file} ${fence.name}`))
+  const orphans = []
+  for (const file of await walk(join(repositoryRoot, 'docs/content'))) {
+    if (!file.endsWith('.md'))
+      continue
+    for (const name of exampleMarkers(readRepositoryFile(file))) {
+      if (!listed.has(`${file} ${name}`))
+        orphans.push(`${file}: <!-- example: ${name} -->`)
+    }
+  }
+  assert.deepEqual(orphans, [], 'example markers without a region')
+  assert.deepEqual(
+    exampleMarkers('a\n<!-- example: x -->\n<!-- tour: y -->\n'),
+    ['x'],
+  )
+  const fence = '\n\n```ts\na\n```'
+  assert.equal(
+    extractMarkedFence(`<!-- example: x -->${fence}`, 'x', 'g.md', 'example'),
+    'a',
+  )
+  assert.throws(
+    () =>
+      extractMarkedFence(`<!-- tour: x -->${fence}`, 'x', 'g.md', 'example'),
+    /g\.md: marker "<!-- example: x -->" not found/,
+  )
 })
 
 test('the orphan check finds region and tour marker names', () => {

@@ -645,4 +645,234 @@ class NitroLocalFetchSuite extends FunSuite:
         assertEquals(data.asInstanceOf[String], "hi None", "get keeps the envelope: the bare model finds no message at the top")
       }
     }
+
+    // ---- Server-sent events: Response.sendEvents and $fetch.events (ADR-0007) ----
+
+    // claude 2026-10-20: created: the typed event of the server-sent event tests (ADR-0007)
+    final case class Tick(remaining: Int) derives NativeConverter
+    final case class Countdown(remaining: Int) derives NativeConverter
+    final case class TicksSeen(remaining: List[Int], times: List[Double], headAt: Double, producedAtHead: Int) derives NativeConverter
+
+    /** An event as text, for the callers' JSON bodies: `type|id|data`. */
+    private def shown(event: ServerEvent): String = s"${event.event.getOrElse("message")}|${event.id.getOrElse("-")}|${event.data}"
+
+    /** A failure as text, for the callers' JSON bodies. */
+    private def failure(result: Result[FetchError, Any]): String = result.fold(
+      _ => "ended",
+      {
+        case FetchError.NotEvents(status, contentType) => s"NotEvents($status, ${contentType.getOrElse("-")})"
+        case FetchError.Status(status, body)           => s"Status($status, $body)"
+        case FetchError.Decode(status, reason)         => s"Decode($status, $reason)"
+        case other                                     => other.getClass.getSimpleName
+      },
+      panic => s"panic $panic",
+    )
+
+    // claude 2026-10-20: created: a Scala callee's sendEvents read by $fetch.events[E] in-process, head-first (ADR-0007)
+    test("sendEvents in-process: $fetch.events[E] returns head-first and decodes the typed events as they arrive") {
+      var produced = 0
+      val app = NitroLocal.App()
+      // One element per chunk: Stream.map emits a chunk when all of its elements are mapped.
+      val ticks = Stream.init(Seq(3, 2, 1), chunkSize = 1).map { remaining =>
+        Async.sleep(200.millis).andThen(Sync.defer { produced += 1; ServerEvent.json(Tick(remaining), event = Some("tick")) })
+      }
+      app.route("/api/ticks", KHandler.define(_ => Response.sendEvents(ticks)))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          val start = js.Date.now()
+          for
+            events <- KHandler.$fetch.events[Tick]("/api/ticks")
+            headAt = js.Date.now() - start
+            producedAtHead = produced
+            seen <- events.map(tick => Sync.defer((tick.remaining, js.Date.now() - start))).run
+          yield TicksSeen(seen.map(_._1).toList, seen.map(_._2).toList, headAt, producedAtHead)
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map { seen =>
+        val times  = list(seen.times).map(_.asInstanceOf[Double])
+        val headAt = seen.headAt.asInstanceOf[Double]
+        assertEquals(list(seen.remaining).map(_.asInstanceOf[Int]), List(3, 2, 1))
+        assertEquals(seen.producedAtHead.asInstanceOf[Int], 0, "the head arrived before the first event")
+        assert(headAt < times.head, s"head after $headAt ms, events at $times ms")
+        assert(times.zip(times.tail).forall((earlier, later) => later - earlier >= 150), s"each event as it is sent: $times ms")
+      }
+    }
+
+    // claude 2026-10-20: created: the streaming guide's caller example (docs/content/1.guide/09.streaming.md, "Read the events in a handler"); docs/test checks that they are equal (ADR-0007)
+    test("the guide's events example: a handler reads the countdown's typed events with $fetch.events") {
+      val app = NitroLocal.App()
+      val countdown = Stream.init(3 to 0 by -1).map(remaining => ServerEvent.json(Countdown(remaining), event = Some("tick")))
+      app.route("/api/kyo/countdown", KHandler.define(_ => Response.sendEvents(countdown)))
+      // #region kyo-events
+      val total: EventHandler = KHandler.define: _ =>
+          for
+            ticks <- KHandler.$fetch.events[Countdown]("/api/kyo/countdown")
+            seen  <- ticks.run
+          yield seen.map(_.remaining).sum
+      // #endregion kyo-events
+      app.route("/api/total", total)
+      TestDeadline(app.fetch("/api/total").flatMap(body)).map(data => assertEquals(data.asInstanceOf[Int], 6))
+    }
+
+    // claude 2026-10-20: created: a JavaScript route with h3's createEventStream read by the untyped $fetch.events (ADR-0007; the content-type path of ADR-0005, Q2)
+    test("a JavaScript route with h3's createEventStream: the untyped $fetch.events reads its events by the content type") {
+      val app = NitroLocal.App()
+      app.routeEventStream("/api/js-clock", js.Array(js.Dynamic.literal(event = "tick", id = "1", data = "one"), "two"))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          // The route sets no x-h34s-stream marker: only its content type makes it an event stream.
+          // The test reads the body to its end: a cancel of h3's createEventStream body leaks
+          // unhandled rejections in-process (ADR-0007).
+          KHandler.$fetch.events(FetchRequest("/api/js-clock")).map(_.run).map(_.map(shown).mkString(" ; "))
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map { data =>
+        assertEquals(data.asInstanceOf[String], "tick|1|one ; message|-|two")
+      }
+    }
+
+    // claude 2026-10-20: created: events refuses a response that is not an event stream with a typed FetchError (ADR-0007)
+    test("events of a route that is not an event stream fails with FetchError.NotEvents; an error status with FetchError.Status") {
+      val app = NitroLocal.App()
+      app.route("/api/greeting", KHandler.define(_ => Greeting("hi")))
+      app.route("/api/missing", KHandler.define(_ => KHandler.failWith(404, "No such stream"): Unit < HandlerEffects))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          for
+            json <- Abort.run[FetchError](KHandler.$fetch.events[Tick]("/api/greeting"))
+            missing <- Abort.run[FetchError](KHandler.$fetch.events(FetchRequest("/api/missing")))
+          yield s"${failure(json)} | ${failure(missing)}"
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map { data =>
+        assertEquals(
+          data.asInstanceOf[String],
+          "NotEvents(200, application/json) | Status(404, {\"errors\":[{\"message\":\"No such stream\"}]})",
+        )
+      }
+    }
+
+    // claude 2026-10-20: created: an event whose data is not JSON for E fails the stream with FetchError.Decode, after the events before it (ADR-0007)
+    test("a typed event whose data is not JSON for E fails the stream with FetchError.Decode, which names the event") {
+      val app = NitroLocal.App()
+      app.route(
+        "/api/mixed",
+        KHandler.define(_ => Response.sendEvents(Stream.init(Seq(ServerEvent.json(Tick(3)), ServerEvent("not json", event = Some("oops")), ServerEvent.json(Tick(1)))))),
+      )
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          var seen = Vector.empty[Int]
+          KHandler.$fetch.events[Tick]("/api/mixed").map { events =>
+            Abort.run[FetchError](events.foreach(tick => Sync.defer { seen = seen :+ tick.remaining }))
+              .map(result => s"${seen.mkString(",")} ${failure(result)}")
+          }
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map { data =>
+        assertEquals(data.asInstanceOf[String], "3 Decode(200, the data of event 2 (\"oops\") is not valid JSON)")
+      }
+    }
+
+    // claude 2026-10-20: created: frames split across chunks over real HTTP decode the same; events sends accept: text/event-stream (ADR-0007)
+    test("over real HTTP (absolute URL), events split inside lines and inside a CRLF decode to the same typed events") {
+      val app   = NitroLocal.App()
+      val split = Seq("data: {\"remain", "ing\":2}\r", "\n\r\nda", "ta: {\"remaining\":1}\n", "\n", ": done\n")
+      app.route(
+        "/api/split",
+        KHandler.define { request =>
+          if request.header("accept").contains("text/event-stream") then
+              Response.header("content-type", "text/event-stream").andThen(Response.sendStream(Stream.init(split)))
+          else KHandler.failWith(406, "events only"): Sent < HandlerEffects
+        },
+      )
+      TestDeadline(app.listen().flatMap { server =>
+        app.route(
+          "/api/caller",
+          KHandler.define(_ => KHandler.$fetch.events[Tick](server.url("/api/split")).map(_.run).map(_.map(_.remaining).mkString(","))),
+        )
+        app.fetch("/api/caller").flatMap(body).transformWith(result => server.close().flatMap(_ => Future.fromTry(result)))
+      }).map(data => assertEquals(data.asInstanceOf[String], "2,1"))
+    }
+
+    // claude 2026-10-20: created: the negative control of review B1: the body's one UTF-8 decode removes one byte order mark, and the decoder removes none (ADR-0007)
+    test("events: the body is decoded as UTF-8 once, so of two leading byte order marks only the first is removed") {
+      val app = NitroLocal.App()
+      def sending(text: String): EventHandler =
+        KHandler.define(_ => Response.header("content-type", "text/event-stream").andThen(Response.sendStream(Stream.init(Seq(text)))))
+      // In-process, h34s sends the text as UTF-8 bytes: EF BB BF for each U+FEFF.
+      app.route("/api/one-bom", sending("\uFEFFdata: a\n\n"))
+      // A WHATWG parser reads the first line's field name as "\uFEFFdata", an unknown field.
+      app.route("/api/two-boms", sending("\uFEFF\uFEFFdata: a\n\ndata: b\n\n"))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          for
+            one <- KHandler.$fetch.events(FetchRequest("/api/one-bom")).map(_.run)
+            two <- KHandler.$fetch.events(FetchRequest("/api/two-boms")).map(_.run)
+          yield s"${one.map(_.data).mkString(",")} | ${two.map(_.data).mkString(",")}"
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map(data => assertEquals(data.asInstanceOf[String], "a | b"))
+    }
+
+    // claude 2026-10-20: created: a JavaScript body of strings gets the one byte order mark removal of a UTF-8 decode, as its bytes would (review B1, ADR-0007)
+    test("events: a JavaScript stream of strings loses one leading byte order mark, as its UTF-8 bytes would") {
+      val app = NitroLocal.App()
+      // A route that returns a ReadableStream of strings: in-process, its chunks reach $fetch as strings.
+      val strings: js.Function1[js.Dynamic, js.Any] = event => {
+        event.node.res.setHeader("content-type", "text/event-stream")
+        val start: js.Function1[js.Dynamic, Unit] = controller => {
+          Seq("\uFEFFdata: a\n\n", "\uFEFFdata: b\n\n", "data: c\n\n").foreach(chunk => controller.enqueue(chunk))
+          controller.close()
+          ()
+        }
+        js.Dynamic.newInstance(js.Dynamic.global.ReadableStream)(js.Dynamic.literal(start = start))
+      }
+      app.routeNative("/api/js-strings", strings)
+      app.route(
+        "/api/caller",
+        KHandler.define(_ => KHandler.$fetch.events(FetchRequest("/api/js-strings")).map(_.run).map(_.map(_.data).mkString(","))),
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map(data => assertEquals(data.asInstanceOf[String], "a,c"))
+    }
+
+    // claude 2026-10-20: created: the negative control of review 4329965909: a body of bytes and strings shares one body start, so one leading byte order mark is removed in all (ADR-0007)
+    test("a JavaScript stream of bytes and strings: one leading byte order mark is removed from the whole body, none midstream") {
+      val app     = NitroLocal.App()
+      val encoder = js.Dynamic.newInstance(js.Dynamic.global.TextEncoder)()
+      def bytes(text: String): js.Any = encoder.encode(text)
+      // A route that returns a ReadableStream: in-process, each chunk reaches $fetch as it was
+      // enqueued, a Uint8Array or a string.
+      def chunked(chunks: js.Any*): js.Function1[js.Dynamic, js.Any] = event => {
+        event.node.res.setHeader("content-type", "text/event-stream")
+        val start: js.Function1[js.Dynamic, Unit] = controller => {
+          chunks.foreach(chunk => controller.enqueue(chunk))
+          controller.close()
+          ()
+        }
+        js.Dynamic.newInstance(js.Dynamic.global.ReadableStream)(js.Dynamic.literal(start = start))
+      }
+      app.routeNative("/api/bytes-then-string", chunked(bytes("a"), "﻿b"))
+      app.routeNative("/api/string-then-bytes", chunked("﻿a", bytes("﻿b")))
+      app.routeNative("/api/marked-bytes-then-string", chunked(bytes("﻿a"), "﻿b"))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          // U+FEFF is invisible: show it, so a failure prints where it is.
+          def text(path: String) = KHandler.$fetch.text(path).map(_.replace("﻿", "<U+FEFF>"))
+          for
+            first  <- text("/api/bytes-then-string")
+            second <- text("/api/string-then-bytes")
+            third  <- text("/api/marked-bytes-then-string")
+          yield s"$first | $second | $third"
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map { data =>
+        assertEquals(data.asInstanceOf[String], "a<U+FEFF>b | a<U+FEFF>b | a<U+FEFF>b")
+      }
+    }
 end NitroLocalFetchSuite
