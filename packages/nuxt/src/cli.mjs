@@ -45,7 +45,9 @@ try {
       linkScala({ root: options.root, config, mode })
       const outputs = await writeRoutes({ root: options.root, config })
       const routes = outputs.reduce((count, output) => count + output.routes.length, 0)
-      console.log(`[h34s] ${routes} route${routes === 1 ? '' : 's'} in ${outputs.map(output => output.output).join(', ')}`)
+      // claude 2026-10-20: changed: also counts the named models (ADR-0014)
+      const models = outputs.reduce((count, output) => count + output.models.names.length, 0)
+      console.log(`[h34s] ${routes} route${routes === 1 ? '' : 's'} and ${models} model${models === 1 ? '' : 's'} in ${outputs.map(output => output.output).join(', ')}`)
     }
   }
 }

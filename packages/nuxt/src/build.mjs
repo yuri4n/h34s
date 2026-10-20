@@ -5,7 +5,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { writeRoutes } from './routes.mjs'
 
-export { manifestFile, readRoutes, writeRoutes } from './routes.mjs'
+export { manifestFile, modelsFile, readRoutes, writeRoutes } from './routes.mjs' // claude 2026-10-20: changed: export modelsFile (ADR-0014)
 
 function inside(parent, child) {
   const path = relative(parent, child)

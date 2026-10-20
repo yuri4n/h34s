@@ -118,7 +118,7 @@ mkdirSync('server/.scala', { recursive: true })
 writeFileSync('server/.scala/hello.js', 'export const hello = 42')
 // A route module: its default export carries the record that EventHandler.at writes.
 writeFileSync('server/.scala/greeting-get.js', \`const handler = () => 'ok'
-Object.defineProperty(handler, Symbol.for('h34s.handler'), { value: { version: 1, route: '/api/greeting', method: 'get', types: () => ({ success: 'string', errors: 'unknown' }) } })
+Object.defineProperty(handler, Symbol.for('h34s.handler'), { value: { version: 1, route: '/api/greeting', method: 'get', types: () => ({ success: '{ message: string }', errors: 'unknown', named: { success: 'Greeting', uses: ['Greeting'], models: [{ name: 'Greeting', type: '{ message: string }', uses: [], scala: 'app.Greeting' }] } }) } })
 export default handler
 \`)
 writeFileSync('sbt-args.json', JSON.stringify(process.argv.slice(2)))
@@ -137,7 +137,15 @@ writeFileSync('sbt-args.json', JSON.stringify(process.argv.slice(2)))
     JSON.parse(readFileSync(join(app, 'server/.scala/h34s-routes.json'), 'utf8')).routes,
     [{ module: 'greeting-get.js', route: '/api/greeting', method: 'get' }],
   )
-  assert.match(readFileSync(join(app, 'server/.scala/greeting-get.d.ts'), 'utf8'), /export type SuccessBody = string/)
+  // claude 2026-10-20: changed: the declaration imports its named model from the models file (ADR-0014)
+  const greetingTypes = readFileSync(join(app, 'server/.scala/greeting-get.d.ts'), 'utf8')
+  assert.match(greetingTypes, /import type \{ Greeting \} from '\.\/h34s-models'/)
+  assert.match(greetingTypes, /export type SuccessBody = Greeting/)
+  assert.match(readFileSync(join(app, 'server/.scala/h34s-models.d.ts'), 'utf8'), /export type Greeting = \{ message: string \}/)
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(app, 'server/.scala/h34s-routes.json'), 'utf8')).models,
+    { file: 'h34s-models.d.ts', names: ['Greeting'] },
+  )
   assert.throws(() => run(cli, ['unknown'], { cwd: app, env, stdio: 'pipe' }))
   assert.throws(() =>
     run(cli, ['dev', '--root'], { cwd: app, env, stdio: 'pipe' }),

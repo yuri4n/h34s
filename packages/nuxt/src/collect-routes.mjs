@@ -39,6 +39,7 @@ async function collect(directory) {
         method: record.method,
         success: types?.success,
         errors: types?.errors,
+        named: types?.named, // claude 2026-10-20: changed: the success type with model names and the models (ADR-0014)
       })
     }
     catch (error) {

@@ -33,6 +33,12 @@ export function watchScala(options: BuildOptions): Promise<void>
 
 /** The route manifest file that `writeRoutes` writes into each output directory. */
 export const manifestFile: 'h34s-routes.json'
+// claude 2026-10-20: created: the models file (ADR-0014)
+/**
+ * The models file that `writeRoutes` writes into each output directory: one `export type` per
+ * named model that the routes return. The Nuxt module maps `#h34s/models` to it.
+ */
+export const modelsFile: 'h34s-models.d.ts'
 export interface ScalaRoute {
   /** The linked module, relative to the output directory. */
   module: string
@@ -47,12 +53,17 @@ export interface RouteManifest {
   routes: ScalaRoute[]
   /** The `.d.ts` files written next to the linked modules. */
   declarations: string[]
+  // claude 2026-10-20: created: the models file and its names (ADR-0014)
+  /** The models file of the output and the names it exports, in declaration order. */
+  models: { file: 'h34s-models.d.ts', names: string[] }
 }
-// claude 2026-10-19: changed: states that a failure leaves every output's files as they were
+// claude 2026-10-20: changed: also writes the models file, and fails on a model name with two structures (ADR-0014)
 /**
  * Imports the linked modules of every output in a child Node process, writes a `.d.ts` next to
- * each h34s handler module and the route manifest of each output. It checks every output first:
- * when one fails, no file of any output changes.
+ * each h34s handler module, the models file (`h34s-models.d.ts`) and the route manifest of each
+ * output. A route declaration imports the models it uses from the models file. Two Scala types
+ * with one TypeScript name and different structures, in one output or in two, fail the
+ * generation. It checks every output first: when one fails, no file of any output changes.
  */
 export function writeRoutes(options: BuildOptions): Promise<RouteManifest[]>
 export interface NitroRouteHandler {
