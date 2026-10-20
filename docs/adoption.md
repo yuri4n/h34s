@@ -10,6 +10,10 @@ Pick the path that matches what you have:
 
 Every path ends with the same steps: [write a handler, mount it, run it](#write-mount-and-run-a-handler).
 
+<!-- claude 2026-10-20: created: coding-assistant pointer -->
+
+Prefer a coding assistant? Give it the prompt in [Set up h34s with a coding assistant](agent-setup.md); it follows the steps on this page.
+
 ## Get the libraries
 
 **The API in these guides is `0.2.0-alpha.1`.** The older `0.1.0-alpha.1` has a different API; see the [migration guide](migration.md).
