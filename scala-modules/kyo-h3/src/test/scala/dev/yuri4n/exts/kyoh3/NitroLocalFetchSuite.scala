@@ -67,7 +67,8 @@ class NitroLocalFetchSuite extends FunSuite:
     }
 
     // (a)
-    test("(a) JSON route in-process: decision 3's proposed rule calls it Streamed (no content-length); as[A] decodes it") {
+    // claude 2026-10-20: changed: inverted: no marker and no stream content type is Plain, also without content-length (ADR-0005, Q2 option B)
+    test("(a) JSON route in-process: no marker and no stream content type, so Plain without content-length; as[A] decodes it") {
       val app = NitroLocal.App()
       app.route("/api/greeting", KHandler.define(_ => Greeting("hi")))
       app.route(
@@ -84,7 +85,7 @@ class NitroLocalFetchSuite extends FunSuite:
       )
       TestDeadline(app.fetch("/api/caller").flatMap(body)).map { seen =>
         assertEquals(seen.status.asInstanceOf[Int], 200)
-        assertEquals(seen.kind.asInstanceOf[String], "streamed", "every in-process response lacks content-length")
+        assertEquals(seen.kind.asInstanceOf[String], "plain", "an in-process response without content-length is still Plain")
         assertEquals(seen.contentType.asInstanceOf[String], "application/json")
         assert(js.isUndefined(seen.contentLength) || seen.contentLength == null, js.JSON.stringify(seen))
         assert(js.isUndefined(seen.marker) || seen.marker == null, js.JSON.stringify(seen))
@@ -93,7 +94,8 @@ class NitroLocalFetchSuite extends FunSuite:
       }
     }
 
-    test("(a) the same JSON route over real HTTP (absolute URL): content-length is set, so the rule says Plain") {
+    // claude 2026-10-20: changed: the name: content-length no longer decides (ADR-0005, Q2 option B)
+    test("(a) the same JSON route over real HTTP (absolute URL): Plain as well, and only this path sets content-length") {
       val app = NitroLocal.App()
       app.route("/api/greeting", KHandler.define(_ => Greeting("hi")))
       TestDeadline(app.listen().flatMap { server =>
@@ -327,24 +329,71 @@ class NitroLocalFetchSuite extends FunSuite:
       }
     }
 
-    // claude 2026-10-19: created: measures what fetchWithEvent forwards to an absolute URL (open question: credentials to other hosts)
-    test("an absolute URL also receives the incoming cookie and authorization: fetchWithEvent forwards them to any host") {
-      final case class Forwarded(cookie: Option[String], authorization: Option[String], host: Option[String]) derives NativeConverter
+    // claude 2026-10-20: changed: inverted: an absolute URL gets only the caller's headers and its body's entity headers (ADR-0005, Q5 option B)
+    test("an absolute URL gets only the headers the caller passes: the incoming cookie, authorization and entity headers stay behind") {
+      final case class Forwarded(
+          cookie: Option[String],
+          authorization: Option[String],
+          custom: Option[String],
+          caller: Option[String],
+          contentType: Option[String],
+          contentLength: Option[String],
+          name: String,
+          host: Option[String],
+      ) derives NativeConverter
       final case class ForwardedData(data: Forwarded) derives NativeConverter
+      final case class Pair(get: Forwarded, post: Forwarded) derives NativeConverter
       val app = NitroLocal.App()
       app.route(
         "/api/headers",
-        KHandler.define(request => Forwarded(request.header("cookie"), request.header("authorization"), request.header("host"))),
+        KHandler.define { request =>
+          val name = if request.method == "POST" then request.body.json[Input].map(_.name) else Kyo.lift("")
+          name.map(name =>
+            Forwarded(
+              request.header("cookie"), request.header("authorization"), request.header("x-custom"), request.header("x-caller"),
+              request.header("content-type"), request.header("content-length"), name, request.header("host"),
+            ),
+          )
+        },
       )
       TestDeadline(app.listen().flatMap { server =>
-        app.route("/api/caller", KHandler.define(_ => KHandler.$fetch.get[ForwardedData](server.url("/api/headers")).map(_.data)))
-        val outer = js.Dynamic.literal(headers = js.Dynamic.literal("cookie" -> "session=abc", "authorization" -> "Bearer t0k3n"))
+        val target = server.url("/api/headers")
+        app.route(
+          "/api/caller",
+          KHandler.define { _ =>
+            for
+              get <- KHandler.$fetch.get[ForwardedData](target, headers = Seq("X-Caller" -> "1"))
+              post <- KHandler.$fetch.post[ForwardedData](target, FetchBody.json(Input("Scala")), headers = Seq("x-caller" -> "2"))
+            yield Pair(get.data, post.data)
+          },
+        )
+        val outer = js.Dynamic.literal(
+          method = "POST",
+          body = "hello",
+          headers = js.Dynamic.literal(
+            "cookie" -> "session=abc",
+            "authorization" -> "Bearer t0k3n",
+            "x-custom" -> "1",
+            "content-type" -> "text/plain",
+            "content-length" -> "5",
+          ),
+        )
         app.fetch("/api/caller", outer).flatMap(body).map(data => (data, server.port))
           .transformWith(result => server.close().flatMap(_ => Future.fromTry(result)))
       }).map { (data, port) =>
-        assertEquals(data.cookie.asInstanceOf[String], "session=abc")
-        assertEquals(data.authorization.asInstanceOf[String], "Bearer t0k3n")
-        assertEquals(data.host.asInstanceOf[String], s"127.0.0.1:$port")
+        def absent(value: js.Dynamic): Boolean = js.isUndefined(value) || value == null
+        for forwarded <- List(data.get, data.post) do
+            assert(absent(forwarded.cookie), js.JSON.stringify(data))
+            assert(absent(forwarded.authorization), js.JSON.stringify(data))
+            assert(absent(forwarded.custom), js.JSON.stringify(data))
+            assertEquals(forwarded.host.asInstanceOf[String], s"127.0.0.1:$port")
+        assertEquals(data.get.caller.asInstanceOf[String], "1")
+        assert(absent(data.get.contentType), js.JSON.stringify(data))
+        assert(absent(data.get.contentLength), js.JSON.stringify(data))
+        assertEquals(data.post.caller.asInstanceOf[String], "2")
+        assertEquals(data.post.contentType.asInstanceOf[String], "application/json")
+        assertEquals(data.post.contentLength.asInstanceOf[String], "16")
+        assertEquals(data.post.name.asInstanceOf[String], "Scala")
       }
     }
 

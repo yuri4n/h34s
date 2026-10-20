@@ -7,23 +7,33 @@ import kyo.{Abort, AllowUnsafe, Async, Chunk, Emit, Frame, Kyo, Loop, Scope, Str
 import scala.scalajs.js
 
 // claude 2026-10-19: created: the default Fetch, over Nitro's event.fetch (fetchWithEvent over localFetch), captured at request start
-/** The server-side `$fetch` of one request, over Nitro's `event.fetch`.
+/** The server-side `$fetch` of one request: Nitro's `event.fetch` for in-process paths, and the
+  * global `fetch` for absolute URLs.
   *
   * Nitro 2.13.1 sets `event.fetch` in its h3 `onRequest`, before any route handler:
   * `fetchWithEvent(event, req, init, { fetch: localFetch })`. It forwards the incoming headers
   * (cookies and authorization included) and answers a path that starts with `/` in-process through
   * node-mock-http. Unlike `event.$fetch` (ofetch), it does not buffer, retry or throw on an error
   * status, so the head arrives as soon as the callee's handler settles.
+  *
+  * For any other URL, `localFetch` calls `globalThis.fetch`, but `fetchWithEvent` has already added
+  * the incoming headers, so the user's session would reach that host. h34s therefore calls
+  * `globalThis.fetch` itself for such a URL, with only the headers of the `FetchRequest` (ADR-0005,
+  * Q5 option B).
   */
 private[exts] final class NitroFetch(event: H3Event) extends Fetch:
-    private val native: js.Any = event.asInstanceOf[js.Dynamic].fetch
+    private val local: js.Any = event.asInstanceOf[js.Dynamic].fetch
 
+    // claude 2026-10-20: changed: only an in-process path goes through event.fetch; an absolute URL goes through the global fetch without the incoming headers (ADR-0005, Q5 option B)
     def raw(request: FetchRequest)(using Frame): FetchResponse < (Async & Abort[FetchError] & Scope) =
-      if !Nitro.isFunction(native) then
+      val inProcess = NitroFetch.isInProcess(request.url)
+      if inProcess && !Nitro.isFunction(local) then
           Abort.panic(IllegalStateException("Server-side $fetch needs Nitro: this h3 event has no fetch function"))
       else
           Sync.Unsafe.defer {
-            val call = new NitroFetch.Call(native.asInstanceOf[js.Function2[String, js.Any, js.Promise[js.Dynamic]]], request)
+            val fetch =
+              if inProcess then local.asInstanceOf[js.Function2[String, js.Any, js.Promise[js.Dynamic]]] else NitroFetch.global
+            val call  = new NitroFetch.Call(fetch, request)
             // Registered before the wait: a caller that is interrupted before the head arrives still
             // cancels the body when it arrives.
             Scope.ensure(call.release).andThen(call.head)
@@ -31,6 +41,19 @@ private[exts] final class NitroFetch(event: H3Event) extends Fetch:
 end NitroFetch
 
 private[exts] object NitroFetch:
+    // claude 2026-10-20: created: the in-process test that decides header forwarding (ADR-0005, Q5 option B)
+    /** A URL that starts with `/` is answered in-process, as Nitro's `localFetch` decides. Only such
+      * a call gets the incoming request's headers.
+      */
+    private[internal] def isInProcess(url: String): Boolean = url.startsWith("/")
+
+    // claude 2026-10-20: created: the global fetch for absolute URLs, looked up at each call as Nitro's localFetch does (ADR-0005, Q5 option B)
+    /** `globalThis.fetch`, called as a method of `globalThis`. It sees only the request's own
+      * headers.
+      */
+    private val global: js.Function2[String, js.Any, js.Promise[js.Dynamic]] =
+      (url, init) => js.Dynamic.global.globalThis.fetch(url, init).asInstanceOf[js.Promise[js.Dynamic]]
+
     // claude 2026-10-19: created: the entity headers that fetchWithEvent forwards from the incoming request
     /** `fetchWithEvent` forwards the incoming request's `content-type` and `content-length` even
       * when this request has another body or none. An empty value overrides them; node-mock-http
@@ -53,9 +76,10 @@ private[exts] object NitroFetch:
         // claude 2026-10-19: changed: every derived promise handles a rejection (a network error must not become an unhandled rejection)
         pending.`then`[Unit]((arrived: js.Dynamic) => { response = arrived; () }, ignore)
 
+        // claude 2026-10-20: changed: the entity-header override uses isInProcess; an absolute URL gets only these headers (ADR-0005, Q5 option B)
         private def init: js.Any =
           val headers = js.Dictionary.empty[String]
-          if request.url.startsWith("/") then entityHeaders.foreach(name => headers(name) = "")
+          if isInProcess(request.url) then entityHeaders.foreach(name => headers(name) = "")
           request.body.foreach { body =>
             headers("content-type") = body.contentType
             headers("content-length") = utf8Length(body.text).toString

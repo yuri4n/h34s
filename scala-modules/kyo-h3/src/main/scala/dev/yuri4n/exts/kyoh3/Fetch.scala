@@ -8,13 +8,17 @@ import scala.scalajs.js
 import scala.util.control.NonFatal
 
 // claude 2026-10-19: created: Fetch, the server-side $fetch service that KHandler.define provides per request (spike, decision 2)
-// claude 2026-10-20: changed: tests pass a Fetch to KHandler.test (ADR-0006, Q10)
-/** The server-side `$fetch` of the current request, with Nuxt's `event.fetch` semantics.
+// claude 2026-10-20: changed: tests pass a Fetch to KHandler.test (ADR-0006, Q10); incoming headers reach only in-process paths (ADR-0005, Q5)
+/** The server-side `$fetch` of the current request.
   *
   * A path that starts with `/` is answered in-process by Nitro (no HTTP round trip), and the
-  * incoming request's headers and cookies are forwarded. `KHandler.define` provides one per
-  * request through Kyo `Env`; use it through `KHandler.$fetch`. In tests, pass one to
-  * `KHandler.test`, for example `Fetch.fake`.
+  * incoming request's headers and cookies are forwarded, as Nuxt does. An absolute URL gets only
+  * the headers you pass, and the content type and length of the body you send: the user's cookies
+  * and `authorization` never reach another host. This differs from Nuxt's `event.$fetch`, which
+  * forwards them to any host.
+  *
+  * `KHandler.define` provides one per request through Kyo `Env`; use it through `KHandler.$fetch`.
+  * In tests, pass one to `KHandler.test`, for example `Fetch.fake`.
   */
 trait Fetch:
     /** Sends the request and returns as soon as the response head arrives. A streamed body stays
@@ -60,7 +64,10 @@ object Fetch:
     end Recording
 
 // claude 2026-10-19: created: the request a $fetch call sends
-/** One server-side request. A path that starts with `/` stays in-process. */
+// claude 2026-10-20: changed: the forwarding rule (ADR-0005, Q5)
+/** One server-side request. A path that starts with `/` stays in-process and also carries the
+  * incoming request's headers; an absolute URL carries only `headers` and the body's own headers.
+  */
 final case class FetchRequest(
     url: String,
     method: String = "GET",
@@ -80,8 +87,9 @@ object FetchBody:
     def text(value: String): FetchBody = FetchBody(value, "text/plain; charset=utf-8")
 
 // claude 2026-10-19: created: the response ADT; it knows whether the body is streamed (decision 3)
+// claude 2026-10-20: changed: names the detection rule (ADR-0005, Q2)
 /** A server-side response. `Plain` carries the whole body; `Streamed` carries a pull-driven body
-  * that lives in the caller's `Scope`.
+  * that lives in the caller's `Scope`. `isStreamed` decides which one you get.
   */
 sealed trait FetchResponse:
     def status: Int
@@ -102,16 +110,17 @@ object FetchResponse:
     final case class Streamed(status: Int, headers: Map[String, String], body: Stream[String, Async & Scope])
         extends FetchResponse
 
-    // claude 2026-10-19: created: decision 3's PROPOSED detection rule, in one function so the memo can discuss it
-    /** The proposed rule (not confirmed): a response is streamed when it carries the marker header
-      * that `sendStream` sets, or has no `content-length`, or has a stream content type.
+    // claude 2026-10-20: changed: the marker or a stream content type, and nothing else (ADR-0005, Q2 option B)
+    /** A response is `Streamed` when it carries the `x-h34s-stream` marker that `Response.sendStream`
+      * sets, or a stream content type (`streamTypes`). Every other response is `Plain`, in-process
+      * and over the network alike. A missing `content-length` does not count: no in-process
+      * response has one.
       *
-      * Measured: Nitro's in-process local fetch never sets `content-length`, so the second clause
-      * classifies every in-process response as streamed (see `NitroLocalFetchSuite`).
+      * One known gap: a JavaScript route that streams without a stream content type is `Plain`, so
+      * `raw` reads it to its end, and never returns for an endless stream.
       */
     def isStreamed(headers: Map[String, String]): Boolean =
       headers.contains(internal.StreamResponse.marker) ||
-        !headers.contains("content-length") ||
         headers.get("content-type").exists(contentType => streamTypes.exists(contentType.toLowerCase.startsWith))
 
     val streamTypes: List[String] = List("text/event-stream", "application/x-ndjson")

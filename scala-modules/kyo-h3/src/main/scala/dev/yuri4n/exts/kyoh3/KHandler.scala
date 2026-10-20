@@ -88,9 +88,17 @@ object KHandler:
       }
 
     // claude 2026-10-19: created: the $fetch accessor (decision 2) over the request's Env[Fetch]
-    /** The server-side `$fetch` of the current request, with Nuxt's `event.fetch` semantics: a path
-      * that starts with `/` is answered in-process by Nitro, and the incoming headers and cookies
-      * are forwarded.
+    // claude 2026-10-20: changed: the Scaladoc states the forwarding and detection rules (ADR-0005, Q2 and Q5)
+    /** The server-side `$fetch` of the current request.
+      *
+      *   - **In-process paths.** A path that starts with `/` is answered in-process by Nitro, and
+      *     the incoming headers and cookies are forwarded, as Nuxt does.
+      *   - **Absolute URLs.** An absolute URL gets only the `headers` you pass, and the content
+      *     type and length of the `body` you send. The user's cookies and `authorization` never
+      *     reach another host. Nuxt's `event.$fetch` forwards them to any host; h34s does not.
+      *   - **Plain or streamed.** `raw` gives `FetchResponse.Streamed` when the response carries
+      *     the `x-h34s-stream` marker (every `Response.sendStream` sets it) or a stream content type
+      *     (`text/event-stream`, `application/x-ndjson`), and `FetchResponse.Plain` otherwise.
       *
       * `raw` returns as soon as the head arrives. `text`, `as`, `get` and `post` read the whole body
       * and fail with `FetchError.Status` unless the status is 2xx. A `FetchError` is not a
