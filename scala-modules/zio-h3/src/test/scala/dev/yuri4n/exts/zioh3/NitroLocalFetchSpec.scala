@@ -74,6 +74,28 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
           seen.times.last >= 550,
         )
       },
+      // The ZIO guide's example (docs/content/1.guide/04.zio.md, "Call your routes with $fetch"): keep them equal.
+      test("the guide's $fetch example: get decodes the envelope, and raw streams a body that the caller reads in part") {
+        val app = NitroLocal.App()
+        app.route("/api/greeting", ZHandler.define(_ => ZIO.succeed(Greeting("hi"))))
+        app.route(
+          "/api/events",
+          ZHandler.define(_ => Response.header("content-type", "application/x-ndjson") *> Response.sendStream(ZStream("1\n", "2\n", "3\n"))),
+        )
+        // region guide-zio-fetch-call
+        val summary: Request => ZIO[HandlerEnv, FetchError, String] = _ =>
+          for
+            greeting <- ZHandler.$fetch.get[GreetingData]("/api/greeting")
+            events   <- ZHandler.$fetch.raw("/api/events")
+            first    <- events match
+              case FetchResponse.Streamed(_, _, body) => body.take(2).runCollect.map(_.mkString).orElseSucceed("the stream broke")
+              case plain: FetchResponse.Plain         => ZIO.succeed(plain.text)
+          yield s"${greeting.data.message}: $first"
+        // endregion guide-zio-fetch-call
+        app.route("/api/summary", ZHandler.define(summary))
+        for data <- ok[String](app, "/api/summary")
+        yield assertTrue(data == "hi: 1\n2\n")
+      },
       test("a caller that drops a Streamed body: its Scope cancels the callee and waits for the callee's finalizers (Q16)") {
         var streamReleased  = 0
         var requestReleased = 0

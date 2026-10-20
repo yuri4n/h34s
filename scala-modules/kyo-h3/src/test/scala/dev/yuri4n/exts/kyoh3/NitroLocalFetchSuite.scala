@@ -439,6 +439,31 @@ class NitroLocalFetchSuite extends FunSuite:
       }
     }
 
+    // claude 2026-10-20: created: the Kyo guide's $fetch example (docs/content/1.guide/03.kyo.md, "Call your routes with $fetch"); keep them equal
+    test("the guide's $fetch example: get decodes the envelope, and raw streams a body that the caller reads in part") {
+      val app = NitroLocal.App()
+      app.route("/api/greeting", KHandler.define(_ => Greeting("hi")))
+      app.route(
+        "/api/events",
+        KHandler.define(_ =>
+          Response.header("content-type", "application/x-ndjson").andThen(Response.sendStream(Stream.init(Seq("1\n", "2\n", "3\n")))),
+        ),
+      )
+      // region guide-kyo-fetch-call
+      val summary: Request => String < HandlerEffects = _ =>
+        for
+          greeting <- KHandler.$fetch.get[GreetingData]("/api/greeting")
+          events   <- KHandler.$fetch.raw("/api/events")
+          first    <- events match
+              case FetchResponse.Streamed(_, _, body) =>
+                Abort.run[FetchError](body.take(2).run).map(_.foldError(_.mkString, _ => "the stream broke"))
+              case plain: FetchResponse.Plain => Kyo.lift(plain.text)
+        yield s"${greeting.data.message}: $first"
+      // endregion guide-kyo-fetch-call
+      app.route("/api/summary", KHandler.define(summary))
+      TestDeadline(app.fetch("/api/summary").flatMap(body)).map(data => assertEquals(s"$data", "hi: 1\n2\n"))
+    }
+
     // claude 2026-10-20: created: the app.baseURL prefix as a pure function, compared with ufo's withBase, which Nuxt's $fetch uses (ADR-0005, decision 1)
     test("app.baseURL: an in-process path gets the base once, with one slash at the join, as ufo's withBase does") {
       val ufo = NitroLocal.requireFromNitro("ufo")

@@ -22,6 +22,7 @@ trait Fetch:
       */
     def raw(request: FetchRequest): ZIO[Scope, FetchError, FetchResponse]
 
+// claude 2026-10-20: created: Fetch.unavailable, Fetch.fake and the bridge from the Kyo core's Fetch (ADR-0005 gap 6, ADR-0006 Q10)
 object Fetch:
     /** Dies with an `IllegalStateException`. For handler tests that do not call `$fetch`; a test that
       * does provides its own `Fetch`.
@@ -82,6 +83,7 @@ sealed trait FetchResponse:
 
     def ok: Boolean = status >= 200 && status <= 299
 
+// claude 2026-10-20: created: Plain with as[A], and Streamed with a ZStream body that fails with a typed FetchError (ADR-0005 gap 6, Q14)
 object FetchResponse:
     final case class Plain(status: Int, headers: Map[String, String], text: String) extends FetchResponse:
         /** Decodes the body as JSON with the `NativeConverter`, as it arrives (an h34s route's
