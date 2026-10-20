@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path' // claude 2026-10-20: changed: dirname for the config files of the sbtRoot tests
 // The package uses Node's runner without additional test dependencies.
 // eslint-disable-next-line test/no-import-node-test
 import test from 'node:test'
@@ -25,6 +25,7 @@ import {
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'h34s-linker-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
+  writeFileSync(join(root, 'build.sbt'), '') // claude 2026-10-20: created: the app root is the sbt build, as sbtRoot's default needs (ADR-0009)
   const config = {
     modules: [{ output: 'server/.scala', entries: ['hello.js'] }],
   }
@@ -178,9 +179,10 @@ test('loads explicit configuration relative to the app root and explains missing
     join(f.root, 'custom.mjs'),
     `export default ${JSON.stringify(f.config)}`,
   )
+  // claude 2026-10-20: changed: loadConfig also gives the absolute sbtRoot, by default the config file's directory (ADR-0009)
   assert.deepEqual(
     await loadConfig({ root: f.root, configFile: 'custom.mjs' }),
-    f.config,
+    { ...f.config, sbtRoot: f.root },
   )
   await assert.rejects(
     loadConfig({ root: f.root }),
@@ -223,4 +225,253 @@ test('watch keeps sbt linking and collects routes once the linker has written it
   assert.deepEqual(collected, ['collected'])
   child.emit('exit', 0, null)
   await watching
+})
+
+// claude 2026-10-20: created: layout C, a Nuxt root next to a sibling sbt build (ADR-0009)
+test('layout C: sbt runs in the sibling build named by sbtRoot, and the outputs stay under the Nuxt root', async (t) => {
+  const repository = mkdtempSync(join(tmpdir(), 'h34s-layout-c-'))
+  t.after(() => rmSync(repository, { recursive: true, force: true }))
+  const web = join(repository, 'web')
+  const scala = join(repository, 'scala-server')
+  mkdirSync(web)
+  mkdirSync(scala)
+  writeFileSync(join(scala, 'build.sbt'), '')
+  writeFileSync(
+    join(web, 'h34s.config.mjs'),
+    `export default { sbtRoot: '../scala-server', modules: [{ project: 'server', output: 'server/.scala', entries: ['hello.js'] }] }`,
+  )
+  const config = await loadConfig({ root: web })
+  for (const mode of ['build', 'dev']) {
+    linkScala({
+      root: web,
+      config,
+      mode,
+      run(_command, args, options) {
+        assert.equal(options.cwd, scala, 'sbt runs in the sibling build')
+        assert.equal(args.at(-1), mode === 'build' ? 'server/fullLinkJS' : 'server/fastLinkJS')
+        // The sibling build's linker writes into the Nuxt root, as its scalaJSLinkerOutputDirectory says.
+        mkdirSync(join(web, 'server/.scala'), { recursive: true })
+        writeFileSync(join(web, 'server/.scala/hello.js'), 'export const hello = 42')
+        return { status: 0 }
+      },
+    })
+  }
+  assert.ok(existsSync(join(web, 'server/.scala/hello.js')), 'the output is under the Nuxt root')
+  assert.equal(existsSync(join(scala, 'server')), false, 'nothing is written into the sbt build')
+})
+
+// claude 2026-10-20: created: a repository with a Nuxt app in web/ and config files written as text (ADR-0009)
+function repository(t) {
+  const root = mkdtempSync(join(tmpdir(), 'h34s-sbt-root-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const web = join(root, 'web')
+  mkdirSync(web)
+  function config(sbtRoot, file = 'h34s.config.mjs') {
+    mkdirSync(dirname(join(web, file)), { recursive: true })
+    writeFileSync(
+      join(web, file),
+      `export default ${JSON.stringify({ ...(sbtRoot === undefined ? {} : { sbtRoot }), modules: [{ output: 'server/.scala', entries: ['hello.js'] }] })}`,
+    )
+  }
+  return { root, web, config }
+}
+
+// claude 2026-10-20: created: sbtRoot resolution (ADR-0009)
+test('loadConfig resolves sbtRoot against the config file\'s directory: default, relative and absolute', async (t) => {
+  const r = repository(t)
+  r.config(undefined)
+  assert.equal((await loadConfig({ root: r.web })).sbtRoot, r.web, 'the default is the config file\'s directory')
+  r.config(undefined, 'config/h34s.config.mjs')
+  assert.equal(
+    (await loadConfig({ root: r.web, configFile: 'config/h34s.config.mjs' })).sbtRoot,
+    join(r.web, 'config'),
+    'the default follows --config, not --root',
+  )
+  r.config('..', 'relative.mjs')
+  assert.equal((await loadConfig({ root: r.web, configFile: 'relative.mjs' })).sbtRoot, r.root)
+  r.config('../scala-server', 'sibling.mjs')
+  assert.equal((await loadConfig({ root: r.web, configFile: 'sibling.mjs' })).sbtRoot, join(r.root, 'scala-server'))
+  const absolute = join(r.root, 'elsewhere')
+  r.config(absolute, 'absolute.mjs')
+  assert.equal((await loadConfig({ root: r.web, configFile: 'absolute.mjs' })).sbtRoot, absolute)
+  // loadConfig resolves the key once: the result links the same way from any root.
+  writeFileSync(join(r.root, 'build.sbt'), '')
+  const loaded = await loadConfig({ root: r.web, configFile: 'relative.mjs' })
+  linkScala({
+    root: r.web,
+    config: loaded,
+    mode: 'dev',
+    run(_command, _args, options) {
+      assert.equal(options.cwd, r.root)
+      mkdirSync(join(r.web, 'server/.scala'), { recursive: true })
+      writeFileSync(join(r.web, 'server/.scala/hello.js'), 'fresh')
+      return { status: 0 }
+    },
+  })
+})
+
+// claude 2026-10-20: created: sbtRoot validation (ADR-0009)
+test('defineConfig rejects an sbtRoot that is not a nonempty path', () => {
+  for (const sbtRoot of ['', 3, null, false, 'a\0b', ['..']]) {
+    assert.throws(
+      () => defineConfig({ sbtRoot, modules: [{ output: 'server/.scala' }] }),
+      /sbtRoot must be a nonempty path to the sbt build, relative to the config file, or omitted/,
+      String(sbtRoot),
+    )
+  }
+})
+
+// claude 2026-10-20: created: a missing sbt build stops the CLI before sbt or any removal (ADR-0009)
+test('a missing sbtRoot or one without an sbt build fails before sbt starts or any output is removed', async (t) => {
+  const r = repository(t)
+  mkdirSync(join(r.web, 'server/.scala'), { recursive: true })
+  writeFileSync(join(r.web, 'server/.scala/hello.js'), 'preserved')
+  writeFileSync(join(r.root, 'not-a-directory'), '')
+  const cases = [
+    [undefined, r.web, 'sbtRoot is not set, so the sbt build is the config file\'s directory', 'has no build.sbt and no project/ directory'],
+    ['..', r.root, 'sbtRoot \'..\' resolves to', 'has no build.sbt and no project/ directory'],
+    ['../missing', join(r.root, 'missing'), 'sbtRoot \'../missing\' resolves to', 'does not exist'],
+    ['../not-a-directory', join(r.root, 'not-a-directory'), 'sbtRoot \'../not-a-directory\' resolves to', 'is not a directory'],
+  ]
+  for (const [index, [sbtRoot, directory, key, problem]] of cases.entries()) {
+    // One file per case: Node caches an imported config file.
+    const file = `case-${index}.mjs`
+    r.config(sbtRoot, file)
+    const config = await loadConfig({ root: r.web, configFile: file })
+    const expected = (error) => {
+      for (const part of [key, `${directory}, which ${problem}.`, `Set sbtRoot in ${join(r.web, file)}`])
+        assert.ok(error.message.includes(part), `${error.message}\nshould name: ${part}`)
+      return true
+    }
+    for (const mode of ['build', 'dev']) {
+      assert.throws(() => linkScala({ root: r.web, config, mode, run: () => assert.fail('must not start sbt') }), expected)
+    }
+    assert.throws(() => watchScala({ root: r.web, config, start: () => assert.fail('must not start sbt') }), expected)
+    assert.ok(existsSync(join(r.web, 'server/.scala/hello.js')), 'the output is not removed')
+  }
+  // A config object that loadConfig did not read names the app root instead of a file.
+  assert.throws(
+    () => linkScala({ root: r.web, config: { sbtRoot: '../missing', modules: [{ output: 'server/.scala' }] }, run: () => assert.fail('must not start sbt') }),
+    /resolves to .*missing, which does not exist\. Set sbtRoot in the h34s config to the directory of your sbt build, relative to the app root/,
+  )
+  // Without sbtRoot, such a config builds in the app root, and the message says so.
+  assert.throws(
+    () => linkScala({ root: r.web, config: { modules: [{ output: 'server/.scala' }] }, run: () => assert.fail('must not start sbt') }),
+    (error) => {
+      assert.ok(error.message.startsWith(`sbtRoot is not set, so the sbt build is the app root, ${r.web}, which has no build.sbt and no project/ directory.`), error.message)
+      return true
+    },
+  )
+  // h34s accepts a project/ directory alone; the sbt launcher itself also needs project/build.properties there.
+  mkdirSync(join(r.root, 'project'))
+  r.config('..', 'project-only.mjs')
+  linkScala({
+    root: r.web,
+    config: await loadConfig({ root: r.web, configFile: 'project-only.mjs' }),
+    mode: 'dev',
+    run(_command, _args, options) {
+      assert.equal(options.cwd, r.root)
+      return { status: 0 }
+    },
+  })
+})
+
+// claude 2026-10-20: created: watch runs sbt in the sibling build (ADR-0009)
+test('layout C: watch runs sbt in sbtRoot and watches the outputs under the Nuxt root', async (t) => {
+  const r = repository(t)
+  const scala = join(r.root, 'scala-server')
+  mkdirSync(join(scala, 'project'), { recursive: true })
+  r.config('../scala-server')
+  const config = await loadConfig({ root: r.web })
+  const child = new EventEmitter()
+  const collected = []
+  const watching = watchScala({
+    root: r.web,
+    config,
+    quiet: 50,
+    log: { info() {}, error: message => collected.push(message) },
+    start(_command, args, options) {
+      assert.deepEqual(args, ['-Dsbt.supershell=false', '-batch', '~;fastLinkJS'])
+      assert.equal(options.cwd, scala)
+      return child
+    },
+    async collect(options) {
+      assert.equal(options.root, r.web)
+      collected.push('collected')
+    },
+  })
+  await delay(50)
+  writeFileSync(join(r.web, 'server/.scala/hello.js'), 'linked')
+  await delay(300)
+  assert.deepEqual(collected, ['collected'])
+  assert.equal(existsSync(join(scala, 'server')), false)
+  child.emit('exit', 0, null)
+  await watching
+})
+
+// claude 2026-10-20: created: an sbt root inside an output fails before sbt starts or any removal (#77 review)
+test('an sbtRoot that is or lies inside a generated output fails before sbt starts or any output is removed', async (t) => {
+  const r = repository(t)
+  const output = join(r.web, 'server/.scala')
+  mkdirSync(join(output, 'nested'), { recursive: true })
+  writeFileSync(join(output, 'build.sbt'), 'the user\'s build')
+  writeFileSync(join(output, 'nested/build.sbt'), 'the user\'s nested build')
+  writeFileSync(join(output, 'hello.js'), 'preserved')
+  symlinkSync(output, join(r.web, 'alias'), 'dir')
+  const started = []
+  // Like spawnSync: sbt cannot start in a directory that is gone.
+  function run(_command, _args, options) {
+    started.push(options.cwd)
+    return existsSync(options.cwd) ? { status: 0 } : { error: new Error(`spawnSync sbt ENOENT (cwd ${options.cwd})`) }
+  }
+  const cases = [
+    ['server/.scala', 'is the generated output'],
+    ['server/.scala/nested', 'is inside the generated output'],
+    ['alias', 'is the generated output'],
+    ['alias/nested', 'is inside the generated output'],
+  ]
+  for (const [index, [sbtRoot, problem]] of cases.entries()) {
+    const file = `inside-${index}.mjs`
+    r.config(sbtRoot, file)
+    const config = await loadConfig({ root: r.web, configFile: file })
+    const expected = (error) => {
+      assert.equal(
+        error.message,
+        `sbtRoot '${sbtRoot}' resolves to ${join(r.web, sbtRoot)}, which ${problem} 'server/.scala' that h34s removes on every build. Set sbtRoot in ${join(r.web, file)} to the directory of your sbt build, outside the outputs.`,
+      )
+      return true
+    }
+    for (const mode of ['build', 'dev'])
+      assert.throws(() => linkScala({ root: r.web, config, mode, run }), expected, `${sbtRoot} in ${mode}`)
+    assert.throws(() => watchScala({ root: r.web, config, start: () => assert.fail('must not start sbt') }), expected)
+    assert.ok(existsSync(join(output, 'build.sbt')), 'the user\'s build.sbt is not removed')
+    assert.ok(existsSync(join(output, 'nested/build.sbt')), 'the nested build.sbt is not removed')
+    assert.ok(existsSync(join(output, 'hello.js')), 'the output is not removed')
+  }
+  assert.deepEqual(started, [], 'sbt never starts')
+  // A config object that loadConfig did not read names the h34s config instead of a file.
+  assert.throws(
+    () => linkScala({ root: r.web, config: { sbtRoot: 'server/.scala/nested', modules: [{ output: 'server/.scala' }] }, run }),
+    /resolves to .*nested, which is inside the generated output 'server\/\.scala' that h34s removes on every build\. Set sbtRoot in the h34s config to the directory of your sbt build, outside the outputs\.$/,
+  )
+  assert.ok(existsSync(join(output, 'nested/build.sbt')))
+  // A sibling whose name starts with the output's name is not inside it, and an ancestor of the outputs is valid.
+  mkdirSync(join(r.web, 'server/.scala-kyo'))
+  writeFileSync(join(r.web, 'server/.scala-kyo/build.sbt'), '')
+  writeFileSync(join(r.web, 'build.sbt'), '')
+  for (const [index, sbtRoot] of ['server/.scala-kyo', '.'].entries()) {
+    r.config(sbtRoot, `outside-${index}.mjs`)
+    linkScala({
+      root: r.web,
+      config: await loadConfig({ root: r.web, configFile: `outside-${index}.mjs` }),
+      mode: 'build',
+      run(_command, _args, options) {
+        assert.equal(options.cwd, join(r.web, sbtRoot))
+        mkdirSync(output, { recursive: true })
+        writeFileSync(join(output, 'hello.js'), 'fresh')
+        return { status: 0 }
+      },
+    })
+    assert.ok(existsSync(join(r.web, 'server/.scala-kyo/build.sbt')))
+  }
 })

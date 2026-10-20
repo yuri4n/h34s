@@ -64,7 +64,7 @@ export default async function h34sNuxt(options, nuxt) {
     nitro.rollupConfig.plugins = [
       ...(Array.isArray(plugins) ? plugins : plugins ? [plugins] : []),
       scalaDevModules(root, outputs),
-      scalaSourceMaps(root, outputs),
+      scalaSourceMaps(root, outputs, [config.sbtRoot]), // claude 2026-10-20: changed: also embeds the Scala sources of the sbt build (ADR-0009)
     ]
     nitro.rollupConfig.output = {
       ...nitro.rollupConfig.output,

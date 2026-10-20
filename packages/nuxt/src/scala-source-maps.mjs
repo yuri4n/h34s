@@ -9,14 +9,18 @@ function within(directory, file) {
 
 // Supply incoming maps before Nitro transforms the linked JS, allowing Rollup
 // to compose both stages back to Scala source locations.
+// claude 2026-10-20: changed: also embeds the Scala sources inside `sourceRoots`, such as the sbt root (ADR-0009)
 export function scalaSourceMaps(
   projectRoot,
   outputDirectories = ['server/.scala'],
+  sourceRoots = [],
 ) {
   const root = resolve(projectRoot)
   const linkedDirectories = outputDirectories.map(directory =>
     resolve(root, directory),
   )
+  // The project root, and every other directory whose Scala sources a map may embed.
+  const embedded = [...new Set([root, ...sourceRoots.map(directory => resolve(root, directory))])]
 
   return {
     name: 'h34s-scala-source-maps',
@@ -34,7 +38,14 @@ export function scalaSourceMaps(
         readFile(mapPath, 'utf8'),
       ])
       const map = JSON.parse(rawMap)
-      const localRoot = await realpath(root)
+      // A source root that does not exist, such as an sbt root left out of a deployment, embeds nothing.
+      const localRoots = (await Promise.all(embedded.map(directory =>
+        realpath(directory).catch((error) => {
+          if (directory !== root && (error.code === 'ENOENT' || error.code === 'ENOTDIR'))
+            return null
+          throw error
+        }),
+      ))).filter(directory => directory !== null)
       async function resolveSource(source, index) {
         let location
         if (URL.canParse(source)) {
@@ -52,12 +63,12 @@ export function scalaSourceMaps(
         }
 
         let content = map.sourcesContent?.[index] ?? null
-        const local = isAbsolute(location) && within(root, location)
+        const local = isAbsolute(location) && embedded.some(directory => within(directory, location))
         // Never fetch dependency URLs. Embed only local project Scala sources.
         if (content === null && local && location.endsWith('.scala')) {
           try {
             const actual = await realpath(location)
-            if (within(localRoot, actual)) {
+            if (localRoots.some(directory => within(directory, actual))) {
               content = await readFile(actual, 'utf8')
             }
           }
