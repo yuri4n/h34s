@@ -105,6 +105,33 @@ The plugin has these limits:
 that every relative link in `docs/` points at an existing file and, for a
 `.md` target with a fragment, at one of its headings.
 
+## Code from the sources
+
+<!-- claude 2026-10-20: created: how the homepage and the project tour get their code (issue #52) -->
+
+The homepage's `Handlers.scala` card and the project tour show no
+hand-typed code. The Vite plugin `snippets/vite-plugin.mjs` reads every
+text at build time and serves it as `virtual:h34s-snippets`, highlighted
+with Shiki in the same themes as the guides. `snippets/sources.mjs` lists
+each text and its source:
+
+- A region of a demo file: the lines between `// #region <name>` and
+  `// #endregion <name>` in `examples/nuxt/scala/` or
+  `examples/nuxt/nuxt.config.ts`. Put the `claude` annotation on the line
+  above `#region`, never inside the region, because the site shows it.
+- A guide block: the code fence after a `<!-- tour: <file> -->` line in
+  `content/1.guide/02.adoption.md` or `13.npm-tooling.md`. Only blank
+  lines may stand between the marker and the fence.
+
+The ZIO `build.sbt` is the Kyo one with `kyo-h3-ext` replaced by
+`zio-h3-ext`, the guide's own rule. A missing region or marker stops the
+build with the file and the name. `test/snippets.test.mjs` tests the
+extraction (`snippets/extract.mjs`) and checks that each shown text is the
+exact slice of its file.
+
+To show a new file, mark it in its source, add it to `files` and `tree` in
+`snippets/sources.mjs`, and run `pnpm test`.
+
 ## Validate and build
 
 ```sh
