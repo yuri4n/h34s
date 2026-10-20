@@ -75,13 +75,15 @@ jobs:
       - name: Test Nuxt development integration
         run: node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
       - name: Install the isolated h3 and storage test fixtures
-        # Every scala-modules/exts/*/test-js directory: h3 for the h3, Kyo, ZIO and schema
+        # claude 2026-10-20: changed: the fixtures sit in scala-modules/*/test-js (#23)
+        # Every scala-modules/*/test-js directory: h3 for the h3, Kyo, ZIO and schema
         # suites, unstorage for the Kyo and ZIO storage suites.
         run: |
-          for fixture in scala-modules/exts/*/test-js; do
+          for fixture in scala-modules/*/test-js; do
             npm ci --prefix "$fixture" --ignore-scripts
           done
-      - name: Test the native layer, the Kyo core, the ZIO adapter, schema bridges, storage and the ZIO example
+      # claude 2026-10-20: changed: the step also compiles the zio-migrations example (#24)
+      - name: Test the native layer, the Kyo core, the ZIO adapter, schema bridges, storage and the examples
         run: >-
           sbt -batch
           'h3Ext/test'

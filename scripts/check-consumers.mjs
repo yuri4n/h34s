@@ -268,7 +268,7 @@ try {
   // JavaScript smoke checks never see the GitHub credentials; only the sbt builds that resolve
   // published artifacts need them.
   for (const file of ['package.json', 'package-lock.json'])
-    copyFileSync(resolve(repository, 'scala-modules/exts/h3/test-js', file), join(temporary, file))
+    copyFileSync(resolve(repository, 'scala-modules/h3/test-js', file), join(temporary, file)) // claude 2026-10-20: changed: the flattened path (#23)
   run(
     'npm',
     ['ci', '--ignore-scripts', '--no-audit', '--no-fund'],

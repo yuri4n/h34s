@@ -10,7 +10,8 @@ lazy val zioSchemaVersion       = "1.7.5"
 lazy val nativeConverterVersion = "0.9.0"
 lazy val munitVersion           = "1.2.1"
 
-// Explicitly exclude aggregate projects, applications and the migration experiment.
+// claude 2026-10-20: changed: zio-migrations is an example (#24)
+// Explicitly exclude aggregate projects, applications and examples.
 lazy val releaseModules = Seq(
   "h3Ext", "kyoH3Ext", "zioH3Ext", "nativeConverterZIOExt",
   "nativeConverterZIOJsonExt", "nativeConverterZIOSchemaExt", "nativeConverterKyoSchemaExt",
@@ -88,19 +89,19 @@ def testJsEnv(fixtures: (String, File)*) =
   )
 
 lazy val root = (project in file("."))
-  .aggregate(exts, nuxtsvr, kyoExample)
+  .aggregate(exts, nuxtsvr, kyoExample, zioMigrationsExt) // claude 2026-10-20: changed: zio-migrations is an example (#24)
   .settings(
     publish / skip := true,
   )
 
-lazy val exts = (project in file("scala-modules/exts"))
+// claude 2026-10-20: changed: the library aggregate keeps its id; its base is scala-modules (#23)
+lazy val exts = (project in file("scala-modules"))
   .settings(
     name    := "exts",
     publish / skip := true,
   )
   .dependsOn(
     zioH3Ext,
-    zioMigrationsExt,
     nativeConverterZIOExt,
     nativeConverterZIOJsonExt,
     nativeConverterZIOSchemaExt,
@@ -112,7 +113,6 @@ lazy val exts = (project in file("scala-modules/exts"))
     kyoNuxtHubExt,
     zioH3Ext,
     zioNuxtHubExt,
-    zioMigrationsExt,
     nativeConverterZIOExt,
     nativeConverterZIOJsonExt,
     nativeConverterZIOSchemaExt,
@@ -120,7 +120,7 @@ lazy val exts = (project in file("scala-modules/exts"))
 
 // Effect-free native layer: hand-written internal h3/Node/Nitro facades and the
 // shared public values (EventHandler, Request, SafeError, Secret, ...).
-lazy val h3Ext: Project = (project in file("scala-modules/exts/h3"))
+lazy val h3Ext: Project = (project in file("scala-modules/h3")) // claude 2026-10-20: changed: the flattened path (#23)
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "h3-ext",
@@ -134,7 +134,7 @@ lazy val h3Ext: Project = (project in file("scala-modules/exts/h3"))
 
 // The core: Kyo request lifecycle, body limits, errors, configuration, shared
 // resources and streaming. Kyo consumers never acquire ZIO.
-lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
+lazy val kyoH3Ext: Project = (project in file("scala-modules/kyo-h3")) // claude 2026-10-20: changed: the flattened path (#23)
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "kyo-h3-ext",
@@ -152,7 +152,7 @@ lazy val kyoH3Ext: Project = (project in file("scala-modules/exts/kyo-h3"))
 // Optional Kyo Schema bridge: `derives Schema, NativeSchema`. It needs kyo-schema only; JSON and
 // YAML come from the application's own kyo-schema-json / kyo-schema-yaml dependency.
 lazy val nativeConverterKyoSchemaExt: Project =
-  (project in file("scala-modules/exts/native-converter-kyo-schema"))
+  (project in file("scala-modules/native-converter-kyo-schema")) // claude 2026-10-20: changed: the flattened path (#23)
     .enablePlugins(ScalaJSPlugin)
     .settings(
       name := "native-converter-kyo-schema-ext",
@@ -199,7 +199,7 @@ lazy val kyoExample: Project = (project in file("examples/nuxt/scala/kyo"))
   .dependsOn(kyoH3Ext, nativeConverterKyoSchemaExt)
 
 // Kyo storage over Nitro's unstorage mounts (NuxtHub KV and cache are mounts).
-lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxthub"))
+lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/kyo-nuxthub")) // claude 2026-10-20: changed: the flattened path (#23)
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "kyo-nuxthub-ext",
@@ -218,7 +218,7 @@ lazy val kyoNuxtHubExt: Project = (project in file("scala-modules/exts/kyo-nuxth
 
 // The ZIO adapter over the Kyo core: ZHandler, ZStream bodies, ZShared and the awaiting
 // ZIO <-> Kyo bridge. ZIO consumers get Kyo transitively.
-lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
+lazy val zioH3Ext: Project = (project in file("scala-modules/zio-h3")) // claude 2026-10-20: changed: the flattened path (#23)
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "zio-h3-ext",
@@ -244,7 +244,7 @@ lazy val zioH3Ext: Project = (project in file("scala-modules/exts/zio-h3"))
     nativeConverterZIOSchemaExt % "test->compile",
   )
 
-lazy val zioNuxtHubExt: Project = (project in file("scala-modules/exts/zio-nuxthub"))
+lazy val zioNuxtHubExt: Project = (project in file("scala-modules/zio-nuxthub")) // claude 2026-10-20: changed: the flattened path (#23)
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "zio-nuxthub-ext",
@@ -264,7 +264,7 @@ lazy val zioNuxtHubExt: Project = (project in file("scala-modules/exts/zio-nuxth
   )
   .dependsOn(kyoNuxtHubExt % "compile->compile;test->test", zioH3Ext)
 
-lazy val nativeConverterZIOExt = (project in file("scala-modules/exts/native-converter-zio"))
+lazy val nativeConverterZIOExt = (project in file("scala-modules/native-converter-zio")) // claude 2026-10-20: changed: the flattened path (#23)
   .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "native-converter-zio-ext",
@@ -280,7 +280,7 @@ lazy val nativeConverterZIOExt = (project in file("scala-modules/exts/native-con
   .dependsOn(h3Ext)
 
 lazy val nativeConverterZIOJsonExt: Project =
-  (project in file("scala-modules/exts/native-converter-zio-json"))
+  (project in file("scala-modules/native-converter-zio-json")) // claude 2026-10-20: changed: the flattened path (#23)
     .enablePlugins(ScalaJSPlugin)
     .settings(
       name := "native-converter-zio-json-ext",
@@ -294,7 +294,7 @@ lazy val nativeConverterZIOJsonExt: Project =
 // Optional ZIO Schema integration (`derives Schema, NativeSchema`). NativeConverter-only users
 // do not need it. It depends on h3-ext for InvalidInput/ErrorEntry (effect-free).
 lazy val nativeConverterZIOSchemaExt: Project =
-  (project in file("scala-modules/exts/native-converter-zio-schema"))
+  (project in file("scala-modules/native-converter-zio-schema")) // claude 2026-10-20: changed: the flattened path (#23)
     .enablePlugins(ScalaJSPlugin)
     .settings(
       name := "native-converter-zio-schema-ext",
@@ -310,11 +310,12 @@ lazy val nativeConverterZIOSchemaExt: Project =
     )
     .dependsOn(h3Ext)
 
-lazy val zioMigrationsExt: Project = (project in file("scala-modules/exts/zio-migrations"))
+// claude 2026-10-20: changed: an example under examples/, outside the library aggregate (#24)
+lazy val zioMigrationsExt: Project = (project in file("examples/zio-migrations"))
   .configure(configureCommonJsProject)
   .settings(
     name    := "zio-migrations-ext",
-    // The recovered migration experiment is not a supported release module.
+    // An unpublished example: ZIO Schema to Skunk codecs and PostgreSQL DDL. Not a release module.
     publish / skip := true,
   )
 
