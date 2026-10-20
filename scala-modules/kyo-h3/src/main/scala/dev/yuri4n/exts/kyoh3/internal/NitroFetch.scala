@@ -182,15 +182,17 @@ private[exts] object NitroFetch:
             error => Abort.fail(FetchError.Failed(message(error.failureOrPanic))),
           ))
 
-        // claude 2026-10-20: changed: a read that fails is FetchError.BodyFailed, not a panic (ADR-0005, Q14); a body of strings loses one leading byte order mark, as a UTF-8 decode does (ADR-0007)
+        // claude 2026-10-20: changed: a read that fails is FetchError.BodyFailed, not a panic (ADR-0005, Q14); one body start for bytes and strings removes one leading byte order mark from the whole body (ADR-0007, review 4329965909)
         /** The body as text chunks, read once. Each read is one pull of the callee's stream. A read
           * that fails (the callee's stream failed after its head, or the connection closed) fails
           * the stream with `FetchError.BodyFailed`.
           *
           * The text is the body after one UTF-8 decode, which removes one leading byte order mark
-          * (U+FEFF). Bytes go through a `TextDecoder`, which does that. A JavaScript route can
-          * answer in-process with a stream of strings, which skip the decoder, so the first string
-          * loses one leading U+FEFF here: the text is the same as for the string's UTF-8 bytes.
+          * (U+FEFF). Bytes go through a `TextDecoder` that keeps every U+FEFF (`ignoreBOM`). A
+          * JavaScript route can answer in-process with strings, or with strings and bytes mixed,
+          * and strings skip the decoder. So h34s removes the mark here, once: one leading U+FEFF of
+          * the first text of the body, whichever kind of chunk gives it. A U+FEFF after the start
+          * stays, as in one UTF-8 decode of the whole body.
           */
         private def body(status: Int)(using Frame): Stream[String, Async & Scope & Abort[FetchError]] =
           Stream[String, Async & Abort[FetchError]] {
@@ -203,23 +205,26 @@ private[exts] object NitroFetch:
                   Abort.panic(IllegalStateException("A streamed $fetch body can be read only once"))
               else
                   reader = native.getReader()
-                  val decoder = js.Dynamic.newInstance(js.Dynamic.global.TextDecoder)()
+                  val decoder = js.Dynamic.newInstance(js.Dynamic.global.TextDecoder)("utf-8", js.Dynamic.literal(ignoreBOM = true))
+                  // One body start for both kinds of chunk: the first text, bytes or string, loses one U+FEFF.
                   var started = false
+                  def fromStart(text: String): String =
+                    if started || text.isEmpty then text
+                    else
+                        started = true
+                        if text.startsWith("\uFEFF") then text.substring(1) else text
                   Loop.foreach {
                     readStep(status, reader.read().asInstanceOf[js.Promise[js.Dynamic]]).map { step =>
                       if step.done.asInstanceOf[Boolean] then
                           finished = true
-                          val tail = decoder.decode().asInstanceOf[String]
+                          val tail = fromStart(decoder.decode().asInstanceOf[String])
                           if tail.isEmpty then Loop.done else Emit.valueWith(Chunk(tail))(Loop.done)
                       else
                           val value = step.value
-                          val text  =
-                            if js.typeOf(value) == "string" then
-                                val chunk = value.asInstanceOf[String]
-                                val first = !started
-                                if chunk.nonEmpty then started = true
-                                if first && chunk.startsWith("\uFEFF") then chunk.substring(1) else chunk
-                            else decoder.decode(value, js.Dynamic.literal(stream = true)).asInstanceOf[String]
+                          val text  = fromStart(
+                            if js.typeOf(value) == "string" then value.asInstanceOf[String]
+                            else decoder.decode(value, js.Dynamic.literal(stream = true)).asInstanceOf[String],
+                          )
                           if text.isEmpty then Loop.continue else Emit.valueWith(Chunk(text))(Loop.continue)
                     }
                   }

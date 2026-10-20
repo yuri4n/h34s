@@ -839,4 +839,40 @@ class NitroLocalFetchSuite extends FunSuite:
       )
       TestDeadline(app.fetch("/api/caller").flatMap(body)).map(data => assertEquals(data.asInstanceOf[String], "a,c"))
     }
+
+    // claude 2026-10-20: created: the negative control of review 4329965909: a body of bytes and strings shares one body start, so one leading byte order mark is removed in all (ADR-0007)
+    test("a JavaScript stream of bytes and strings: one leading byte order mark is removed from the whole body, none midstream") {
+      val app     = NitroLocal.App()
+      val encoder = js.Dynamic.newInstance(js.Dynamic.global.TextEncoder)()
+      def bytes(text: String): js.Any = encoder.encode(text)
+      // A route that returns a ReadableStream: in-process, each chunk reaches $fetch as it was
+      // enqueued, a Uint8Array or a string.
+      def chunked(chunks: js.Any*): js.Function1[js.Dynamic, js.Any] = event => {
+        event.node.res.setHeader("content-type", "text/event-stream")
+        val start: js.Function1[js.Dynamic, Unit] = controller => {
+          chunks.foreach(chunk => controller.enqueue(chunk))
+          controller.close()
+          ()
+        }
+        js.Dynamic.newInstance(js.Dynamic.global.ReadableStream)(js.Dynamic.literal(start = start))
+      }
+      app.routeNative("/api/bytes-then-string", chunked(bytes("a"), "﻿b"))
+      app.routeNative("/api/string-then-bytes", chunked("﻿a", bytes("﻿b")))
+      app.routeNative("/api/marked-bytes-then-string", chunked(bytes("﻿a"), "﻿b"))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          // U+FEFF is invisible: show it, so a failure prints where it is.
+          def text(path: String) = KHandler.$fetch.text(path).map(_.replace("﻿", "<U+FEFF>"))
+          for
+            first  <- text("/api/bytes-then-string")
+            second <- text("/api/string-then-bytes")
+            third  <- text("/api/marked-bytes-then-string")
+          yield s"$first | $second | $third"
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map { data =>
+        assertEquals(data.asInstanceOf[String], "a<U+FEFF>b | a<U+FEFF>b | a<U+FEFF>b")
+      }
+    }
 end NitroLocalFetchSuite
