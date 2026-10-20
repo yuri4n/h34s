@@ -83,35 +83,56 @@ function isNuxtApp(directory) {
   }
 }
 
-// claude 2026-10-20: created: the adoption path, from the files present (ADR-0009, decisions 1, 4 and 7)
+// claude 2026-10-20: created: the entries that a new project's directory may already hold, such as a fresh git clone (review S4)
+/** Repository files that do not make a directory a project: `git init`, or a clone with a README and a license. */
+const repositoryEntry = /^(?:\.git|\.gitignore|\.gitattributes|\.editorconfig|\.DS_Store|(?:readme|license|licence|copying)(?:\..*)?)$/i
+
+// claude 2026-10-20: created: a directory that holds no project yet (review S4)
+/** Whether `directory` is missing, empty, or holds only repository files. */
+function holdsNoProject(directory) {
+  return !exists(directory) || readdirSync(directory).every(name => repositoryEntry.test(name))
+}
+
+// claude 2026-10-20: changed: a Nuxt app below an sbt build is layout B, and a directory with another project stops init (review S1, S4)
 /**
  * Detects the adoption path for `target`, the `[directory]` argument resolved against the
  * current directory. The first matching rule wins:
  *
- * 1. `target` is a Nuxt app (a `nuxt.config.*`, or a `package.json` that lists `nuxt`): path 2,
- *    layout A at `target`. With a `build.sbt` there too, init writes `h34s.sbt` next to it.
+ * 1. `target` is a Nuxt app (a `nuxt.config.*`, or a `package.json` that lists `nuxt`). With a
+ *    `build.sbt` there too: path 2, layout A, and init writes `h34s.sbt` next to it. Else, when
+ *    its parent has a `build.sbt`: path 3, layout B, with the Nuxt app in `target` (`init web`).
+ *    Else: path 2, layout A at `target`.
  * 2. `target` has a `build.sbt`: path 3, layout B, with the Nuxt app in `target/web`. When that
  *    directory is already a Nuxt app, init adds h34s to it.
- * 3. `target` is missing or empty and its parent has a `build.sbt`: path 3, layout B, with the
- *    Nuxt app in `target` (`init web` in the sbt build).
- * 4. Otherwise: path 1, a new project in layout A at `target`.
+ * 3. `target` holds no project yet (missing, empty, or only repository files such as `.git` and
+ *    a README) and its parent has a `build.sbt`: path 3, layout B, with the Nuxt app in `target`.
+ * 4. `target` holds no project yet: path 1, a new project in layout A at `target`.
+ * 5. Otherwise `target` holds another project, or is not a project directory: path `null`, and
+ *    init stops without writing.
  *
- * `h34s.config.mjs` in the app directory of the result means "already set up".
+ * `h34s.config.mjs` in `target`, in the app directory or in the sbt build means "already set up".
  */
 export function detect(target) {
   if (exists(target) && !isDirectory(target))
     throw new Error(`${target} is not a directory`)
-  const empty = !exists(target) || readdirSync(target).length === 0
+  const parentBuild = isFile(join(dirname(target), 'build.sbt'))
   if (exists(target) && isNuxtApp(target)) {
-    return { path: 2, layout: 'A', app: target, sbt: target, nuxt: 'existing', build: isFile(join(target, 'build.sbt')) ? 'existing' : 'new' }
+    if (isFile(join(target, 'build.sbt')))
+      return { path: 2, layout: 'A', app: target, sbt: target, nuxt: 'existing', build: 'existing' }
+    if (parentBuild)
+      return { path: 3, layout: 'B', app: target, sbt: dirname(target), nuxt: 'existing', build: 'existing' }
+    return { path: 2, layout: 'A', app: target, sbt: target, nuxt: 'existing', build: 'new' }
   }
   if (isFile(join(target, 'build.sbt'))) {
     const app = join(target, webDir)
     return { path: 3, layout: 'B', app, sbt: target, nuxt: isDirectory(app) && isNuxtApp(app) ? 'existing' : 'new', build: 'existing' }
   }
-  if (empty && isFile(join(dirname(target), 'build.sbt')))
+  const fresh = holdsNoProject(target)
+  if (fresh && parentBuild)
     return { path: 3, layout: 'B', app: target, sbt: dirname(target), nuxt: 'new', build: 'existing' }
-  return { path: 1, layout: 'A', app: target, sbt: target, nuxt: 'new', build: 'new' }
+  if (fresh)
+    return { path: 1, layout: 'A', app: target, sbt: target, nuxt: 'new', build: 'new' }
+  return { path: null, layout: null, app: target, sbt: target, nuxt: null, build: null }
 }
 
 // claude 2026-10-20: created: the text of every root .sbt and project/*.sbt|*.scala file of a build (ADR-0009)
@@ -136,10 +157,15 @@ function missingLines(text, lines) {
   return lines.filter(line => !present.has(normal(line)))
 }
 
-// claude 2026-10-20: created: appended lines, after a newline and a heading comment (ADR-0009)
+// claude 2026-10-20: created: the line ending of a text file, CRLF when it has one (review N3)
+const lineEnding = text => text.includes('\r\n') ? '\r\n' : '\n'
+
+// claude 2026-10-20: changed: keeps the file's line ending (review N3)
+/** `text` with `lines` appended after a blank line and a heading comment. */
 function appended(text, heading, lines) {
-  const separator = text === '' || text.endsWith('\n') ? '' : '\n'
-  return `${text}${separator}${text === '' ? '' : '\n'}${heading}\n${lines.join('\n')}\n`
+  const eol = lineEnding(text)
+  const separator = text === '' || text.endsWith('\n') ? '' : eol
+  return `${text}${separator}${text === '' ? '' : eol}${[heading, ...lines].join(eol)}${eol}`
 }
 
 // claude 2026-10-20: created: the version spec of a dependency, without range operators (ADR-0009)
@@ -147,7 +173,7 @@ function bareVersion(spec) {
   return String(spec).replace(/^[\^~=v\s]+/, '')
 }
 
-// claude 2026-10-20: created: the complete plan, built and checked before any write (ADR-0009, decisions 1, 2, 4, 7 to 10)
+// claude 2026-10-20: changed: also checks the sbt build's h34s.config.mjs, and stops in a directory that holds another project (review S4, S5)
 /**
  * Builds the plan for `directory` (relative to `cwd`): every file to create with its content, every
  * edit with the text it expects and the text it writes, the conflicts that stop init, the steps
@@ -161,13 +187,18 @@ export function planInit({ directory = '.', api = 'kyo', cwd = process.cwd(), ve
   const { app, sbt } = found
   const plan = { ...found, api, version, cwd, actions: [], conflicts: [], manual: [], warnings: [], kept: [] }
   const configPath = join(app, 'h34s.config.mjs')
-  // One-shot: an h34s.config.mjs in the directory or where the plan would write one (decision 4).
-  const setUp = [join(target, 'h34s.config.mjs'), configPath].find(isFile)
+  // One-shot: an h34s.config.mjs in the directory, where the plan would write one, or in the sbt
+  // build that the plan would add to, as layout A (decision 4).
+  const setUp = [join(target, 'h34s.config.mjs'), configPath, join(sbt, 'h34s.config.mjs')].find(isFile)
   if (setUp) {
     plan.alreadySetUp = setUp
     return plan
   }
   const shown = path => relative(cwd, path) || '.'
+  if (found.path === null) {
+    plan.conflicts.push(`${shown(target)} is not empty and has no nuxt.config.*, no package.json that lists nuxt and no build.sbt, so init does not know which project to add h34s to. Run init in the root of your Nuxt app or sbt build, or give it a new directory for a new project: h34s-scala init my-app`)
+    return plan
+  }
   const create = (path, content) => {
     if (exists(path))
       plan.conflicts.push(`${shown(path)} exists; init creates it and never overwrites a file`)
@@ -254,7 +285,7 @@ export function planInit({ directory = '.', api = 'kyo', cwd = process.cwd(), ve
   return plan
 }
 
-// claude 2026-10-20: created: the package.json merge; a same-name script with another value is a conflict, except dev and build, which init leaves to the author (ADR-0009)
+// claude 2026-10-20: changed: the package.json merge keeps the line ending; a same-name script with another value is a conflict, except dev and build, which init leaves to the author (ADR-0009, review N3)
 function planPackageJson(plan, path, params, { create, edit, shown }) {
   if (!isFile(path)) {
     create(path, packageJson.render(params))
@@ -315,8 +346,10 @@ function planPackageJson(plan, path, params, { create, edit, shown }) {
     plan.warnings.push(`${shown(path)} lists nuxt ${nuxt}; h34s is tested with Nuxt 4.3.1 and 4.4.2.`)
   if (changes.length === 0)
     return
+  // The content, the key order, the indentation and the line ending stay; other layout is JSON's.
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? '  '
-  edit(path, before, `${JSON.stringify(next, null, indent)}\n`, changes.join('; '))
+  const eol = lineEnding(before)
+  edit(path, before, `${JSON.stringify(next, null, indent).replaceAll('\n', eol)}${eol}`, changes.join('; '))
 }
 
 // claude 2026-10-20: created: the nuxt.config text edit, or the printed line (ADR-0009, decision 2)
@@ -343,7 +376,7 @@ function planNuxtConfig(plan, app, { create, edit, shown }) {
   edit(path, before, after, `adds '${nuxtConfig.moduleName}' to modules`)
 }
 
-// claude 2026-10-20: created: the .npmrc lines, appended when missing; an existing token line stays as it is and is never printed (ADR-0009, decision 10)
+// claude 2026-10-20: changed: the .npmrc lines, appended when missing; a registry URL with a trailing slash is the same registry; an existing token line stays as it is and is never printed (ADR-0009, decision 10, review N2)
 function planAppend(plan, path, content, { create, edit, shown }) {
   if (!isFile(path)) {
     create(path, content)
@@ -352,17 +385,18 @@ function planAppend(plan, path, content, { create, edit, shown }) {
   const before = read(path)
   const keyOf = line => line.slice(0, line.indexOf('=')).trim()
   const valueOf = line => line.slice(line.indexOf('=') + 1).trim()
+  const registryOf = line => valueOf(line).replace(/\/+$/, '')
   const existing = new Map(before.split(/\r?\n/)
     .filter(line => line.includes('=') && !/^\s*[#;]/.test(line))
-    .map(line => [keyOf(line), valueOf(line)]))
+    .map(line => [keyOf(line), line]))
   const lines = []
   for (const line of npmrc.npmrcLines) {
     const key = keyOf(line)
     if (!existing.has(key))
       lines.push(line)
-    else if (existing.get(key) !== valueOf(line) && key.startsWith('@'))
+    else if (key.startsWith('@') && registryOf(existing.get(key)) !== registryOf(line))
       plan.conflicts.push(`${shown(path)} maps ${key} to another registry; h34s packages come from https://npm.pkg.github.com`)
-    else if (existing.get(key) !== valueOf(line))
+    else if (!key.startsWith('@') && valueOf(existing.get(key)) !== valueOf(line))
       plan.kept.push(`the existing ${key} line in ${shown(path)} (not shown)`)
   }
   if (lines.length > 0)
@@ -397,18 +431,28 @@ function planProject(plan, sbt, sources, { create, shown }) {
   }
 }
 
-// claude 2026-10-20: created: writes the plan; creates refuse an existing file, and edits refuse a file that changed since the plan (ADR-0009, decision 1)
+// claude 2026-10-20: changed: writes the plan; creates refuse an existing file, and edits refuse a file that changed since the plan; both stop with the file and what was written (ADR-0009, decision 1, review N5)
 /** Writes the plan's actions in order. Gives the paths it wrote. */
 export function applyPlan(plan) {
   const written = []
+  const shown = path => relative(plan.cwd ?? process.cwd(), path) || path
+  const stop = (action, what, cause) => new Error(
+    `${shown(action.path)} ${what} while init ran, so init left it as it is and stopped. Written before it: ${written.length > 0 ? written.map(shown).join(', ') : 'nothing'}.`,
+    cause ? { cause } : undefined,
+  )
   for (const action of plan.actions) {
     mkdirSync(dirname(action.path), { recursive: true })
     if (action.kind === 'create') {
-      writeFileSync(action.path, action.content, { flag: 'wx' })
+      try {
+        writeFileSync(action.path, action.content, { flag: 'wx' })
+      }
+      catch (error) {
+        throw error?.code === 'EEXIST' ? stop(action, 'appeared', error) : error
+      }
     }
     else {
       if (read(action.path) !== action.before)
-        throw new Error(`${action.path} changed while init ran; nothing more was written`)
+        throw stop(action, 'changed')
       writeFileSync(action.path, action.content)
     }
     written.push(action.path)
@@ -471,7 +515,7 @@ export function conflictLines(plan) {
   ]
 }
 
-// claude 2026-10-20: created: the help of the init command (ADR-0009)
+// claude 2026-10-20: changed: the help of the init command names the stop in a directory with another project (ADR-0009, review S4)
 export const initHelp = `Usage: h34s-scala init [directory] [--zio] [--dry-run]
 
 Sets up h34s once in a project. Run it without installing anything first:
@@ -483,9 +527,12 @@ current directory):
                  an existing Nuxt app: adds the sbt build at the Nuxt root
   a build.sbt    an existing sbt build: creates the Nuxt app in web/ and an
                  h34s.sbt next to build.sbt, which init does not edit
-  neither        a new project: a minimal Nuxt app and its sbt build
-A missing or empty directory whose parent has a build.sbt is the Nuxt app of
-that sbt build. When h34s.config.mjs exists, init changes nothing.
+  nothing yet    a new project: a minimal Nuxt app and its sbt build. The
+                 directory may be missing, empty, or hold only repository
+                 files such as .git, .gitignore, a README and a license.
+When the parent directory has a build.sbt, a Nuxt app or a directory with
+nothing yet becomes the Nuxt app of that sbt build. In a directory that holds
+other files, init stops. When h34s.config.mjs exists, init changes nothing.
 
 init checks every file before it writes any. It creates missing files only and
 never overwrites one; it appends to .gitignore and .npmrc, merges into

@@ -10,6 +10,7 @@ import process from 'node:process'
 // eslint-disable-next-line test/no-import-node-test
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { applyPlan, planInit } from '../src/init/init.mjs' // claude 2026-10-20: created: the plan's order and the write step (review S2, N5)
 import { addModule } from '../src/init/nuxt-config-edit.mjs'
 
 // claude 2026-10-20: created: the CLI, the package version and a fake token (ADR-0009)
@@ -117,12 +118,12 @@ const webFiles = [
   'web/tsconfig.json',
 ]
 
-// claude 2026-10-20: created: the test "never overwrites: a file that init would create is a ..." (ADR-0009)
+// claude 2026-10-20: changed: the test "never overwrites: a file that init would create is a ..."; a file of path 1 makes the directory another project's, so init stops before its plan (ADR-0009, review S4)
 test('never overwrites: a file that init would create is a conflict, init exits 1 and writes nothing', (t) => {
   const cases = [
-    // Path 1: a new project.
+    // Path 1: a new project. Any file that init would create makes the directory hold a project.
     ...['package.json', 'pnpm-workspace.yaml', 'tsconfig.json', 'app/app.vue', 'scala-server/src/main/scala/myapp/Hello.scala']
-      .map(file => ({ name: `path 1, ${file}`, before: { [`my-app/${file}`]: 'kept\n' }, args: ['my-app'], conflict: `my-app/${file}` })),
+      .map(file => ({ name: `path 1, ${file}`, before: { [`my-app/${file}`]: 'kept\n' }, args: ['my-app'], message: 'my-app is not empty and has no nuxt.config.*, no package.json that lists nuxt and no build.sbt' })),
     // Path 2: an existing Nuxt app; its Hello.scala and, beside a build.sbt, the h34s.sbt.
     { name: 'path 2, Hello.scala', before: { ...nuxtStarter, 'scala-server/src/main/scala/app/Hello.scala': 'kept\n' }, args: [], conflict: 'scala-server/src/main/scala/app/Hello.scala', cwd: 'app' },
     { name: 'path 2, h34s.sbt', before: { ...nuxtStarter, 'build.sbt': '\n', 'h34s.sbt': 'kept\n' }, args: [], conflict: 'h34s.sbt', cwd: 'app' },
@@ -138,9 +139,60 @@ test('never overwrites: a file that init would create is a conflict, init exits 
     const result = init(cwd, item.args)
     assert.equal(result.status, 1, `${item.name}: exit code\n${result.output}`)
     assert.match(result.stderr, /init stopped and wrote nothing/, item.name)
-    assert.ok(result.stderr.includes(`${item.conflict} exists; init creates it and never overwrites a file`), `${item.name}: names the conflict\n${result.stderr}`)
+    const message = item.message ?? `${item.conflict} exists; init creates it and never overwrites a file`
+    assert.ok(result.stderr.includes(message), `${item.name}: names the conflict\n${result.stderr}`)
     assert.deepEqual(tree(root), before, `${item.name}: nothing was written`)
   }
+})
+
+// claude 2026-10-20: created: the test "a file that appears between the plan and the write is not ..." (review N5)
+test('a file that appears between the plan and the write is not overwritten, and the error names it and what was written', (t) => {
+  const root = temporary(t)
+  const plan = planInit({ directory: 'my-app', cwd: root, version })
+  assert.deepEqual(plan.conflicts, [])
+  const creates = plan.actions.filter(action => action.kind === 'create')
+  const late = creates[2]
+  mkdirSync(dirname(late.path), { recursive: true })
+  writeFileSync(late.path, 'kept\n')
+  assert.throws(() => applyPlan(plan), (error) => {
+    const shown = path => relative(root, path)
+    assert.equal(error.message, `${shown(late.path)} appeared while init ran, so init left it as it is and stopped. Written before it: ${creates.slice(0, 2).map(action => shown(action.path)).join(', ')}.`)
+    assert.equal(error.cause?.code, 'EEXIST')
+    return true
+  })
+  assert.equal(readFileSync(late.path, 'utf8'), 'kept\n')
+})
+
+// claude 2026-10-20: created: the test "path 1: a directory that holds another project stops init; ..." (review S4)
+test('path 1: a directory that holds another project stops init; a fresh clone with only repository files does not', (t) => {
+  for (const files of [
+    // A home directory: init must not add a project to it or append to its .npmrc.
+    { '.npmrc': 'save-exact=true\n', '.bashrc': 'export PATH\n' },
+    // A Maven project and a Node package without Nuxt.
+    { 'pom.xml': '<project/>\n' },
+    { 'package.json': '{ "name": "tool" }\n' },
+  ]) {
+    const root = temporary(t)
+    write(root, files)
+    const result = init(root)
+    assert.equal(result.status, 1, result.output)
+    assert.match(result.stderr, /init stopped and wrote nothing/)
+    assert.ok(result.stderr.includes('. is not empty and has no nuxt.config.*, no package.json that lists nuxt and no build.sbt'), result.stderr)
+    assert.match(result.stderr, /give it a new directory for a new project: h34s-scala init my-app/)
+    assert.deepEqual(tree(root), files)
+  }
+  const root = join(temporary(t), 'my-app')
+  const clone = { '.git/HEAD': 'ref: refs/heads/main\n', 'README.md': '# my-app\n', 'LICENSE': 'MIT\n', '.gitignore': 'notes.txt\n' }
+  write(root, clone)
+  const result = init(root)
+  assert.equal(result.status, 0, result.output)
+  assert.match(result.stdout, /a new project \(path 1, layout A\)/)
+  const files = tree(root)
+  for (const file of ['.git/HEAD', 'README.md', 'LICENSE'])
+    assert.equal(files[file], clone[file], `${file} is unchanged`)
+  assert.ok(files['.gitignore'].startsWith('notes.txt\n\n# Added by h34s-scala init\n.output\n'), files['.gitignore'])
+  for (const file of path1Files.filter(file => file !== '.gitignore'))
+    assert.ok(file in files, `${file} is created`)
 })
 
 // claude 2026-10-20: created: the test "path 1: init in an empty directory writes a minimal ..." (ADR-0009)
@@ -199,7 +251,7 @@ test('path 1: init <directory> creates the directory, and the summary says to cd
   assert.match(result.stdout, / {2}2\. cd my-app\n {2}3\. pnpm install\n/)
 })
 
-// claude 2026-10-20: created: the test "path 2: init adds layout A to a Nuxt starter, ..." (ADR-0009)
+// claude 2026-10-20: changed: the test "path 2: init adds layout A to a Nuxt starter, ..."; the write order moved to a plan test (ADR-0009, review S2)
 test('path 2: init adds layout A to a Nuxt starter, merges package.json, edits nuxt.config.ts and appends to .gitignore', (t) => {
   const root = join(temporary(t), 'shop')
   write(root, nuxtStarter)
@@ -242,9 +294,19 @@ test('path 2: init adds layout A to a Nuxt starter, merges package.json, edits n
   // dev and build are the app's own scripts: init keeps them and prints the change.
   assert.match(result.stdout, /In package\.json, set the script "dev" to "node --enable-source-maps node_modules\/nuxt\/bin\/nuxt\.mjs dev".* init keeps your "nuxt dev"\./)
   assert.match(result.stdout, /In package\.json, set the script "build" to "pnpm run scala:full && nuxt build": a production build must link the Scala\.js first.* init keeps your "nuxt build"\./)
-  // The edits come after h34s.config.mjs exists: the module stops Nuxt without it.
-  const order = result.stdout.indexOf('h34s.config.mjs') < result.stdout.indexOf('nuxt.config.ts: adds')
-  assert.ok(order, 'h34s.config.mjs is created before the nuxt.config.ts edit')
+})
+
+// claude 2026-10-20: created: the test "the plan creates h34s.config.mjs first and edits nuxt.config last" (review S2)
+test('the plan creates h34s.config.mjs first and edits nuxt.config last, because the module stops Nuxt without the config', (t) => {
+  const root = join(temporary(t), 'shop')
+  write(root, nuxtStarter)
+  const plan = planInit({ cwd: root, version })
+  assert.deepEqual(plan.conflicts, [])
+  const steps = plan.actions.map(action => `${action.kind} ${relative(root, action.path)}`)
+  assert.equal(steps[0], 'create h34s.config.mjs', steps.join('\n'))
+  assert.equal(steps.at(-1), 'edit nuxt.config.ts', steps.join('\n'))
+  const firstEdit = plan.actions.findIndex(action => action.kind === 'edit')
+  assert.ok(firstEdit > 0 && plan.actions.slice(firstEdit).every(action => action.kind === 'edit'), `every create comes before every edit:\n${steps.join('\n')}`)
 })
 
 // claude 2026-10-20: created: the test "path 2 beside a build.sbt: init writes h34s.sbt and leaves ..." (ADR-0009)
@@ -312,6 +374,41 @@ test('path 3: init web in the sbt build gives the same tree as init in it', (t) 
   assert.deepEqual(tree(second), tree(first))
 })
 
+// claude 2026-10-20: created: the test "path 3 with a Nuxt app in web/: init, init web and init in web ..." (review S1, N4)
+test('path 3 with a Nuxt app in web/: init, init web and init in web give the same layout B, and add h34s to the app', (t) => {
+  const runs = [[[], '.'], [['web'], '.'], [[], 'web']].map(([args, from]) => {
+    const lib = join(temporary(t), 'lib')
+    write(lib, sbtBuild)
+    write(join(lib, 'web'), nuxtStarter)
+    const result = init(join(lib, from), args)
+    assert.equal(result.status, 0, `${args.join(' ')} from ${from}\n${result.output}`)
+    assert.match(result.stdout, /an existing sbt build \(path 3, layout B/)
+    return tree(lib)
+  })
+  assert.deepEqual(runs[1], runs[0], 'init web gives the same tree as init')
+  assert.deepEqual(runs[2], runs[0], 'init in web/ gives the same tree as init')
+  const files = runs[0]
+  for (const file of Object.keys(sbtBuild))
+    assert.equal(files[file], sbtBuild[file], `${file} is unchanged`)
+  assert.equal(files['web/build.sbt'], undefined, 'no sbt build is nested in the Nuxt app')
+  assert.equal(Object.keys(files).some(file => file.startsWith('web/project/') || file.startsWith('web/scala-server/')), false)
+  assert.equal(files['web/h34s.config.mjs'], `import { defineConfig } from '@yuri4n/h34s-nuxt/build'
+
+export default defineConfig({
+  sbtRoot: '..',
+  modules: [{ project: 'server', output: 'server/.scala' }],
+})
+`)
+  assert.ok(files['h34s.sbt'].includes('(LocalRootProject / baseDirectory).value / "web" / "server" / ".scala",'))
+  assert.ok('scala-server/src/main/scala/lib/Hello.scala' in files)
+  const manifest = JSON.parse(files['web/package.json'])
+  assert.equal(manifest.name, 'shop', 'the app keeps its package.json')
+  assert.equal(manifest.scripts['scala:fast'], 'h34s-scala dev')
+  assert.equal(manifest.devDependencies['@yuri4n/h34s-nuxt'], version)
+  assert.equal(files['web/nuxt.config.ts'], nuxtStarter['nuxt.config.ts'].replace('  modules: [\n', '  modules: [\n    \'@yuri4n/h34s-nuxt\',\n'))
+  assert.equal(files['web/.gitignore'], `${nuxtStarter['.gitignore']}\n# Added by h34s-scala init\nserver/.scala/\n`)
+})
+
 // claude 2026-10-20: created: the test "path 3: a build that keeps its own resolver, .jvmopts ..." (ADR-0009)
 test('path 3: a build that keeps its own resolver, .jvmopts and plugins file gets no duplicate, and a plugins file without Scala.js gets a printed line', (t) => {
   const root = temporary(t)
@@ -344,7 +441,7 @@ test('path 3: a build that already defines the server project or uses scala-serv
   assert.deepEqual(tree(root), before)
 })
 
-// claude 2026-10-20: created: the test "already set up: h34s.config.mjs stops init with exit 0 and ..." (ADR-0009)
+// claude 2026-10-20: changed: the test "already set up: h34s.config.mjs stops init with exit 0 and ..."; also init web in a set-up sbt build (ADR-0009, review S5)
 test('already set up: h34s.config.mjs stops init with exit 0 and changes nothing', (t) => {
   for (const [files, args, config] of [
     [{ 'h34s.config.mjs': 'export default {}\n' }, [], 'h34s.config.mjs'],
@@ -353,6 +450,8 @@ test('already set up: h34s.config.mjs stops init with exit 0 and changes nothing
     // An sbt build that holds its own config, as layout A: no Nuxt app is added in web/.
     [{ ...sbtBuild, 'h34s.config.mjs': 'export default {}\n' }, [], 'h34s.config.mjs'],
     [{ ...sbtBuild, 'web/h34s.config.mjs': 'export default {}\n' }, ['web'], 'web/h34s.config.mjs'],
+    // init web in an sbt build that is already set up as layout A.
+    [{ ...sbtBuild, 'h34s.config.mjs': 'export default {}\n' }, ['web'], 'h34s.config.mjs'],
   ]) {
     const root = temporary(t)
     write(root, files)
@@ -518,6 +617,30 @@ test('.npmrc: a different registry for the @yuri4n scope is a conflict', (t) => 
   assert.equal(result.status, 1, result.output)
   assert.match(result.stderr, /\.npmrc maps @yuri4n:registry to another registry/)
   assert.deepEqual(tree(root), before)
+})
+
+// claude 2026-10-20: created: the test ".npmrc: the registry with a trailing slash is the same registry" (review N2)
+test('.npmrc: the registry with a trailing slash is the same registry', (t) => {
+  const root = temporary(t)
+  write(root, { ...nuxtStarter, '.npmrc': '@yuri4n:registry=https://npm.pkg.github.com/\n' })
+  const result = init(root)
+  assert.equal(result.status, 0, result.output)
+  assert.equal(tree(root)['.npmrc'], '@yuri4n:registry=https://npm.pkg.github.com/\n\n# h34s packages from GitHub Packages; the token comes from the environment\n//npm.pkg.github.com/:_authToken=${GITHUB_PACKAGES_TOKEN}\n')
+})
+
+// claude 2026-10-20: created: the test "the package.json merge and the appends keep CRLF line endings" (review N3)
+test('the package.json merge and the appends keep CRLF line endings', (t) => {
+  const root = temporary(t)
+  const crlf = text => text.replaceAll('\n', '\r\n')
+  write(root, { ...nuxtStarter, 'package.json': crlf(nuxtStarter['package.json']), '.gitignore': crlf(nuxtStarter['.gitignore']) })
+  const result = init(root)
+  assert.equal(result.status, 0, result.output)
+  const files = tree(root)
+  for (const file of ['package.json', '.gitignore']) {
+    assert.match(files[file], /\r\n$/, file)
+    assert.doesNotMatch(files[file], /(?<!\r)\n/, `${file} has only CRLF line endings`)
+  }
+  assert.equal(JSON.parse(files['package.json']).scripts['scala:fast'], 'h34s-scala dev')
 })
 
 // claude 2026-10-20: created: the test "--dry-run prints the plan and writes nothing" (ADR-0009)
