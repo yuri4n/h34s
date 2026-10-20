@@ -107,7 +107,7 @@ that every relative link in `docs/` points at an existing file and, for a
 
 ## Code from the sources
 
-<!-- claude 2026-10-20: created: how the homepage and the project tour get their code (issue #52) -->
+<!-- claude 2026-10-20: created: how the homepage and the project tour get their code, and the annotation and orphan rules (issue #52) -->
 
 The homepage's `Handlers.scala` card and the project tour show no
 hand-typed code. The Vite plugin `snippets/vite-plugin.mjs` reads every
@@ -117,8 +117,10 @@ each text and its source:
 
 - A region of a demo file: the lines between `// #region <name>` and
   `// #endregion <name>` in `examples/nuxt/scala/` or
-  `examples/nuxt/nuxt.config.ts`. Put the `claude` annotation on the line
-  above `#region`, never inside the region, because the site shows it.
+  `examples/nuxt/nuxt.config.ts`. The site drops nested region markers
+  and whole-line `claude <date>: created|changed:` annotations, so an
+  annotation can stay on the member that it describes. Any other comment
+  inside a region is shown.
 - A guide block: the code fence after a `<!-- tour: <file> -->` line in
   `content/1.guide/02.adoption.md` or `13.npm-tooling.md`. Only blank
   lines may stand between the marker and the fence.
@@ -126,11 +128,12 @@ each text and its source:
 The ZIO `build.sbt` is the Kyo one with `kyo-h3-ext` replaced by
 `zio-h3-ext`, the guide's own rule. A missing region or marker stops the
 build with the file and the name. `test/snippets.test.mjs` tests the
-extraction (`snippets/extract.mjs`) and checks that each shown text is the
-exact slice of its file.
+extraction (`snippets/extract.mjs`) and checks that the homepage handler
+is the exact slice of its file.
 
 To show a new file, mark it in its source, add it to `files` and `tree` in
-`snippets/sources.mjs`, and run `pnpm test`.
+`snippets/sources.mjs`, and run `pnpm test`. The tests fail for a region
+or a tour marker that `snippets/sources.mjs` does not read.
 
 ## Validate and build
 

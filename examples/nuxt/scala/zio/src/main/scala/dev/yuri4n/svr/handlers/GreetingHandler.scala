@@ -1,4 +1,4 @@
-// claude 2026-10-20: created: the ZIO counterpart of the Kyo `personalizedGreeting`, line for line, and the regions that the site shows (issue #52)
+// claude 2026-10-20: created: the region that the project tour shows (issue #52)
 // #region tour
 package dev.yuri4n.svr.handlers
 
@@ -9,6 +9,7 @@ import zio.ZIO
 
 import scala.scalajs.js.annotation.JSExportTopLevel
 
+// claude 2026-10-20: created: the ZIO counterpart of the Kyo `personalizedGreeting`, line for line, which the homepage shows (issue #52)
 // #region greeting-handler
 @JSExportTopLevel("default", "zio-greeting-post")
 val personalizedGreeting: EventHandler = AppHandler

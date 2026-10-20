@@ -1,4 +1,4 @@
-// claude 2026-10-20: created: the regions that the homepage and the project tour show (issue #52)
+// claude 2026-10-20: created: the region that the project tour shows (issue #52)
 // #region tour
 package dev.yuri4n.kyoexample
 
@@ -13,6 +13,7 @@ val greeting: EventHandler = AppHandler
       Env.use[Greetings](_.greet("Kyo"))
   .at(Route.get("/api/kyo/greeting"))
 
+// claude 2026-10-20: created: the region that the homepage shows (issue #52)
 // #region greeting-handler
 @JSExportTopLevel("default", "kyo-greeting-post")
 val personalizedGreeting: EventHandler = AppHandler
