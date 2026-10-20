@@ -319,6 +319,7 @@ class HttpStreamSuite extends FunSuite:
     }
 
     // claude 2026-10-20: created: a stream failure on the socketless path errors the caller's reads and fails the step (ADR-0004, Q3)
+    // claude 2026-10-20: changed: waits until the step and the log happen, not a fixed three turns (they lagged under load)
     test("without a Node socket, a stream failure after the head errors the caller's reads and fails the sendStream step") {
       val call = Call("/stream", withSocket = false)
       val failure = new Exception("the second element failed")
@@ -327,25 +328,27 @@ class HttpStreamSuite extends FunSuite:
       val handler = KHandler.define { _ =>
         Abort.run[Throwable](Response.sendStream(stream)).map(result => Sync.defer { step = Some(result) }.andThen(Abort.get(result)))
       }
-      val checked =
+      def checked(logged: () => List[String]) =
         for
           body <- call.invoke(handler)
           reader = call.response.native._data.getReader()
           first <- reader.read().asInstanceOf[js.Promise[js.Dynamic]].toFuture
           second <- reader.read().asInstanceOf[js.Promise[js.Dynamic]].toFuture.transform(outcome => scala.util.Success(outcome))
-          _ <- turns(3)
+          _ <- turnsUntil(1000)(step.isDefined && logged().exists(_.contains("the second element failed")))
+          _ <- turns(3) // a second log line would arrive within these turns
         yield
           assert(js.isUndefined(body))
           assertEquals(decode(first.value), "one")
           assert(second.isFailure, s"the second read must fail, got $second")
           assertEquals(step, Some(Result.fail(failure)))
-      TestDeadline(consoleErrors(checked).map { (_, logged) =>
+      TestDeadline(consoleErrorsSeen(checked).map { (_, logged) =>
         assertEquals(logged.count(_.contains("the second element failed")), 1, logged.toString)
       })
     }
 
     // Z18
     // claude 2026-10-19: changed: a socketless response (Nitro local fetch) is no longer rejected: the head is written first, h3 keeps the stream in res._data, the h3 promise settles at once, and the request scope stays open until the stream is read or cancelled
+    // claude 2026-10-20: changed: waits until the request scope is released, not a fixed three turns
     test("without a Node socket, the head is written first and the stream is handed over unread, as UTF-8 bytes") {
       var acquired = 0
       var released = 0
@@ -371,7 +374,8 @@ class HttpStreamSuite extends FunSuite:
           _ = assertEquals(call.response.header("content-type"), Some("text/plain; charset=utf-8"))
           _ = assert(call.handled)
           text <- readText(call.response.native._data)
-          _ <- turns(3)
+          _ <- turnsUntil(1000)(requestReleased > 0)
+          _ <- turns(3) // a second release would happen within these turns
         yield
           assertEquals(text, "data")
           assertEquals((acquired, released, requestReleased), (1, 1, 1))
