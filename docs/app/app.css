@@ -225,38 +225,121 @@ body {
   color: var(--ui-text-muted);
   cursor: pointer;
 }
+/* claude 2026-10-20: created: a 44px hit area around the 32px button (#52) */
+.copy-code {
+  position: relative;
+}
+.copy-code::before {
+  content: '';
+  position: absolute;
+  inset: -0.375rem;
+}
 .copy-code:hover {
   background: var(--ui-bg-elevated);
   color: var(--ui-primary);
 }
 .code-comment {
   padding: 1.5rem 1.3rem 0.8rem;
+  /* claude 2026-10-20: changed: a label, no longer a code comment (#52) */
+  margin: 0;
   color: var(--ui-text-muted);
   font: 0.72rem var(--font-mono);
 }
-.hero-code {
+/* claude 2026-10-20: created: the build-time Shiki code panels (#52) */
+.code-card-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.snippet-stack {
+  display: grid;
+}
+.snippet-panel {
+  grid-area: 1 / 1;
+  min-width: 0;
   overflow-x: auto;
-  margin: 0 1.3rem;
+  visibility: hidden;
+}
+.snippet-panel.is-active {
+  visibility: visible;
+}
+.snippet-panel:focus-visible {
+  outline-offset: -2px;
+}
+.snippet-code .shiki {
+  background: transparent !important;
   font: 0.73rem/1.9 var(--font-mono);
+}
+/* Nuxt UI paints every token span with --shiki-dark-bg in dark mode; the
+   code sits on the card's own surface instead. */
+html.dark .snippet-code .shiki span {
+  background-color: transparent !important;
+}
+html.dark .snippet-code .shiki .line.snippet-line-changed {
+  background-color: color-mix(
+    in srgb,
+    var(--ui-primary) 12%,
+    transparent
+  ) !important;
+}
+.snippet-code .line {
+  display: inline-block;
+  box-sizing: border-box;
+  min-width: 100%;
+  padding: 0 1.3rem;
+}
+/* A changed line: a tint and a bar at the left edge, so the cue is not
+   colour alone; the panel's description names the lines for screen readers. */
+.snippet-code .line.snippet-line-changed {
+  background: color-mix(in srgb, var(--ui-primary) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--ui-primary);
+}
+/* claude 2026-10-20: created: the Kyo | ZIO segmented tabs (#52) */
+.runtime-switch {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border-radius: 0.45rem;
+  background: var(--ui-bg-elevated);
+  box-shadow: inset 0 0 0 1px var(--ui-border);
+}
+.runtime-tab {
+  position: relative;
+  min-width: 2.75rem;
+  min-height: 1.75rem;
+  padding: 0 0.6rem;
+  border-radius: 0.3rem;
+  color: var(--ui-text-muted);
+  font: 550 0.72rem var(--font-sans);
+  cursor: pointer;
+  transition-property: background-color, color, box-shadow;
+  transition-duration: 150ms;
+}
+/* The hit area reaches 44px in height without a taller header. */
+.runtime-tab::before {
+  content: '';
+  position: absolute;
+  inset: -0.5rem 0;
+}
+.runtime-tab:hover {
   color: var(--ui-text-highlighted);
 }
-.syntax-annotation {
-  color: var(--docs-accent-2);
-}
-.syntax-string {
+.runtime-tab[aria-selected='true'] {
+  background: var(--ui-bg);
   color: var(--ui-primary);
+  font-weight: 700;
+  box-shadow:
+    0 0 0 1px var(--ui-border),
+    0 1px 2px color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent);
 }
-.syntax-keyword {
-  color: #975caa;
+.runtime-tab:focus-visible {
+  outline-offset: 2px;
 }
-.syntax-type {
-  color: #2c7199;
-}
-.dark .syntax-keyword {
-  color: #c6a0dc;
-}
-.dark .syntax-type {
-  color: #88b8e0;
+.code-scene .tour-link {
+  display: flex;
+  width: fit-content;
+  margin: 0.75rem auto 0;
+  font-size: 0.75rem;
 }
 .code-scope {
   display: flex;
@@ -301,6 +384,10 @@ body {
   font-size: 0.75rem;
   color: var(--ui-primary);
 }
+/* claude 2026-10-20: created: an empty status takes no space (#52) */
+.copy-feedback.is-empty {
+  padding: 0;
+}
 .code-caption {
   display: flex;
   align-items: center;
@@ -314,6 +401,161 @@ body {
   width: 1.5rem;
   height: 1px;
   background: var(--ui-primary);
+}
+/* claude 2026-10-20: created: the project tour (#52) */
+.project-tour {
+  margin: 1.5rem 0;
+  overflow: hidden;
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  border-radius: 0.8rem;
+}
+.tour-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-bg-muted);
+}
+.tour-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--ui-text-highlighted);
+  font: 600 0.8rem var(--font-sans);
+}
+.tour-body {
+  display: grid;
+  grid-template-columns: minmax(13rem, 16.5rem) minmax(0, 1fr);
+}
+.tour-tree {
+  margin: 0;
+  padding: 0.6rem;
+  list-style: none;
+  border-right: 1px solid var(--ui-border);
+  font: 0.73rem var(--font-mono);
+}
+.tour-tree li {
+  margin: 0;
+  padding: 0;
+}
+.tour-tree li.is-nested {
+  padding-left: 1rem;
+}
+.tour-file,
+.tour-folder-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  overflow-wrap: anywhere;
+}
+.tour-file {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0 0.6rem;
+  border-radius: 0.4rem;
+  text-align: left;
+}
+/* Touch screens get 44px rows. */
+@media (pointer: coarse) {
+  .tour-file {
+    min-height: 2.75rem;
+  }
+}
+.tour-file {
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: 150ms;
+}
+.tour-file:hover {
+  background: var(--ui-bg-elevated);
+  color: var(--ui-text-highlighted);
+}
+.tour-file[aria-current='true'] {
+  background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-bg));
+  color: var(--ui-primary);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--ui-primary);
+}
+.tour-file:focus-visible {
+  outline-offset: -2px;
+}
+.tour-folder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.4rem 0.6rem;
+  color: var(--ui-text-muted);
+}
+.tour-generated {
+  margin-left: 1.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 100px;
+  background: var(--ui-bg-elevated);
+  font: 0.62rem var(--font-sans);
+}
+/* claude 2026-10-20: created: both runtimes' texts in one cell (#52) */
+/* The cell keeps its size when the runtime changes. */
+.tour-swap {
+  display: inline-grid;
+}
+.tour-swap > * {
+  grid-area: 1 / 1;
+}
+/* A zero minimum lets a long path or caption wrap; chips keep their width. */
+.tour-view-header .tour-swap,
+.tour-view-header .tour-swap > * {
+  min-width: 0;
+}
+.tour-sizer {
+  visibility: hidden;
+}
+.tour-name-narrow {
+  display: none;
+}
+/* claude 2026-10-20: created: the note on what the tour shows (#52) */
+.tour-note {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-text-muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+.tour-note code {
+  color: var(--ui-text-highlighted);
+  font: 0.68rem var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.tour-view {
+  min-width: 0;
+  min-height: 22rem;
+}
+.tour-view-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.9rem 1.3rem 0.6rem;
+}
+.tour-path {
+  color: var(--ui-text-highlighted);
+  font: 600 0.75rem var(--font-mono);
+}
+.tour-caption {
+  color: var(--ui-text-muted);
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+.tour-view .snippet-panel {
+  padding-bottom: 1rem;
 }
 .technology-line {
   display: flex;
@@ -516,12 +758,55 @@ body {
   .home-hero {
     gap: 2rem;
   }
-  .hero-code,
+  .snippet-code .shiki,
   .response-example pre {
     font-size: 0.65rem;
   }
 }
 @media (max-width: 767px) {
+  /* claude 2026-10-20: created: the tour's files become a chip row (#52) */
+  .tour-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tour-tree {
+    display: flex;
+    gap: 0.4rem;
+    overflow-x: auto;
+    padding: 0.6rem 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--ui-border);
+  }
+  .tour-tree li.is-nested {
+    padding-left: 0;
+  }
+  .tour-tree li.is-directory {
+    display: none;
+  }
+  .tour-file {
+    width: auto;
+    white-space: nowrap;
+    box-shadow: inset 0 0 0 1px var(--ui-border);
+  }
+  .tour-file[aria-current='true'] {
+    box-shadow: inset 0 0 0 2px var(--ui-primary);
+  }
+  .tour-name-wide {
+    display: none;
+  }
+  /* claude 2026-10-20: changed: a swap cell that keeps its width (#52) */
+  .tour-name-narrow {
+    display: inline-grid;
+    flex-shrink: 0;
+  }
+  .tour-view {
+    min-height: 0;
+  }
+  .tour-view-header {
+    padding: 0.9rem 1rem 0.6rem;
+  }
+  .tour-view .snippet-code .line {
+    padding: 0 1rem;
+  }
   .home-page {
     padding: 0 1.25rem;
   }
@@ -536,7 +821,7 @@ body {
   .hero-description {
     font-size: 0.95rem;
   }
-  .hero-code,
+  .snippet-code .shiki,
   .response-example pre {
     font-size: 0.7rem;
   }

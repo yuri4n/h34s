@@ -13,7 +13,8 @@ const routes = join(app, '.nuxt/types/nitro-routes.d.ts')
 if (!existsSync(routes))
   throw new Error(`Missing ${routes}: link the Scala handlers and run nuxt prepare in examples/nuxt first`)
 const types = readFileSync(routes, 'utf8')
-for (const route of ['/api/kyo/greeting', '/api/notes', '/api/test']) {
+// claude 2026-10-20: changed: the ZIO greeting route (issue #52)
+for (const route of ['/api/kyo/greeting', '/api/zio/greeting', '/api/notes', '/api/test']) {
   if (!types.includes(`'${route}'`))
     throw new Error(`Nitro does not type ${route}: check the route manifests in examples/nuxt/server`)
 }

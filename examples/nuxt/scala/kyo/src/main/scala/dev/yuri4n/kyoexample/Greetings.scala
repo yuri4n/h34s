@@ -1,3 +1,5 @@
+// claude 2026-10-20: created: the region that the project tour shows (issue #52)
+// #region tour
 package dev.yuri4n.kyoexample
 
 import dev.yuri4n.exts.ntcvkyoschema.NativeSchema
@@ -28,3 +30,4 @@ object Greetings:
     def live(config: GreetingConfig): Greetings = new Greetings:
         def greet(name: String): Greeting < Sync =
           Sync.defer(Greeting(s"${config.salutation}, $name!"))
+// #endregion tour

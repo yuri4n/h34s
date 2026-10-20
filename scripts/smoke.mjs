@@ -24,6 +24,19 @@ const stream = await request('/api/test')
 assert.equal(stream.status, 200)
 assert.equal(await stream.text(), 'abc')
 
+// claude 2026-10-20: created: the ZIO greeting needs no database (issue #52)
+// The ZIO greeting answers the Kyo greeting's shape and never builds the database pool.
+const zioGreeting = await post('/api/zio/greeting', JSON.stringify({ name: 'Scala' }))
+assert.equal(zioGreeting.status, 200)
+assert.equal(zioGreeting.headers.get('cache-control'), 'no-store')
+assert.deepEqual(await zioGreeting.json(), { data: { message: 'Hello, Scala!' } })
+const blankName = await post('/api/zio/greeting', JSON.stringify({ name: '  ' }))
+assert.equal(blankName.status, 422)
+assert.deepEqual(
+  await blankName.json(),
+  { errors: [{ message: 'must have at least 1 character', path: 'name' }] },
+)
+
 // Input errors come before any database work, so these checks also pass without PostgreSQL.
 // The model schema trims, then checks the length: one entry with the field path.
 for (const [value, message] of [
@@ -77,6 +90,6 @@ if (database) {
 
 console.log(
   database
-    ? 'Passed: stream response, schema validation entries, malformed-input responses and database insert/read'
-    : 'Passed: stream response, schema validation entries and malformed-input responses (database skipped)',
+    ? 'Passed: stream response, ZIO greeting, schema validation entries, malformed-input responses and database insert/read'
+    : 'Passed: stream response, ZIO greeting, schema validation entries and malformed-input responses (database skipped)',
 )

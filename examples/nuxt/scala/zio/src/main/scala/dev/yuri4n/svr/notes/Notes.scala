@@ -60,10 +60,17 @@ object NotesLive:
       * request scope closes.
       */
     val layer: ZLayer[SessionPool & Scope, Nothing, Notes] =
-      ZLayer.fromZIO(
-        for
-          pool    <- ZIO.service[SessionPool]
-          scope   <- ZIO.service[Scope]
-          session <- pool.session.provideEnvironment(ZEnvironment(scope)).memoize
-        yield NotesLive(session),
-      )
+      ZLayer.fromZIO(ZIO.service[SessionPool].flatMap(pool => make(ZIO.succeed(pool))))
+
+    // claude 2026-10-20: created: the layer whose pool is built on the first note operation (issue #52)
+    /** Same, but `pool` runs only when a note operation first needs a session. A handler that never
+      * uses `Notes` never runs it, so a shared pool behind it is not built.
+      */
+    def lazily(pool: Task[SessionPool]): ZLayer[Scope, Nothing, Notes] = ZLayer.fromZIO(make(pool))
+
+    // claude 2026-10-20: changed: shared by `layer` and `lazily` (issue #52)
+    private def make(pool: Task[SessionPool]): ZIO[Scope, Nothing, Notes] =
+      for
+        scope   <- ZIO.service[Scope]
+        session <- pool.flatMap(_.session.provideEnvironment(ZEnvironment(scope))).memoize
+      yield NotesLive(session)
