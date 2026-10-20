@@ -79,7 +79,8 @@ private[ntcvkyoschema] object NativeTypes:
     // claude 2026-10-20: created: the named model of a record or a sum (ADR-0014)
     /** `structure` named after the Scala type, when `named` holds and the type has no type
       * arguments. Kyo's `name` is the simple name (`Note`); the tag gives the full name
-      * (`app.Models$.Note` reads `app.Models.Note`), which only error messages show.
+      * (`app.Models$.Note` reads `app.Models.Note`) for error messages and the models file's
+      * comments.
       */
     private def model(named: Boolean, name: String, typeTag: kyo.Tag[Any], typeParams: Chunk[Type])(structure: WireType): WireType =
       if !named || typeParams.nonEmpty || name.isEmpty then structure

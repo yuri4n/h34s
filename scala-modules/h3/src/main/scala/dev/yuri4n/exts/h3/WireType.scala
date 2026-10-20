@@ -40,9 +40,9 @@ enum WireType:
       *   def fromNative(state: ParseState): Email = Email(state.json.asInstanceOf[String])
       * }}}
       *
-      * `scalaType` is the Scala type's full name, when it is known; error messages show it. Inside
-      * the structure of a model, a `Named` with the same name refers to that model (a recursive
-      * type). Elsewhere, a `Named` whose target is `Unknown` has nothing to declare: it renders as
+      * `scalaType` is the Scala type's full name, when it is known: error messages and the models
+      * file's comments show it. Inside the structure of a model, a `Named` with the same name
+      * refers to that model (a recursive type). Elsewhere, a `Named` whose target is `Unknown` has nothing to declare: it renders as
       * `unknown` and is not exported. A name that is not a TypeScript identifier, or that h34s
       * uses itself (see `WireType.reservedNames`), is not exported either: its structure is
       * written out where it is used.
