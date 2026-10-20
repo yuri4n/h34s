@@ -58,6 +58,34 @@ object KHandler:
       // between the two.
       Scope.acquireRelease(Fiber.initUnscoped(step))(_.getResult.unit).map(fiber => fiber.uninterruptible.map(_.get))
 
+    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10)
+    /** Runs `handler` for `request` without h3, Nitro or a server, and gives the head that the
+      * program set and its body: the returned value, or the elements that it sent with
+      * `Response.sendStream`.
+      *
+      * It provides what `define` provides for a request: a request scope (closed before the result
+      * is given), an empty response head, a transport that collects a sent stream, and `fetch` as
+      * the server-side `$fetch` (by default `Fetch.unavailable`; pass `Fetch.fake(...)` to answer
+      * calls). Provide your own services inside the function, as you do for `define`:
+      *
+      * {{{
+      * KHandler.test(request => Env.run(fakeNotes)(NotesHandler.create(request)))(Request.fake(...))
+      * }}}
+      *
+      * A failure of the program stays a failure of the result: run it with `Abort.run` to check an
+      * error. Handler defaults, the envelope and the error rendering belong to `define` and are not
+      * applied here.
+      */
+    def test[B](handler: Request => B < HandlerEffects)(request: Request, fetch: Fetch = Fetch.unavailable)(using
+        Frame,
+    ): TestResponse[B] < (Async & Abort[Throwable]) =
+      Sync.defer(HandlerTransport.collecting()).map { transport =>
+        Scope.run(Var.runTuple(ResponseHead.empty)(Env.run(transport)(Env.run(fetch)(Sync.defer(handler(request))))))
+          .map { (head, value) =>
+            Sync.defer(TestResponse(head, TestResponse.collected(transport.collected, value)))
+          }
+      }
+
     // claude 2026-10-19: created: the $fetch accessor (decision 2) over the request's Env[Fetch]
     /** The server-side `$fetch` of the current request, with Nuxt's `event.fetch` semantics: a path
       * that starts with `/` is answered in-process by Nitro, and the incoming headers and cookies

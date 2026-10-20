@@ -3,7 +3,7 @@ package dev.yuri4n.exts.zioh3
 import dev.yuri4n.exts.kyoh3.{KHandler, ResponseBody}
 import dev.yuri4n.exts.zioh3.internal.ZioRequest
 import zio.prelude.NonEmptyList
-import zio.{IO, Runtime, ZIO}
+import zio.{IO, Runtime, ZEnvironment, ZIO}
 
 // claude 2026-10-19: changed: streams are sent with ZHandler.sendStream
 // claude 2026-10-20: changed: streams are sent with Response.sendStream; ZHandler.sendStream is deleted (ADR-0004, Q8)
@@ -44,6 +44,33 @@ object ZHandler:
     /** Fails with approved messages and a status. Each message becomes one error entry. */
     def failWith(status: Int, msg: String, msgs: String*): IO[ErrorResponse, Nothing] =
       ZIO.fail(ErrorResponse(NonEmptyList(msg, msgs*), status))
+
+    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10)
+    /** Runs `handler` for `request` without h3, Nitro or a server, and gives the head that the
+      * program set and its body: the returned value, or the elements that it sent with
+      * `Response.sendStream`.
+      *
+      * It provides what `define` provides for a request: the `ZState[ResponseHead]`, a request
+      * `Scope` (closed before the result is given; a failing finalizer is logged, as in `define`)
+      * and a transport that collects a sent stream. Provide your own services inside the function,
+      * as you do for `define`:
+      *
+      * {{{
+      * ZHandler.test(request => NotesHandler.create(request).provideSomeLayer[HandlerEnv](notes))(Request.fake(...))
+      * }}}
+      *
+      * The program's typed error stays in the error channel, so `.either` shows it. Handler
+      * defaults, the envelope and the error rendering belong to `define` and are not applied here.
+      */
+    def test[E, B](handler: Request => ZIO[HandlerEnv, E, B])(request: Request): IO[E, TestResponse[B]] =
+      ZIO.suspendSucceed {
+        val transport = HandlerTransport.collecting()
+        ZIO.acquireReleaseExitWith(zio.Scope.make)((scope, exit) => ZioRequest.closeAndLog(scope, exit)) { scope =>
+          ZIO.stateful[zio.Scope & HandlerTransport](ResponseHead.empty)(
+            ZIO.suspendSucceed(handler(request)).zip(Response.head),
+          ).provideEnvironment(ZEnvironment[zio.Scope, HandlerTransport](scope, transport))
+        }.map((value, head) => TestResponse(head, TestResponse.collected(transport.collected, value)))
+      }
 
     /** Handlers that share one set of options. */
     final class Configured private[ZHandler] (options: HandlerOptions):

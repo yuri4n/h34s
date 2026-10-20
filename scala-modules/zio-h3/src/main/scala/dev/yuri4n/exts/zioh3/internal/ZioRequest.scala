@@ -73,10 +73,11 @@ private[exts] object ZioRequest:
       }
 
     // claude 2026-10-19: created: closes the request scope and logs a failed close, interruptions included (issue #40 review)
+    // claude 2026-10-20: changed: ZHandler.test closes its request scope the same way (ADR-0006, Q10)
     /** Closes `scope` and logs a failed close. Never fails: the log runs outside the fiber's
       * failure path, so a cause that cannot be rendered cannot turn the response into a 500.
       */
-    private def closeAndLog(scope: zio.Scope.Closeable, exit: Exit[Any, Any]): UIO[Unit] =
+    private[exts] def closeAndLog(scope: zio.Scope.Closeable, exit: Exit[Any, Any]): UIO[Unit] =
       scope.close(exit).exit.flatMap { closed =>
         ZIO.attempt(closed.causeOption.foreach(ZioCall.logFinalizerFailure(_, includeInterrupts = true))).ignore
       }

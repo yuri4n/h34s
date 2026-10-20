@@ -41,6 +41,14 @@ final class HandlerTransport private[exts] (
 
     private[exts] def sent: Boolean = state == State.Sent
 
+    // claude 2026-10-20: created: a test transport collects what sendStream sends (ADR-0006, Q10)
+    /** True for the transport of the test helpers: `Response.sendStream` collects the stream. */
+    private[exts] var collects: Boolean = false
+
+    // claude 2026-10-20: created: the elements a test transport collected from sendStream (ADR-0006, Q10)
+    /** `Some` after `Response.sendStream` ran on a test transport: the elements it sent, in order. */
+    private[exts] var collected: Option[Vector[String]] = None
+
     // claude 2026-10-20: created: the stream failure that failed the sendStream step, for the core's log (ADR-0004, Q3)
     /** The failure of the sent stream, if it failed after the head. The core logs it once, after the
       * program, unless the program failed with its own error (which the core logs instead).
@@ -57,10 +65,20 @@ end HandlerTransport
 
 object HandlerTransport:
     // claude 2026-10-19: created: a transport without a native response, so a handler function stays testable without h3 (C13)
-    /** A transport without a native response, for calling a handler function directly in a test.
-      * `Response.sendStream` fails there with an `IllegalStateException`. Use a new one per call.
+    // claude 2026-10-20: changed: internal; tests call KHandler.test or ZHandler.test (ADR-0006, Q10)
+    /** A transport without a native response. `Response.sendStream` fails there with an
+      * `IllegalStateException`. Use a new one per call.
       */
-    def detached: HandlerTransport = new HandlerTransport(null, HandlerOptions.default, () => ())
+    private[exts] def detached: HandlerTransport = new HandlerTransport(null, HandlerOptions.default, () => ())
+
+    // claude 2026-10-20: created: the transport of KHandler.test and ZHandler.test: it collects a sent stream (ADR-0006, Q10)
+    /** A transport without a native response that collects what `Response.sendStream` sends, for
+      * the test helpers. Use a new one per call.
+      */
+    private[exts] def collecting(): HandlerTransport =
+      val transport = new HandlerTransport(null, HandlerOptions.default, () => ())
+      transport.collects = true
+      transport
 
     // claude 2026-10-19: created: response ownership states
     private[exts] enum State:

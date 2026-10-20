@@ -583,9 +583,9 @@ class HandlerBoundarySuite extends FunSuite:
         // Request.fake carries the same default limit that the snapshot of `options` carries.
         // claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41)
         val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = large, bodyLimit = options.bodyLimit)
-        // claude 2026-10-19: changed: detached provides the handler's Env (transport and $fetch)
-        run(Scope.run(Var.run(ResponseHead.empty)(Abort.run[HttpError | InvalidInput](detached(read(request))))))
-          .map(_.getOrThrow.fold(value => 200 -> value, error => error.status -> error.message, error => throw error))
+        // claude 2026-10-20: changed: KHandler.test runs the handler function (ADR-0006, Q10)
+        run(Abort.run[HttpError | InvalidInput](KHandler.test(read)(request)))
+          .map(_.getOrThrow.fold(response => 200 -> valueOf(response), error => error.status -> error.message, error => throw error))
       val small = Call()
       small.invoke(handlerOf(_.body.text())).flatMap { smallBody =>
         assertEquals(data(smallBody).asInstanceOf[String], "")
@@ -603,7 +603,8 @@ class HandlerBoundarySuite extends FunSuite:
     }
 
     // C13
-    test("a handler function is testable without h3: Request.fake and Var.runTuple") {
+    // claude 2026-10-20: changed: KHandler.test replaces the manual Var.runTuple and Env provisioning (ADR-0006, Q10)
+    test("a handler function is testable without h3: Request.fake and KHandler.test") {
       final case class Input(name: String) derives NativeConverter
       val handler: Request => Greeting < HandlerEffects = request =>
         for
@@ -613,11 +614,15 @@ class HandlerBoundarySuite extends FunSuite:
         yield Greeting(s"${first.name} $again")
       // claude 2026-10-19: changed: the fake request sends a JSON content type (issue #41)
       val request = Request.fake(method = "POST", headers = Map("content-type" -> "application/json"), body = Some("{\"name\":\"Scala\"}"))
-      // claude 2026-10-19: changed: detached provides the handler's Env (transport and $fetch)
-      run(Scope.run(Var.runTuple(ResponseHead.empty)(detached(handler(request))))).map { result =>
-        val (head, greeting) = result.getOrThrow
-        assertEquals(head.status, Some(Status.Created))
-        assertEquals(greeting, Greeting("Scala {\"name\":\"Scala\"}"))
+      run(KHandler.test(handler)(request)).map { result =>
+        val response = result.getOrThrow
+        assertEquals(response.status, Some(Status.Created))
+        assertEquals(response.body, TestResponse.Body.Value(Greeting("Scala {\"name\":\"Scala\"}")))
       }
     }
+
+    // claude 2026-10-20: created: the returned value of a KHandler.test result
+    private def valueOf[B](response: TestResponse[B]): B = response.body match
+        case TestResponse.Body.Value(value) => value
+        case other                          => fail(s"expected a value, got $other")
 end HandlerBoundarySuite

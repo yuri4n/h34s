@@ -1,19 +1,20 @@
 package dev.yuri4n.exts.kyoh3
 
 import dev.yuri4n.exts.h3.internal.BodyDecoding
-import kyo.{Abort, Async, Frame, Scope, Stream, `<`}
+import kyo.{Abort, Async, Frame, Scope, Stream, Sync, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 
 import scala.scalajs.js
 import scala.util.control.NonFatal
 
 // claude 2026-10-19: created: Fetch, the server-side $fetch service that KHandler.define provides per request (spike, decision 2)
+// claude 2026-10-20: changed: tests pass a Fetch to KHandler.test (ADR-0006, Q10)
 /** The server-side `$fetch` of the current request, with Nuxt's `event.fetch` semantics.
   *
   * A path that starts with `/` is answered in-process by Nitro (no HTTP round trip), and the
   * incoming request's headers and cookies are forwarded. `KHandler.define` provides one per
-  * request through Kyo `Env`; use it through `KHandler.$fetch`. In tests, provide your own with
-  * `Env.run(fetch)(program)`.
+  * request through Kyo `Env`; use it through `KHandler.$fetch`. In tests, pass one to
+  * `KHandler.test`, for example `Fetch.fake`.
   */
 trait Fetch:
     /** Sends the request and returns as soon as the response head arrives. A streamed body stays
@@ -23,12 +24,40 @@ trait Fetch:
 
 object Fetch:
     // claude 2026-10-19: created: a Fetch for handler tests that do not call $fetch
+    // claude 2026-10-20: changed: the message names KHandler.test and Fetch.fake (ADR-0006, Q10)
     /** Fails every call with an `IllegalStateException`. For handler tests that do not call `$fetch`;
       * a test that does provides its own `Fetch`.
       */
     val unavailable: Fetch = new Fetch:
         def raw(request: FetchRequest)(using Frame): FetchResponse < (Async & Abort[FetchError] & Scope) =
-          Abort.panic(IllegalStateException("No server-side $fetch here: provide a Fetch with Env.run"))
+          Abort.panic(IllegalStateException("No server-side $fetch here: pass a Fetch to KHandler.test, such as Fetch.fake"))
+
+    // claude 2026-10-20: created: a recording fake Fetch for KHandler.test (ADR-0006, Q10)
+    /** A fake `$fetch` for `KHandler.test`. It answers each request from `responses` by its URL, as
+      * the handler passes it to `$fetch` (for example `"/api/notes"`), and records every request.
+      * A URL without an entry answers 404 with an empty body, like a Nitro route that does not exist.
+      *
+      * {{{
+      * val fetch = Fetch.fake(Map("/api/greeting" -> FetchResponse.Plain(200, Map.empty, "{\"data\":\"hi\"}")))
+      * KHandler.test(handler)(request, fetch).map(response => fetch.requests.map(_.url))
+      * }}}
+      */
+    def fake(responses: Map[String, FetchResponse] = Map.empty): Recording = new Recording(responses)
+
+    // claude 2026-10-20: created: the fake's recorded requests (ADR-0006, Q10)
+    /** A fake `$fetch` that answers from a map and records the requests it got. */
+    final class Recording private[Fetch] (responses: Map[String, FetchResponse]) extends Fetch:
+        private var received = Vector.empty[FetchRequest]
+
+        /** The requests that the handler sent, in order. */
+        def requests: List[FetchRequest] = received.toList
+
+        def raw(request: FetchRequest)(using Frame): FetchResponse < (Async & Abort[FetchError] & Scope) =
+          Sync.defer {
+            received = received :+ request
+            responses.getOrElse(request.url, FetchResponse.Plain(404, Map.empty, ""))
+          }
+    end Recording
 
 // claude 2026-10-19: created: the request a $fetch call sends
 /** One server-side request. A path that starts with `/` stays in-process. */

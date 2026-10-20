@@ -44,10 +44,14 @@ private[exts] object StreamResponse:
         Frame,
     ): Sent < (Async & Abort[Throwable] & Scope) =
       Sync.Unsafe.defer {
-        if transport.event == null then
-            Abort.panic(IllegalStateException("Response.sendStream needs a request served by KHandler.define"))
-        else if transport.state != HandlerTransport.State.Open then
+        if transport.state != HandlerTransport.State.Open then
             Abort.panic(IllegalStateException("The response was already sent: call sendStream once, as the handler's result"))
+        else if transport.collects then collect(transport, chunks)
+        else if transport.event == null then
+            // claude 2026-10-20: changed: the message names the test helpers too (ADR-0006, Q10)
+            Abort.panic(IllegalStateException(
+              "Response.sendStream needs a request served by KHandler.define or ZHandler.define, or a call of KHandler.test or ZHandler.test",
+            ))
         else
             transport.state = HandlerTransport.State.Streaming
             val event      = transport.event
@@ -123,6 +127,20 @@ private[exts] object StreamResponse:
         ),
       )
     end socketless
+
+    // claude 2026-10-20: created: the test helpers' path: the stream runs to its end in its own scope and its elements are kept (ADR-0006, Q10)
+    /** Runs the stream to its end, as a client would read it, and keeps its elements in the
+      * transport. The stream's resources live in their own scope, which closes when the stream ends,
+      * as with a real response. A failure fails the call, as after a real head.
+      */
+    private def collect(transport: HandlerTransport, chunks: Stream[js.Any, StreamEffects])(using
+        Frame,
+    ): Sent < (Async & Abort[Throwable] & Scope) =
+      transport.state = HandlerTransport.State.Sent
+      transport.collected = Some(Vector.empty)
+      Abort.run[Any](
+        Scope.run(chunks.foreach(element => Sync.defer { transport.collected = transport.collected.map(_ :+ element.asInstanceOf[String]) })),
+      ).map(result => Interop.typed(result).foldError(_ => Kyo.lift(new Sent(transport)), error => failed(transport, error)))
 
     // claude 2026-10-20: created: writes the head at the call, and flushes it over a socket (ADR-0004, Q1)
     /** Writes the head. With `flush`, also sends it to the client at once (Node's `flushHeaders`).
