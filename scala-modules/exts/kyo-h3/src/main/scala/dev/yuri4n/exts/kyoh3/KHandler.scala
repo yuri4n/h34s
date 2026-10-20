@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.kyoh3
 
-import dev.yuri4n.exts.h3.internal.{H3, H3Event, Nitro}
+import dev.yuri4n.exts.h3.internal.{H3, H3Event, HandlerMetadata, Nitro}
 import dev.yuri4n.exts.kyoh3.internal.{Interop, Rendering, RequestLifecycle, StreamResponse, Supervised}
 import kyo.{Abort, Async, Fiber, Frame, Result, Scope, Sync, Var, `<`}
 
@@ -31,7 +31,7 @@ object KHandler:
         frame: Frame,
     ): EventHandler =
       val native: js.Function1[H3Event, js.Any] = event => RequestRuntime.run(event, options, program)
-      EventHandler.fromNative(H3.defineEventHandler(native))
+      EventHandler.fromNative(HandlerMetadata.describe(H3.defineEventHandler(native), options, body.shape))
 
     /** Fails with an approved status and message. */
     def failWith(status: Int, message: String)(using Frame): Nothing < Abort[HttpError] =
@@ -148,10 +148,16 @@ private[kyoh3] object RequestRuntime:
     ): js.Any =
       result.foldError(
         {
+          // claude 2026-10-19: changed: a body that cannot be rendered (NaN, infinity) is a defect under the failure rule
           case Completion.Value(head, native) =>
             val complete = ResponseHead.forSuccess(options.defaults, head)
-            val (body, contentType) = Rendering.successBody(options.success, native)
-            success(event, options, contentType.fold(complete)(Rendering.withDefaultContentType(event, complete, _)), body)
+            val rendered =
+              try Right(Rendering.successBody(options.success, native))
+              catch case NonFatal(error) => Left(error)
+            rendered match
+                case Right((body, contentType)) =>
+                  success(event, options, contentType.fold(complete)(Rendering.withDefaultContentType(event, complete, _)), body)
+                case Left(error)                => defect(event, options, head, error)
           case Completion.Empty(head)         =>
             val complete = ResponseHead.forSuccess(options.defaults, head)
             success(event, options, complete.copy(status = complete.status.orElse(Some(Status.NoContent))), Rendering.noContent)

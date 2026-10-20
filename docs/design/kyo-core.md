@@ -60,9 +60,31 @@ These are binding. The lasting ones are also in `AGENTS.md`; the release steps a
 13. The user approved PR #14 and asked to merge it into `main`, then tag `main` for `npm-v0.2.0-alpha.1` and `v0.2.0-alpha.1` and publish. Done: merge commit `433ac9d`, both tags on it, both release workflows green, both prereleases created. yurian.land then moved to `0.2.0-alpha.1`.
 14. The user asked to move durable project knowledge into the repository, so that sessions without access to the maintainer's Mac (including Claude Code cloud sessions) can continue the work. This page, the tracking issue and the "Agent sessions" section of `AGENTS.md` are the result.
 
+### 2026-10-19: the tracker, the identity and the next alpha
+
+15. **nuxt4s is the umbrella project, and h34s is the library inside it**: the Scala.js modules over h3 and the npm tooling that links them into Nuxt. The library keeps its name. The Maven group moves to a nuxt4s namespace, and the repository will be renamed `nuxt4s` ([#21](https://github.com/yuri4n/h34s/issues/21)). <!-- claude 2026-10-19: created: the nuxt4s umbrella decision (#21) -->
+16. **The public coordinates are renamed** ([#22](https://github.com/yuri4n/h34s/issues/22)): artifact ids `h34s-*` (the converter modules become `h34s-zio-converters` and `h34s-zio-json`), Scala packages `h34s.*`, and sbt project ids to match. There are no deprecated forwarders: the `dev.yuri4n.exts.*` packages and the `CommonEvHandler` alias are deleted, because nothing is deprecated before a non-alpha release. <!-- claude 2026-10-19: created: the coordinate rename decision (#22) -->
+17. **The `exts` level goes** ([#23](https://github.com/yuri4n/h34s/issues/23)): the modules move to `scala-modules/<module>`, and the root keeps the name `scala-modules/`. <!-- claude 2026-10-19: created: the module layout decision (#23) -->
+18. **`zio-migrations` moves under `examples/`** ([#24](https://github.com/yuri4n/h34s/issues/24)) and follows the examples' conventions: unpublished and compiled by CI. <!-- claude 2026-10-19: created: the zio-migrations decision (#24) -->
+19. **The documentation moves** ([#25](https://github.com/yuri4n/h34s/issues/25)): `website/` becomes `docs/`, the guides move into `docs/content/`, and the maintainer documents (such as `docs/design/` and `docs/maintainers/`) stay outside the content collection. <!-- claude 2026-10-19: created: the docs move decision (#25) -->
+20. **TypeScript generation uses the converter-driven generator of PR [#15](https://github.com/yuri4n/h34s/pull/15)**, not scala-ts, because scala-ts describes Scala types, not what a `NativeConverter` writes. PR #15 ships in `0.3.0-alpha.1` ([#27](https://github.com/yuri4n/h34s/issues/27)). <!-- claude 2026-10-19: created: the generator decision (#27) -->
+21. **The Kyo API names are final** ([#28](https://github.com/yuri4n/h34s/issues/28)): `KHandler`, `Response`, `RuntimeConfig`, `Shared` and `KHubKv` stay. There is no "KIO" rename. <!-- claude 2026-10-19: created: the Kyo API naming decision (#28) -->
+22. **CI gets a PostgreSQL 16 job** ([#29](https://github.com/yuri4n/h34s/issues/29)). PR [#45](https://github.com/yuri4n/h34s/pull/45) adds a `postgres` job that runs the Kyo example's `KyoSqlPostgresSuite` and the database part of `scripts/smoke.mjs`. <!-- claude 2026-10-19: created: the PostgreSQL CI job decision (#29) -->
+23. **Finalizer failures: ZIO follows Kyo** ([#40](https://github.com/yuri4n/h34s/issues/40)). A finalizer that fails after the program produced a response is logged and does not change that response. A streamed body keeps its current behavior. Until the implementing pull request lands, [section 4.7](#47-errors-and-diagnostics) describes today's difference. <!-- claude 2026-10-19: created: the finalizer-failure decision (#40) -->
+24. **`HandlerOptions.requireJsonContentType` is on by default from `0.3.0-alpha.1`** ([#41](https://github.com/yuri4n/h34s/issues/41)), with a test, a migration-guide entry and a release note. Until the implementing pull request lands, [section 4.3](#43-body-reading) and *(D-6)* describe today's opt-in default. <!-- claude 2026-10-19: created: the JSON content-type default decision (#41) -->
+25. **The stale draft pull requests are closed** ([#26](https://github.com/yuri4n/h34s/issues/26)): #2, #3, #12 and #13, without merging. Their branches stay. <!-- claude 2026-10-19: created: the draft PR triage outcome (#26) -->
+26. **The tracking model** ([#17](https://github.com/yuri4n/h34s/issues/17)). Every remaining item is a sub-issue of #17, labeled `area:*` and `kind:*` and shown on the maintainer's nuxt4s project board. `kind:decision` is the maintainer's inbox, and the milestone `0.3.0-alpha.1` is the provisional scope of the next prerelease. Decisions are recorded as comments on the sub-issues. <!-- claude 2026-10-19: created: the tracking model (#17) -->
+
 ### Still open
 
-The user has not decided yet: the public name of the Kyo API (the user has also called it "KIO"), scala-ts versus the generator in PR #15, and what to do with the older draft PRs. The tracking issue [#17](https://github.com/yuri4n/h34s/issues/17) lists them.
+The user has not decided yet:
+
+- The Maven group id, and whether h34s gets its own directory in the renamed repository or its own repository ([#21](https://github.com/yuri4n/h34s/issues/21)). <!-- claude 2026-10-19: changed: open item from #21 -->
+- Whether the kyo-sql code is also checked inside a Nitro bundle (it ran in Node through sbt), and whether the PostgreSQL job also gates release tags, because `release.yml` reuses `scala.yml` ([#29](https://github.com/yuri4n/h34s/issues/29)). <!-- claude 2026-10-19: changed: open items from #29 -->
+- Which heap reduction, if any, the example or the h34s Nuxt module adopts. The example's `nuxt build` needs more than 4 GiB of Node heap ([#30](https://github.com/yuri4n/h34s/issues/30)). <!-- claude 2026-10-19: changed: open item from #30 -->
+- How a no-content body with a custom success status is typed for `$fetch` ([#46](https://github.com/yuri4n/h34s/issues/46)). <!-- claude 2026-10-19: changed: open item from #46 -->
+
+Each one is a sub-issue of the tracking issue [#17](https://github.com/yuri4n/h34s/issues/17), with its context and its "done when". <!-- claude 2026-10-19: changed: pointer to the sub-issues of #17 -->
 
 ## 2. Module graph and dependency direction
 
@@ -129,11 +151,13 @@ The body type needs a `ResponseBody[B]` (Kyo) or `ZResponseBody[B]` (ZIO) instan
 
 ### 4.3 Body reading
 
+<!-- claude 2026-10-19: changed: the rows for a JSON read without a content type, with and without a body (issue #41) -->
 | Input | Result |
 | --- | --- |
 | Body larger than the limit (checked from `Content-Length`, then counted while reading) | `HttpError` 413. h34s never buffers more than the limit |
 | `json[A]` with a content type that is not JSON | `HttpError` 415 |
-| `json[A]` without a content type | Accepted, unless `HandlerOptions.requireJsonContentType` is true (then 415) |
+| `json[A]` with a body but without a content type | `HttpError` 415, unless `HandlerOptions.requireJsonContentType` is false (then accepted). The default is `true` since `0.3.0-alpha.1`. The check runs after the read, so such a body is buffered up to the limit first |
+| `json[A]` without a body (no bytes) and without a content type | Decodes like JSON `null`: a model is 422, `Option[A]` is `None` |
 | Invalid JSON | `HttpError` 400 |
 | A shape the converter rejects, or a schema check that fails | `InvalidInput` 422 |
 | Any other exception from a decoder | A defect: opaque 500 |
@@ -154,7 +178,8 @@ Inside the program, recovering from a failure does not roll the head back. This 
 
 ### 4.6 HandlerOptions and the wire format
 
-`HandlerOptions(success, errors, defaults, bodyLimit, requireJsonContentType)`; `HandlerOptions.default` is `Data`, `List`, no defaults, 1 MiB, `false`.
+<!-- claude 2026-10-19: changed: `requireJsonContentType` defaults to `true` (issue #41) -->
+`HandlerOptions(success, errors, defaults, bodyLimit, requireJsonContentType)`; `HandlerOptions.default` is `Data`, `List`, no defaults, 1 MiB, `true`.
 
 | Outcome | Status | Body with the default options |
 | --- | --- | --- |
@@ -280,10 +305,12 @@ Each item says what differs from the first plan and why. Superseded items are fo
 
 ### 9.2 Request and body reading
 
+<!-- claude 2026-10-19: changed: the "Strict JSON content type is the default" item: the strict JSON content type became the default (issue #41) -->
+
 - **Snapshot details** *(dev. 10)*. `Request.toString` is redacted. The first body read fixes the outcome: a body above a limit stays rejected, and a later read with a smaller limit also gets 413. An absent body is `""` for `text()`. `JSON.parse` drops `__proto__` keys.
 - **Body limit plumbing** *(dev. 18)*. `RequestBody.defaultLimit` (`private[exts]`) carries `HandlerOptions.bodyLimit`; `json[A]` uses it and `text(limit = body.defaultLimit)`. `Request.fake` gained `debug` and `bodyLimit` parameters, appended so positional calls keep working.
 - **An absent JSON body decodes like JSON `null`** *(D-5, R2)*. Passing `undefined` to a derived converter made native-converter's error path fail with a fatal `UndefinedBehaviorError` in fastLink builds (Kyo answered 500, ZIO hung). Now products fail with a normal 422 and `Option[A]` decodes to `None`. A `VirtualMachineError` from a converter becomes an `IllegalStateException` defect, so it can never hang a ZIO request.
-- **Strict JSON content type is opt-in** *(D-6, SEC-8)*. `HandlerOptions.requireJsonContentType` defaults to `false` and keeps the agreed "JSON or absent" rule. Turn it on for cookie-authenticated routes that change state: browsers send some cross-site requests without a content type and without a CORS preflight.
+- **Strict JSON content type is the default** *(D-6, SEC-8, issue #41)*. In `0.2.0-alpha.1`, `HandlerOptions.requireJsonContentType` defaulted to `false` and kept the agreed "JSON or absent" rule. Since `0.3.0-alpha.1` it defaults to `true`, a decision the maintainer delegated ("do what you think best", 2026-10-19): browsers send some cross-site requests without a content type and without a CORS preflight, and a safe default protects cookie-authenticated routes that change state without any setup. `HandlerOptions(requireJsonContentType = false)` restores the old rule for one handler. `Request.fake` follows the same default and has the same parameter, so a unit test sees the rule that production applies. A request without a body needs no content type (orchestrator decision, 2026-10-19): `BodyDecoding.acceptsJsonBody` checks a missing content type after the read, so `json[Option[A]]` of a bodiless request stays `None`. A present non-JSON content type still fails before the read.
 - **`Request.fake(runtimeConfig = Some(json))`** *(D-15, AD-8)* lets tests decode runtime config without `js.*`.
 - **A request stream that already ended** *(R8)*. The body reader fails at once when `readableEnded` or `destroyed` is true, instead of waiting forever. It does not use `req.complete`, which is also true on a fresh request whose small body already arrived.
 
@@ -297,7 +324,8 @@ Each item says what differs from the first plan and why. Superseded items are fo
 ### 9.4 Rendering and the wire
 
 - **`Unit` answers 204 by resolving `null`** *(dev. 15)*. h3 1.15.4 and Nitro 2.13.1's h3 1.15.5 send a `null` result with `sendNoContent` (204, or the status already set if it is not 200; no body). `undefined` falls through to the next handler in a plain `createApp` and becomes `null` only in a preemptive router, which Nitro uses. The core sets 204 when the head has no status and keeps a status the handler set. Side effect of h3: an explicit 200 with a `Unit` body is sent as 204.
-- **Raw values** *(dev. 16, D-4, SEC-3)*. A value that converts to `undefined` or `null` is a 204. A raw value never reaches h3's type sniffing: h3 sends a string as `text/html` and treats any object with a `buffer` key as bytes, which can hang the response (`?buffer=1` on a handler that echoes the query).
+- **Raw values** *(dev. 16, D-4, SEC-3)*. A value that converts to `undefined` or `null` is a 204, so its generated type says `undefined` (what `$fetch` returns for a 204), not `null`. A raw value never reaches h3's type sniffing: h3 sends a string as `text/html` and treats any object with a `buffer` key as bytes, which can hang the response (`?buffer=1` on a handler that echoes the query). <!-- claude 2026-10-19: changed: the generated type of a Raw value that converts to null -->
+- **Non-finite numbers are a defect.** `JSON.stringify` writes `NaN` and the infinities as `null`, which a generated `number` does not describe. `Rendering.successBody` walks a value body (both envelopes) and throws for them, so the response is the opaque 500 under the failure rule (defaults and `OnFailure.Keep` entries stay). <!-- claude 2026-10-19: changed: added the rule for non-finite numbers -->
 - **`InvalidInput.message`** *(dev. 19)* joins entries as `path: message` with `"; "` for logs. It is never sent; the wire carries the entries.
 - **`ErrorEntry`'s converter decodes too** *(dev. 20)*. `path` that is `null` or absent is `None`. An `undefined` value is reported at the root, because native-converter's `ParseState.fail` would call `JSON.stringify(undefined)`, a fatal error under checked semantics.
 
@@ -367,7 +395,7 @@ PR #14 went through a four-part adversarial review (runtime, security, API and d
 | Area | Findings | Outcome |
 | --- | --- | --- |
 | Runtime | R1 `Async.uninterruptible` did not delay the settle; R2 absent body was fatal in fastLink builds; R3 forked cleanup; R4 ZIO stream scope leak; R5 KV converter `InvalidInput` approved; R6 non-string stream elements; R7 `close` during acquisition; R8 ended request stream hung | All fixed except R3, which a test disproved (see 9.6) |
-| Security | SEC-1 KV decode errors logged stored data; SEC-2 Nuxt `debug` never enabled diagnostics; SEC-3 raw values reached h3's sniffing; SEC-4 unbounded big numbers; SEC-5 `Secret` decode messages; SEC-6 cookie deletion without `Secure`; SEC-7 unpinned dependencies with a token; SEC-8 bodies without a content type | All fixed; SEC-8 as the opt-in `requireJsonContentType` plus a "cross-site requests" note |
+| Security | SEC-1 KV decode errors logged stored data; SEC-2 Nuxt `debug` never enabled diagnostics; SEC-3 raw values reached h3's sniffing; SEC-4 unbounded big numbers; SEC-5 `Secret` decode messages; SEC-6 cookie deletion without `Secure`; SEC-7 unpinned dependencies with a token; SEC-8 bodies without a content type | All fixed; SEC-8 as `requireJsonContentType` (opt-in in `0.2.0-alpha.1`, on by default since `0.3.0-alpha.1`, issue #41) plus a "cross-site requests" note |
 | API and docs | AD-1 to AD-13: stream element types, `nuxt dev` evidence, `Schema[Secret]`, npm version, validation timing, cookie options, the Kyo demo, `Request.fake` config, `failWith`, uninterruptible docs, `Secret` decode messages in KV logs, models at boundaries, the disconnect rule in `AGENTS.md` | All fixed; AD-9 fixed for Kyo, kept for ZIO by design |
 | Build | B1 release notes checked late; B2 npm version; B3 stale "not verified" rows; B4 `scala:types`; B5 stale Bruno collection; B6 missing redirect; B7 locale database size | B1-B5 fixed; B6 and B7 refuted (no deployed site; Skunk's minimal locale database shadows the full one in the ZIO demo) |
 

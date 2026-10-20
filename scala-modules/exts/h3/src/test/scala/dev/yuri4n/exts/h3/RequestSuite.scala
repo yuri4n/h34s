@@ -92,6 +92,15 @@ class RequestSuite extends FunSuite:
       assertEquals(Request.fake(bodyLimit = BodyLimit(8)).body.defaultLimit, BodyLimit(8))
     }
 
+    // claude 2026-10-19: created: Request.fake follows the handler default (issue #41)
+    test("JSON reads require a content type by default, in the snapshot and in Request.fake") {
+      val event = H3Fixtures.event(FakeRequest("POST", "/body"), FakeResponse())
+      assert(Request.fromEvent(event).body.requireJsonContentType)
+      assert(!Request.fromEvent(event, requireJsonContentType = false).body.requireJsonContentType)
+      assert(Request.fake().body.requireJsonContentType)
+      assert(!Request.fake(requireJsonContentType = false).body.requireJsonContentType)
+    }
+
     test("Request.fake builds the same view without h3") {
       val request = Request.fake(
         method = "post",

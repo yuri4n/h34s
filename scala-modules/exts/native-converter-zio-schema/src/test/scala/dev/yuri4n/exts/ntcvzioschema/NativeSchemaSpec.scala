@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.ntcvzioschema
 
-import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput}
+import dev.yuri4n.exts.h3.{ErrorEntry, InvalidInput, WireType}
 import org.getshaka.nativeconverter.NativeConverter
 import zio.*
 import zio.schema.annotation.{fieldName, fieldNameAliases, rejectExtraFields, transientField, validate}
@@ -38,6 +38,17 @@ object NativeSchemaSpec extends ZIOSpecDefault:
       */
     final case class Credentials(user: String, token: dev.yuri4n.exts.h3.Secret) derives Schema, NativeSchema
 
+    /** A recursive model: ZIO Schema refers back to it through `Schema.Lazy`. */
+    final case class Tree(value: Int, children: List[Tree])
+    given Schema[Tree] = DeriveSchema.gen[Tree]
+
+    /** What a client receives: the converted value after JSON text. */
+    private def onTheWire[A](value: A)(using converter: NativeConverter[A]): js.Any =
+      js.JSON.parse(js.JSON.stringify(converter.toNative(value)))
+
+    private def wireType[A](using converter: NativeConverter[A]): WireType =
+      converter.asInstanceOf[WireType.Described].wireType
+
     private def rejected[A](value: js.Any)(using converter: NativeConverter[A]): Either[Throwable, A] =
       try Right(converter.fromNative(value))
       catch case error: Throwable => Left(error)
@@ -51,6 +62,33 @@ object NativeSchemaSpec extends ZIOSpecDefault:
     given Schema[NestedDefault] = DeriveSchema.gen[NestedDefault]
 
     def spec = suite("optional native schema bridge")(
+      test("the converter's TypeScript type follows the encoder: records, lists, options, nesting") {
+        val team = Team(Member("Ada", 36, List("lead")), List(Member("Bob", 30, Nil)))
+        val member = "{ name: string; age: number; tags: Array<string> }"
+        val nested = NativeSchema(Schema[Nested]).converter
+        assertTrue(
+          wireType[Team].render == s"{ lead: $member; members: Array<$member> }",
+          wireType[Team].describes(onTheWire(team)),
+          nested.wireType.render == "{ pair: { first: string; second: string }; names: Array<string>; count: number | null }",
+          nested.wireType.describes(js.JSON.parse(js.JSON.stringify(nested.toNative(Nested(Pair("a", "b"), Nil, None))))),
+          nested.wireType.describes(js.JSON.parse(js.JSON.stringify(nested.toNative(Nested(Pair("a", "b"), List("c"), Some(1)))))),
+        )
+      },
+      test("wire names, transient fields, transforms and recursion in the TypeScript type") {
+        val strict = NativeSchema(Schema[Strict]).converter
+        val hidden = NativeSchema(Schema[Hidden]).converter
+        val tree   = NativeSchema(Schema[Tree]).converter
+        val sample = Tree(1, List(Tree(2, Nil)))
+        assertTrue(
+          strict.wireType.render == "{ display_name: string }",
+          strict.wireType.describes(js.JSON.parse(js.JSON.stringify(strict.toNative(Strict("Ada"))))),
+          hidden.wireType.render == "Record<string, never>",
+          hidden.wireType.describes(js.JSON.parse(js.JSON.stringify(hidden.toNative(Hidden("x"))))),
+          wireType[Credentials].render == "{ user: string; token: string }",
+          tree.wireType.describes(js.JSON.parse(js.JSON.stringify(tree.toNative(sample)))),
+          tree.wireType.render.contains("unknown"),
+        )
+      },
       test("Secret fields with the bridge's Schema[Secret]: a string on the wire, never in an error") {
         val converter = summon[NativeConverter[Credentials]]
         val written = converter.toNative(Credentials("alice", dev.yuri4n.exts.h3.Secret("t0k3n")))

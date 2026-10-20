@@ -124,6 +124,45 @@ function assertRecords(value, { debug }) {
   assert.equal(value.onClose, 'function', 'Startup record registers close hooks')
 }
 
+/** A linked route module: its default export carries the record that `EventHandler.at` writes. */
+function routeModule(file, route, method, revision) {
+  write(join(app, 'server/.scala', file), `const handler = event => ({ data: { message: ${JSON.stringify(`${method} ${revision}`)} }, linkedUrl: import.meta.url, method: event.method })
+handler.__is_handler__ = true
+Object.defineProperty(handler, Symbol.for('h34s.handler'), {
+  value: { version: 1, route: ${JSON.stringify(route)}, method: ${JSON.stringify(method)}, types: () => ({ success: '{ data: { message: string } }', errors: '{ errors: Array<{ message: string }> }' }) },
+})
+export default handler
+`)
+}
+
+/** What \`h34s-scala dev\` does after linking: the packed package writes manifest and declarations. */
+function collectRoutes() {
+  execFileSync(process.execPath, ['--input-type=module', '-e', `
+import { loadConfig, writeRoutes } from '@yuri4n/h34s-nuxt/build'
+await writeRoutes({ root: process.cwd(), config: await loadConfig() })
+`], { cwd: app, stdio: 'inherit' })
+}
+
+async function routed(url, running, init, expected) {
+  const deadline = Date.now() + 90_000
+  let last = 'no response'
+  while (Date.now() < deadline) {
+    if (running.result)
+      throw new Error(`Nuxt exited before serving ${url}: ${JSON.stringify(running.result)}\n${running.log}`)
+    try {
+      const result = await fetch(url, { ...init, signal: AbortSignal.timeout(2_000) })
+      last = `${result.status}: ${await result.text()}`
+      if (result.ok && JSON.parse(last.slice(last.indexOf(' ') + 1)).data?.message === expected)
+        return JSON.parse(last.slice(last.indexOf(' ') + 1))
+    }
+    catch (error) {
+      last = error.message
+    }
+    await delay(250)
+  }
+  throw new Error(`Nuxt did not serve ${expected} at ${url}: ${last}\n${running.log}`)
+}
+
 function linkedModule(revision) {
   const output = join(app, 'server/.scala/hello.js')
   write(`${output}.next`, `export const revision = ${JSON.stringify(revision)}\nexport function probe() { return new Error('h34s source map probe').stack }\nexport const linkedUrl = import.meta.url\n//# sourceMappingURL=hello.js.map\n`)
@@ -166,6 +205,10 @@ export default defineConfig({ modules: [{ output: 'server/.scala', entries: ['he
     mappings: 'AAAA;AACA',
   }))
   linkedModule('first')
+  // A Scala route without a route file: the manifest mounts it, and its declaration types $fetch.
+  routeModule('greeting-get.js', '/api/greeting', 'get', 'first')
+  collectRoutes()
+  assert.match(readFileSync(join(app, 'server/.scala/greeting-get.d.ts'), 'utf8'), /export type SuccessBody = \{ data: \{ message: string \} \}/)
   // The probe reads the h34s Nitro records the way the Scala.js handlers do: the request record
   // (development, debug, runtime config, storage) and the startup record (runtime config, storage,
   // close hooks). Storage and runtime config come from the plugin's `nitropack/runtime` import.
@@ -201,10 +244,20 @@ export default defineEventHandler(async (event) => {
   assertRecords(first, { debug: false })
   assert.equal(first.linkedUrl, pathToFileURL(join(app, 'server/.scala/hello.js')).href, 'Development loads the linked module directly')
   assert.match(first.stack, /Hello\.scala:2/, 'Node maps the linked JavaScript stack back to Scala')
+  const greetingUrl = `http://127.0.0.1:${devPort}/api/greeting`
+  const greeting = await routed(greetingUrl, dev, {}, 'get first')
+  assert.equal(greeting.linkedUrl, pathToFileURL(join(app, 'server/.scala/greeting-get.js')).href, 'Development loads the Scala route module directly')
+  const routeTypes = readFileSync(join(app, '.nuxt/types/nitro-routes.d.ts'), 'utf8')
+  assert.match(routeTypes, /'\/api\/greeting': \{\s*'get': Simplify<Serialize<Awaited<ReturnType<typeof import\('\.\.\/\.\.\/server\/\.scala\/greeting-get'\)\.default>>>>/, 'Nitro types the manifest route from its declaration')
   linkedModule('second')
   const second = await response(devUrl, dev, 'second')
   assert.equal(second.development, true)
   assert.match(second.stack, /Hello\.scala:2/)
+  // A new Scala route while Nuxt runs: the next collection mounts it without a restart.
+  routeModule('greeting-post.js', '/api/greeting', 'post', 'second')
+  collectRoutes()
+  await routed(greetingUrl, dev, { method: 'POST' }, 'post second')
+  assert.match(readFileSync(join(app, '.nuxt/types/nitro-routes.d.ts'), 'utf8'), /greeting-post/, 'The reload writes the new route type')
   await stop(dev)
 
   const build = start([nuxt, 'build'], { NODE_ENV: 'production' })
@@ -220,6 +273,8 @@ export default defineEventHandler(async (event) => {
   const deployed = await response(`http://127.0.0.1:${productionPort}/api/probe`, production, 'second')
   assert.equal(deployed.development, false, 'Production disables development diagnostics')
   assert.ok(!deployed.linkedUrl.includes('/server/.scala/'), 'Production bundles the generated module')
+  const bundled = await routed(`http://127.0.0.1:${productionPort}/api/greeting`, production, { method: 'POST' }, 'post second')
+  assert.ok(!bundled.linkedUrl.includes('/server/.scala/'), 'Production bundles the Scala route module')
   assertRecords(deployed, { debug: false })
   await stop(production)
 
@@ -231,7 +286,7 @@ export default defineEventHandler(async (event) => {
   const debugged = await response(`http://127.0.0.1:${debugPort}/api/probe`, debugging, 'second')
   assert.equal(debugged.development, false, 'The debug flag does not switch on development mode')
   assertRecords(debugged, { debug: true })
-  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`)
+  console.log(`Verified packed h34s with Nuxt ${nuxtVersion}: dev diagnostics, direct loading, Scala source maps, relink reload, Scala routes from the manifest (typed, added while running), production bundling, production diagnostics disabled, NUXT_H34S_DEBUG, runtime config and storage from nitropack/runtime`)
 }
 finally {
   await Promise.allSettled([...children].map(stop))

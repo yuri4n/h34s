@@ -16,6 +16,7 @@ enum ErrorEnvelope:
     /** `{ "error": { ... } }` for exactly one entry, `{ "errors": [ ... ] }` for several. */
     case SingleOrList
 
+// claude 2026-10-19: changed: `requireJsonContentType` defaults to `true` (issue #41)
 /** Options for every request of one handler definition.
   *
   * @param success
@@ -27,19 +28,23 @@ enum ErrorEnvelope:
   * @param bodyLimit
   *   the limit of `request.body.json` and `request.body.text` reads that do not pass their own
   * @param requireJsonContentType
-  *   when `true`, `request.body.json` answers 415 for a body without a `Content-Type`. Browsers send
-  *   no content type for some cross-site requests that need no CORS preflight (a `fetch` with a
-  *   byte body, `navigator.sendBeacon`), so set it for cookie-authenticated routes that change
-  *   state. `$fetch` and `curl --json` send `application/json`.
+  *   when `true` (the default), `request.body.json` answers 415 for a request that has a body but
+  *   no `Content-Type`. Browsers send no content type for some cross-site requests that need no CORS
+  *   preflight (a `fetch` with a byte body, `navigator.sendBeacon`). Set it to `false` only for a
+  *   handler whose clients cannot send a content type and that does not change state for a
+  *   cookie-authenticated user. `$fetch` and `curl --json` send `application/json`.
   */
 final case class HandlerOptions(
     success: SuccessEnvelope = SuccessEnvelope.Data,
     errors: ErrorEnvelope = ErrorEnvelope.List,
     defaults: ResponseHead = ResponseHead.empty,
     bodyLimit: BodyLimit = BodyLimit.default,
-    requireJsonContentType: Boolean = false,
+    requireJsonContentType: Boolean = true,
 )
 
 object HandlerOptions:
-    /** `{ "data": ... }` bodies, `{ "errors": [...] }` errors, no defaults, 1 MiB body limit. */
+    // claude 2026-10-19: changed: the default also requires a JSON content type (issue #41)
+    /** `{ "data": ... }` bodies, `{ "errors": [...] }` errors, no defaults, 1 MiB body limit, and a
+      * JSON content type for `request.body.json`.
+      */
     val default: HandlerOptions = HandlerOptions()

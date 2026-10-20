@@ -37,16 +37,21 @@ export dev.yuri4n.exts.h3.{
   HeaderMode,
   HttpError,
   InvalidInput,
+  Method,
   OnFailure,
   Request,
   RequestBody,
   ResponseHead,
+  Route,
   SafeError,
   SameSite,
   Secret,
   SetCookie,
   Status,
   SuccessEnvelope,
+  WireField,
+  WireShape,
+  WireType,
 }
 
 /** Approved error messages with a status, as `ZHandler.failWith` builds them.
