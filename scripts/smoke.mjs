@@ -107,8 +107,9 @@ if (database) {
   )
 }
 
+// claude 2026-10-20: changed: the message names the server-sent events check (ADR-0007)
 console.log(
   database
-    ? 'Passed: stream response, ZIO greeting, schema validation entries, malformed-input responses and database insert/read'
-    : 'Passed: stream response, ZIO greeting, schema validation entries and malformed-input responses (database skipped)',
+    ? 'Passed: stream response, server-sent events, ZIO greeting, schema validation entries, malformed-input responses and database insert/read'
+    : 'Passed: stream response, server-sent events, ZIO greeting, schema validation entries and malformed-input responses (database skipped)',
 )
