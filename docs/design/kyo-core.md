@@ -60,9 +60,31 @@ These are binding. The lasting ones are also in `AGENTS.md`; the release steps a
 13. The user approved PR #14 and asked to merge it into `main`, then tag `main` for `npm-v0.2.0-alpha.1` and `v0.2.0-alpha.1` and publish. Done: merge commit `433ac9d`, both tags on it, both release workflows green, both prereleases created. yurian.land then moved to `0.2.0-alpha.1`.
 14. The user asked to move durable project knowledge into the repository, so that sessions without access to the maintainer's Mac (including Claude Code cloud sessions) can continue the work. This page, the tracking issue and the "Agent sessions" section of `AGENTS.md` are the result.
 
+### 2026-10-19: the tracker, the identity and the next alpha
+
+15. **nuxt4s is the umbrella project, and h34s is the library inside it**: the Scala.js modules over h3 and the npm tooling that links them into Nuxt. The library keeps its name. The Maven group moves to a nuxt4s namespace, and the repository will be renamed `nuxt4s` ([#21](https://github.com/yuri4n/h34s/issues/21)). <!-- claude 2026-10-19: created: the nuxt4s umbrella decision (#21) -->
+16. **The public coordinates are renamed** ([#22](https://github.com/yuri4n/h34s/issues/22)): artifact ids `h34s-*` (the converter modules become `h34s-zio-converters` and `h34s-zio-json`), Scala packages `h34s.*`, and sbt project ids to match. There are no deprecated forwarders: the `dev.yuri4n.exts.*` packages and the `CommonEvHandler` alias are deleted, because nothing is deprecated before a non-alpha release. <!-- claude 2026-10-19: created: the coordinate rename decision (#22) -->
+17. **The `exts` level goes** ([#23](https://github.com/yuri4n/h34s/issues/23)): the modules move to `scala-modules/<module>`, and the root keeps the name `scala-modules/`. <!-- claude 2026-10-19: created: the module layout decision (#23) -->
+18. **`zio-migrations` moves under `examples/`** ([#24](https://github.com/yuri4n/h34s/issues/24)) and follows the examples' conventions: unpublished and compiled by CI. <!-- claude 2026-10-19: created: the zio-migrations decision (#24) -->
+19. **The documentation moves** ([#25](https://github.com/yuri4n/h34s/issues/25)): `website/` becomes `docs/`, the guides move into `docs/content/`, and the maintainer documents (such as `docs/design/` and `docs/maintainers/`) stay outside the content collection. <!-- claude 2026-10-19: created: the docs move decision (#25) -->
+20. **TypeScript generation uses the converter-driven generator of PR [#15](https://github.com/yuri4n/h34s/pull/15)**, not scala-ts, because scala-ts describes Scala types, not what a `NativeConverter` writes. PR #15 ships in `0.3.0-alpha.1` ([#27](https://github.com/yuri4n/h34s/issues/27)). <!-- claude 2026-10-19: created: the generator decision (#27) -->
+21. **The Kyo API names are final** ([#28](https://github.com/yuri4n/h34s/issues/28)): `KHandler`, `Response`, `RuntimeConfig`, `Shared` and `KHubKv` stay. There is no "KIO" rename. <!-- claude 2026-10-19: created: the Kyo API naming decision (#28) -->
+22. **CI gets a PostgreSQL 16 job** ([#29](https://github.com/yuri4n/h34s/issues/29)). PR [#45](https://github.com/yuri4n/h34s/pull/45) adds a `postgres` job that runs the Kyo example's `KyoSqlPostgresSuite` and the database part of `scripts/smoke.mjs`. <!-- claude 2026-10-19: created: the PostgreSQL CI job decision (#29) -->
+23. **Finalizer failures: ZIO follows Kyo** ([#40](https://github.com/yuri4n/h34s/issues/40)). A finalizer that fails after the program produced a response is logged and does not change that response. A streamed body keeps its current behavior. Until the implementing pull request lands, [section 4.7](#47-errors-and-diagnostics) describes today's difference. <!-- claude 2026-10-19: created: the finalizer-failure decision (#40) -->
+24. **`HandlerOptions.requireJsonContentType` is on by default from `0.3.0-alpha.1`** ([#41](https://github.com/yuri4n/h34s/issues/41)), with a test, a migration-guide entry and a release note. Until the implementing pull request lands, [section 4.3](#43-body-reading) and *(D-6)* describe today's opt-in default. <!-- claude 2026-10-19: created: the JSON content-type default decision (#41) -->
+25. **The stale draft pull requests are closed** ([#26](https://github.com/yuri4n/h34s/issues/26)): #2, #3, #12 and #13, without merging. Their branches stay. <!-- claude 2026-10-19: created: the draft PR triage outcome (#26) -->
+26. **The tracking model** ([#17](https://github.com/yuri4n/h34s/issues/17)). Every remaining item is a sub-issue of #17, labeled `area:*` and `kind:*` and shown on the maintainer's nuxt4s project board. `kind:decision` is the maintainer's inbox, and the milestone `0.3.0-alpha.1` is the provisional scope of the next prerelease. Decisions are recorded as comments on the sub-issues. <!-- claude 2026-10-19: created: the tracking model (#17) -->
+
 ### Still open
 
-The user has not decided yet: the public name of the Kyo API (the user has also called it "KIO"), scala-ts versus the generator in PR #15, and what to do with the older draft PRs. The tracking issue [#17](https://github.com/yuri4n/h34s/issues/17) lists them.
+The user has not decided yet:
+
+- The Maven group id, and whether h34s gets its own directory in the renamed repository or its own repository ([#21](https://github.com/yuri4n/h34s/issues/21)). <!-- claude 2026-10-19: changed: open item from #21 -->
+- Whether the kyo-sql code is also checked inside a Nitro bundle (it ran in Node through sbt), and whether the PostgreSQL job also gates release tags, because `release.yml` reuses `scala.yml` ([#29](https://github.com/yuri4n/h34s/issues/29)). <!-- claude 2026-10-19: changed: open items from #29 -->
+- Which heap reduction, if any, the example or the h34s Nuxt module adopts. The example's `nuxt build` needs more than 4 GiB of Node heap ([#30](https://github.com/yuri4n/h34s/issues/30)). <!-- claude 2026-10-19: changed: open item from #30 -->
+- How a no-content body with a custom success status is typed for `$fetch` ([#46](https://github.com/yuri4n/h34s/issues/46)). <!-- claude 2026-10-19: changed: open item from #46 -->
+
+Each one is a sub-issue of the tracking issue [#17](https://github.com/yuri4n/h34s/issues/17), with its context and its "done when". <!-- claude 2026-10-19: changed: pointer to the sub-issues of #17 -->
 
 ## 2. Module graph and dependency direction
 
