@@ -23,15 +23,17 @@ private[exts] object StreamResponse:
     val marker: String = "x-h34s-stream"
 
     // claude 2026-10-19: changed: send takes the request's HandlerTransport and the program's head, returns Sent, and supports a socketless response (Nitro local fetch) instead of rejecting it
-    // claude 2026-10-20: changed: the head is written at the call on every transport (ADR-0004, Q1)
+    // claude 2026-10-20: changed: the head is written at the call on every transport (ADR-0004, Q1); a failure after it fails the call (Q3)
     /** Sends a stream through h3 and gives the `Sent` proof. Runs inside the handler program, so the
       * request scope stays open until the stream ends or is cancelled.
       *
       * The head is written when `send` is called, on every transport: with a Node socket it is also
       * flushed, so the client has the status and the headers before the first element. A failure
       * that happens before the head is written (an invalid head) clears it and fails the call, so
-      * the core answers with the failure rule. After the head, the status is fixed: a failure can
-      * only end the response.
+      * the core answers with the failure rule. After the head, the status is fixed: a stream failure
+      * ends the response (without a socket, it errors the caller's reads), and the call fails with
+      * the stream's error, so the program and a scope or transaction around the call see it. The
+      * core logs the failure once, after the program, and writes nothing more.
       *
       * Without a socket (Nitro's in-process local fetch, node-mock-http), the local fetch copies status
       * and headers when the h3 handler promise settles. That promise is settled at once; the program
@@ -57,7 +59,7 @@ private[exts] object StreamResponse:
       }
 
     // claude 2026-10-19: changed: the former send body (lazy head, request-scope cancel, failure split), now ending in Sent
-    // claude 2026-10-20: changed: the head is written and flushed at the call; a failure after it ends the connection (ADR-0004, Q1)
+    // claude 2026-10-20: changed: the head is written and flushed at the call; a failure after it ends the connection (ADR-0004, Q1) and fails the call (Q3)
     private def throughSocket(transport: HandlerTransport, streamHead: ResponseHead, chunks: Stream[js.Any, StreamEffects])(using
         Frame,
         AllowUnsafe,
@@ -78,11 +80,9 @@ private[exts] object StreamResponse:
                 bridge.producerError.filter(_ => !bridge.cancelledByConsumer).getOrElse(Result.Panic(error.failureOrPanic))
               Sync.defer {
                 // The client has the head and maybe some elements: end the connection so that the
-                // response cannot look complete.
+                // response cannot look complete. The core logs the failure after the program.
                 transport.abandon()
-                Rendering.logDefect(Rendering.describe(failure.failureOrPanic))
-                val sent: Sent < Abort[Throwable] = sentBy(transport)
-                sent
+                failed(transport, failure)
               }
             ,
           )),
@@ -91,6 +91,7 @@ private[exts] object StreamResponse:
     end throughSocket
 
     // claude 2026-10-19: created: the socketless path: eager head, early settle, wait for the caller to finish or cancel
+    // claude 2026-10-20: changed: a stream failure after the head fails the call instead of being logged here (ADR-0004, Q3)
     private def socketless(transport: HandlerTransport, streamHead: ResponseHead, chunks: Stream[js.Any, StreamEffects])(using
         Frame,
         AllowUnsafe,
@@ -103,9 +104,12 @@ private[exts] object StreamResponse:
             _ =>
               Sync.defer(transport.settleEarly()).andThen(bridge.completion).map { result =>
                 Sync.defer {
-                  // The caller has the head already: a stream failure can only end its reads.
-                  result.foldError(_ => (), error => if !bridge.cancelledByConsumer then Rendering.logDefect(Rendering.describe(error.failureOrPanic)))
-                  sentBy(transport)
+                  // The caller has the head already: a stream failure ended its reads. A cancel by the
+                  // caller is not a failure of the stream.
+                  result.foldError(
+                    _ => Kyo.lift(sentBy(transport)),
+                    error => if bridge.cancelledByConsumer then Kyo.lift(sentBy(transport)) else failed(transport, error),
+                  )
                 }
               },
             error =>
@@ -152,6 +156,15 @@ private[exts] object StreamResponse:
     private def sentBy(transport: HandlerTransport): Sent =
       transport.state = HandlerTransport.State.Sent
       new Sent(transport)
+
+    // claude 2026-10-20: created: a stream failure after the head fails the sendStream call (ADR-0004, Q3)
+    /** Fails the call with the stream's error. The transport keeps the response, and the core logs
+      * the failure after the program.
+      */
+    private def failed(transport: HandlerTransport, failure: Result.Error[Throwable])(using Frame): Sent < Abort[Throwable] =
+      transport.state = HandlerTransport.State.Sent
+      transport.streamFailure = Some(failure.failureOrPanic)
+      Abort.error(failure)
 
     private def headersSent(event: H3Event): Boolean =
       Nitro.isTrue(event.node.res.asInstanceOf[js.Dynamic].headersSent)

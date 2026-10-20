@@ -130,6 +130,30 @@ object HttpStreamSpec extends ZIOSpecDefault:
           js.isUndefined(nullBody), nullElement.response.chunks.isEmpty, nullElement.response.destroyed,
         )
       },
+      // claude 2026-10-20: created: a stream failure after the head fails the sendStream effect; ZIO.scoped around it sees the failure (ADR-0004, Q3)
+      test("a stream failure after two elements fails the sendStream effect; a finalizer of ZIO.scoped around it sees the failure") {
+        val call = Call("/stream")
+        val failure = new Exception("the third element failed")
+        for
+          seen <- Promise.make[Nothing, Exit[Any, Any]]
+          step <- Promise.make[Nothing, Exit[Throwable, Sent]]
+          handler = ZHandler.define { _ =>
+            ZIO.scoped(
+              ZIO.addFinalizerExit(exit => seen.succeed(exit)) *>
+                ZHandler.sendStream(ZStream("one", "two") ++ ZStream.fail(failure)),
+            ).exit.tap(step.succeed(_)).flatMap(ZIO.done(_))
+          }
+          body <- call.invoke(handler)
+          seenExit <- seen.await
+          stepExit <- step.await
+        yield assertTrue(
+          js.isUndefined(body),
+          stepExit.causeOption.flatMap(_.failureOption).contains(failure),
+          seenExit.causeOption.flatMap(_.failureOption).contains(failure),
+          call.response.chunks.toList == List("one", "two"),
+          call.response.destroyed, !call.response.ended, call.response.writes == 0,
+        )
+      },
       test("a stream without a content type is sent as text/plain with nosniff") {
         val call = Call("/stream")
         for _ <- call.invoke(ZHandler.define(_ => ZHandler.sendStream(ZStream("a"))))

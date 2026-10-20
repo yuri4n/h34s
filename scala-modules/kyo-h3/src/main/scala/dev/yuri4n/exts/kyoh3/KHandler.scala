@@ -154,7 +154,7 @@ private[kyoh3] object RequestRuntime:
                     // that happened after it (for example a second sendStream). A client that
                     // disconnected interrupted the program: that is not a failure to log.
                     if transport.sent then
-                        if !clientLeft then afterSent(result)
+                        if !clientLeft then afterSent(transport, result)
                         lifecycle.claim()
                     else if lifecycle.disconnected then lifecycle.claim()
                     else render(event, lifecycle, options, result)
@@ -200,13 +200,19 @@ private[kyoh3] object RequestRuntime:
       }
 
     // claude 2026-10-19: created: a failure after the response was sent cannot reach the client; log it
-    private def afterSent(result: Result[Throwable, Completion]): Unit =
+    // claude 2026-10-20: changed: also logs a stream failure that the program recovered from, once (ADR-0004, Q3)
+    /** Logs one failure: the program's own, or else the sent stream's failure that the program
+      * recovered from. The stream's failure usually is the program's failure, so it is not logged
+      * twice.
+      */
+    private def afterSent(transport: HandlerTransport, result: Result[Throwable, Completion]): Unit =
+      def log(error: Throwable): Unit = Rendering.logDefect(Rendering.describe(error))
       result.foldError(
         {
-          case Completion.Failed(_, error) => Rendering.logDefect(Rendering.describe(error.failureOrPanic))
-          case _                           => ()
+          case Completion.Failed(_, error) => log(error.failureOrPanic)
+          case _                           => transport.streamFailure.foreach(log)
         },
-        error => Rendering.logDefect(Rendering.describe(error.failureOrPanic)),
+        error => log(error.failureOrPanic),
       )
 
     private def render(

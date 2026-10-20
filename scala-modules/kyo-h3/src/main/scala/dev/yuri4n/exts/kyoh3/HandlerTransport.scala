@@ -41,6 +41,12 @@ final class HandlerTransport private[exts] (
 
     private[exts] def sent: Boolean = state == State.Sent
 
+    // claude 2026-10-20: created: the stream failure that failed the sendStream step, for the core's log (ADR-0004, Q3)
+    /** The failure of the sent stream, if it failed after the head. The core logs it once, after the
+      * program, unless the program failed with its own error (which the core logs instead).
+      */
+    private[exts] var streamFailure: Option[Throwable] = None
+
     // claude 2026-10-20: created: ends a connection whose head is out, after a failure (ADR-0004, Q1)
     /** Ends the connection so that the client cannot take a partial body for a complete one. The
       * request stops listening for a disconnect first, so ending the connection does not interrupt

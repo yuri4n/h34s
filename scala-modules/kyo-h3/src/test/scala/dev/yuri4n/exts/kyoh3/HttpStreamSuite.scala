@@ -182,6 +182,59 @@ class HttpStreamSuite extends FunSuite:
       }
     }
 
+    // claude 2026-10-20: created: a stream failure after the head fails the sendStream step; a Scope around it sees the failure (ADR-0004, Q3)
+    test("a stream failure after two elements fails the sendStream step; a Scope finalizer around it sees the failure") {
+      val call = Call("/stream")
+      val failure = new Exception("the third element failed")
+      var seen: Option[String] = None
+      var step: Option[Result[Throwable, Sent]] = None
+      val stream = Stream.init(Seq("one", "two")).concat(Stream[String, Abort[Exception]](Abort.fail(failure)))
+      val handler = KHandler.define { _ =>
+        Abort.run[Throwable](
+          Scope.run(
+            Scope.ensure((outcome: Maybe[Result.Error[Any]]) => Sync.defer { seen = Some(outcome.fold("success")(_.toString)) })
+              .andThen(Response.sendStream(stream)),
+          ),
+        ).map(result => Sync.defer { step = Some(result) }.andThen(Abort.get(result)))
+      }
+      consoleErrors(call.invoke(handler)).map { (body, logged) =>
+        assert(js.isUndefined(body))
+        assertEquals(step, Some(Result.fail(failure)))
+        assert(seen.exists(_.contains("the third element failed")), seen.toString)
+        assertEquals(call.response.chunks.toList, List("one", "two"))
+        assert(call.response.destroyed, "the connection is closed")
+        assert(!call.response.ended, "no final chunk: the response does not look complete")
+        assertEquals(call.response.writes, 0)
+        assertEquals(logged.count(_.contains("the third element failed")), 1, logged.toString)
+      }
+    }
+
+    // claude 2026-10-20: created: a stream failure on the socketless path errors the caller's reads and fails the step (ADR-0004, Q3)
+    test("without a Node socket, a stream failure after the head errors the caller's reads and fails the sendStream step") {
+      val call = Call("/stream", withSocket = false)
+      val failure = new Exception("the second element failed")
+      var step: Option[Result[Throwable, Sent]] = None
+      val stream = Stream.init(Seq("one")).concat(Stream[String, Abort[Exception]](Abort.fail(failure)))
+      val handler = KHandler.define { _ =>
+        Abort.run[Throwable](Response.sendStream(stream)).map(result => Sync.defer { step = Some(result) }.andThen(Abort.get(result)))
+      }
+      val checked =
+        for
+          body <- call.invoke(handler)
+          reader = call.response.native._data.getReader()
+          first <- reader.read().asInstanceOf[js.Promise[js.Dynamic]].toFuture
+          second <- reader.read().asInstanceOf[js.Promise[js.Dynamic]].toFuture.transform(outcome => scala.util.Success(outcome))
+          _ <- turns(3)
+        yield
+          assert(js.isUndefined(body))
+          assertEquals(decode(first.value), "one")
+          assert(second.isFailure, s"the second read must fail, got $second")
+          assertEquals(step, Some(Result.fail(failure)))
+      TestDeadline(consoleErrors(checked).map { (_, logged) =>
+        assertEquals(logged.count(_.contains("the second element failed")), 1, logged.toString)
+      })
+    }
+
     // Z18
     // claude 2026-10-19: changed: a socketless response (Nitro local fetch) is no longer rejected: the head is written first, h3 keeps the stream in res._data, the h3 promise settles at once, and the request scope stays open until the stream is read or cancelled
     test("without a Node socket, the head is written first and the stream is handed over unread, as UTF-8 bytes") {
