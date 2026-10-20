@@ -1,6 +1,7 @@
 package dev.yuri4n.exts.zioh3
 
 import dev.yuri4n.exts.zioh3.ZioTesting.*
+import org.getshaka.nativeconverter.NativeConverter
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
@@ -263,7 +264,80 @@ object HttpStreamSpec extends ZIOSpecDefault:
           result.left.exists(_.contains("Response.sendStream(stream)")),
         )
       },
+      // claude 2026-10-20: created: sendEvents sets h3's headers over the program's and the defaults' values, writes one frame per event and gives Sent (ADR-0007)
+      test("sendEvents sets h3's event-stream headers, keeps the other head entries, writes one frame per event and gives Sent") {
+        val call   = Call("/events")
+        val events = ZStream(ServerEvent.json(Tick(2), event = Some("tick"), id = Some("2")), ServerEvent("done"))
+        for
+          sent <- Promise.make[Nothing, Sent]
+          handler = ZHandler.define(HandlerOptions(defaults = ResponseHead.noStore)) { _ =>
+            Response.header("content-type", "text/plain") *> Response.header("x-custom", "kept") *>
+              Response.sendEvents(events).tap(sent.succeed(_))
+          }
+          body <- call.invoke(handler)
+          value <- sent.await
+        yield assertTrue(
+          js.isUndefined(body),
+          value.toString == "Sent",
+          eventHeaders.forall((name, expected) => call.response.header(name).contains(expected)),
+          call.response.header("x-custom").contains("kept"),
+          call.response.header("x-h34s-stream").contains("1"),
+          call.response.header("x-content-type-options").isEmpty,
+          call.response.status == 200,
+          call.response.chunks.toList == List("id: 2\nevent: tick\ndata: {\"remaining\":2}\n\n", "data: done\n\n"),
+          call.response.headAtFlush.exists(_._3 == 0),
+          call.response.ended,
+        )
+      },
+      // claude 2026-10-20: created: no connection header over HTTP/2, as h3's createEventStream (ADR-0007)
+      test("sendEvents over HTTP/2 leaves out the connection header, as h3's createEventStream does") {
+        val call = Call("/events", headers = Seq(":method" -> "GET", ":path" -> "/events"))
+        for _ <- call.invoke(ZHandler.define(_ => Response.sendEvents(ZStream(ServerEvent("x")))))
+        yield assertTrue(
+          call.response.header("content-type").contains("text/event-stream"),
+          call.response.header("connection").isEmpty,
+          call.response.chunks.toList == List("data: x\n\n"),
+        )
+      },
+      // claude 2026-10-20: created: the cancel rule of sendStream holds for sendEvents (ADR-0007; the Z14 shape)
+      test("a disconnect cancels the event stream and releases its resources and the request's once") {
+        var released = 0
+        var streamReleased = 0
+        val call = Call("/events")
+        val events = ZStream.unwrapScoped(
+          ZIO.acquireRelease(ZIO.unit)(_ => ZIO.succeed { streamReleased += 1 }).as(ZStream(ServerEvent("first")) ++ ZStream.never),
+        )
+        val handler = ZHandler.define(_ => ZIO.acquireRelease(ZIO.unit)(_ => ZIO.succeed { released += 1 }) *> Response.sendEvents(events))
+        for
+          running <- call.invoke(handler).fork
+          _ <- ZIO.fromFuture(_ => call.response.firstWrite.future)
+          _ <- ZIO.succeed(call.response.disconnect())
+          body <- running.join
+        yield assertTrue(
+          js.isUndefined(body), released == 1, streamReleased == 1,
+          call.response.chunks.toList == List("data: first\n\n"), !call.response.hasListener,
+        )
+      },
+      // claude 2026-10-20: created: a returned stream of events is the same compile error, and the message names sendEvents (ADR-0007)
+      test("returning a ZStream of ServerEvent does not compile, and the message names Response.sendEvents") {
+        for result <- typeCheck("ZHandler.define(_ => ZIO.succeed(ZStream(ServerEvent(\"a\"))))")
+        yield assertTrue(
+          result.left.exists(_.contains("h34s cannot send zio.stream.ZStream[Any, Nothing, ")),
+          result.left.exists(_.contains("ServerEvent] as a response body")),
+          result.left.exists(_.contains("Response.sendEvents(events)")),
+        )
+      },
     ) @@ TestAspect.timeout(45.seconds)
+
+    // claude 2026-10-20: created: a typed event for the sendEvents tests (ADR-0007)
+    final case class Tick(remaining: Int) derives NativeConverter
+
+    private val eventHeaders = Map(
+      "content-type"      -> "text/event-stream",
+      "cache-control"     -> "private, no-cache, no-store, no-transform, must-revalidate, max-age=0",
+      "x-accel-buffering" -> "no",
+      "connection"        -> "keep-alive",
+    )
 
     // claude 2026-10-20: created: decodes one UTF-8 chunk of a socketless stream
     private def decode(value: js.Any): String =

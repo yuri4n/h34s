@@ -198,4 +198,13 @@ object FetchError:
       */
     final case class BodyFailed(status: Int, reason: String)
         extends FetchError(s"Server-side $$fetch lost the body of a $status response: $reason")
+
+    // claude 2026-10-20: created: a $fetch.events response that is not an event stream (ADR-0007)
+    /** `events` got a 2xx response whose content type is not `text/event-stream` (`contentType` is
+      * the header as it arrived, `None` without one). The body is not read.
+      */
+    final case class NotEvents(status: Int, contentType: Option[String])
+        extends FetchError(
+          s"Server-side $$fetch expected text/event-stream from a $status response, got ${contentType.getOrElse("no content type")}",
+        )
 end FetchError

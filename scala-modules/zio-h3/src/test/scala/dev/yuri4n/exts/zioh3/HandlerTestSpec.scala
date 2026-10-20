@@ -149,5 +149,20 @@ object HandlerTestSpec extends ZIOSpecDefault:
           response.header("x-c").isEmpty,
         )
       },
+      // claude 2026-10-20: created: ZHandler.test collects the frames of sendEvents, with the event-stream head (ADR-0007)
+      // The testing guide's sendEvents example (docs/content/1.guide/10.testing.md): keep them equal.
+      test("the guide's sendEvents example: the body holds the frames, and the head has the event-stream headers") {
+        val handler: Request => ZIO[HandlerEnv, Throwable, Sent] = _ =>
+          Response.sendEvents(ZStream(ServerEvent.json(Greeting("hi"), event = Some("greeting")), ServerEvent("bye")))
+
+        for response <- ZHandler.test(handler)(Request.fake())
+        yield assertTrue(
+          response.body == TestResponse.Body.Streamed(List("event: greeting\ndata: {\"message\":\"hi\"}\n\n", "data: bye\n\n")),
+          response.header("content-type").contains("text/event-stream"),
+          response.header("cache-control").contains("private, no-cache, no-store, no-transform, must-revalidate, max-age=0"),
+          response.header("x-accel-buffering").contains("no"),
+          response.header("connection").contains("keep-alive"),
+        )
+      },
     ) @@ TestAspect.timeout(30.seconds)
 end HandlerTestSpec
