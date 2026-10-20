@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises' // claude 2026-10-20: changed: readFile for the package version
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path' // claude 2026-10-20: changed: relative and sep for the models alias test
 import { setTimeout as delay } from 'node:timers/promises'
@@ -453,4 +453,27 @@ test('layout B: development source maps embed Scala sources from sbtRoot, outsid
     'object Hello:\n  def probe = new RuntimeException("h34s source map probe")\n',
     null,
   ])
+})
+
+// claude 2026-10-20: created: a missing h34s.config.mjs names the init command with the package's own version (ADR-0009, decision 11)
+test('a missing h34s.config.mjs stops Nuxt with an error that names init and the package\'s own version', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'h34s-nuxt-missing-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  const hooks = []
+  const nuxt = { options: { rootDir: root }, hook: name => hooks.push(name) }
+  await assert.rejects(h34sNuxt(undefined, nuxt), (error) => {
+    assert.equal(
+      error.message,
+      `Missing h34s config: ${join(root, 'h34s.config.mjs')}. Run pnpm dlx @yuri4n/h34s-nuxt@${version} init in ${root} to set up h34s.`,
+    )
+    assert.equal(error.code, 'H34S_CONFIG_MISSING')
+    return true
+  })
+  // A custom config file keeps the plain error: init writes h34s.config.mjs, not that file.
+  await assert.rejects(h34sNuxt({ configFile: 'custom.mjs' }, nuxt), (error) => {
+    assert.equal(error.message, `Missing h34s config: ${join(root, 'custom.mjs')}`)
+    return true
+  })
+  assert.deepEqual(hooks, [], 'no hook is registered')
 })
