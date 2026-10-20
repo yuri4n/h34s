@@ -3,7 +3,8 @@
 
 const REGION = /^\s*(?:\/\/|#|<!--)\s*#(region|endregion)\s+(\S+)/
 // claude 2026-10-20: created: a whole-line change annotation (#52)
-const ANNOTATION = /^\s*(?:\/\/|#|<!--)\s*claude \d{4}-\d{2}-\d{2}: (?:created|changed):/
+const ANNOTATION
+  = /^\s*(?:\/\/|#|<!--)\s*claude \d{4}-\d{2}-\d{2}: (?:created|changed):/
 
 // claude 2026-10-20: created: the error for a missing source range (#52)
 export class SnippetError extends Error {
@@ -22,7 +23,7 @@ export function dedent(lines) {
   return lines.map(line => line.slice(cut))
 }
 
-// claude 2026-10-20: changed: the lines of one named region, without annotations (#52)
+// claude 2026-10-20: changed: a region's lines, without annotations (#52)
 /**
  * Gives the text between `// #region <name>` and `// #endregion <name>`,
  * without the marker lines of nested regions, without whole-line
@@ -163,7 +164,7 @@ export function lineDiff(left, right) {
   return { left: changed(a, keptA), right: changed(b, keptB) }
 }
 
-// claude 2026-10-20: created: the marker names of a file, for the orphan check (#52)
+// claude 2026-10-20: created: a file's region names, for the orphan test (#52)
 /** Gives the names of every `#region <name>` line in a source file. */
 export function regionNames(text) {
   return text.split('\n').flatMap((line) => {

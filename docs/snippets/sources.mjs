@@ -32,7 +32,8 @@ export const greeting = {
   zio: region(`${zio}/handlers/GreetingHandler.scala`, 'greeting-handler'),
 }
 
-// claude 2026-10-20: changed: layout A (ADR-0009, decision 7), with the ZIO handler's real name (#52)
+// claude 2026-10-20: changed: layout A (ADR-0009, decision 7) (#52)
+// The ZIO handler keeps its real file name.
 /**
  * The tree of a new project in layout A. An entry with an `id` is a file
  * that the tour can open; the others show structure only. `generated` marks

@@ -57,7 +57,11 @@ test('a region drops whole-line change annotations', () => {
   ])
   assert.equal(
     extractRegion(source, 'r', 'A.scala'),
-    'val a = 1\n  b: 2\nval c = "claude 2026-10-20: created: kept, not a whole line"',
+    [
+      'val a = 1',
+      '  b: 2',
+      'val c = "claude 2026-10-20: created: kept, not a whole line"',
+    ].join('\n'),
   )
 })
 
@@ -212,7 +216,13 @@ test('the homepage and the tour hold no hand-typed code', async () => {
 /** Every file below `dir`, as repository paths, without build output. */
 async function walk(dir) {
   const skip = new Set([
-    'node_modules', 'target', '.nuxt', '.output', '.data', '.scala', 'vendor',
+    'node_modules',
+    'target',
+    '.nuxt',
+    '.output',
+    '.data',
+    '.scala',
+    'vendor',
   ])
   const found = []
   for (const entry of await readdir(dir, { withFileTypes: true })) {
