@@ -161,7 +161,10 @@ test('the homepage and the tour hold no hand-typed code', async () => {
   const app = new URL('../app/', import.meta.url)
   const handTyped
     = /@JSExportTopLevel|syntax-(?:keyword|type|string)|Env\.use|defineConfig/
-  for (const name of ['pages/index.vue']) {
+  for (const name of [
+    'pages/index.vue',
+    'components/content/ProjectTour.vue',
+  ]) {
     const source = await readFile(new URL(name, app), 'utf8')
     assert.ok(source.includes('virtual:h34s-snippets'), `${name} reads it`)
     assert.ok(!handTyped.test(source), `${name} holds hand-typed code`)

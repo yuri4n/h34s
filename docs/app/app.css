@@ -398,6 +398,131 @@ html.dark .snippet-code .shiki .line.snippet-line-changed {
   height: 1px;
   background: var(--ui-primary);
 }
+/* claude 2026-10-20: created: the project tour (#52) */
+.project-tour {
+  margin: 1.5rem 0;
+  overflow: hidden;
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  border-radius: 0.8rem;
+}
+.tour-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-bg-muted);
+}
+.tour-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--ui-text-highlighted);
+  font: 600 0.8rem var(--font-sans);
+}
+.tour-body {
+  display: grid;
+  grid-template-columns: minmax(13rem, 16.5rem) minmax(0, 1fr);
+}
+.tour-tree {
+  margin: 0;
+  padding: 0.6rem;
+  list-style: none;
+  border-right: 1px solid var(--ui-border);
+  font: 0.73rem var(--font-mono);
+}
+.tour-tree li {
+  margin: 0;
+  padding: 0;
+}
+.tour-tree li.is-nested {
+  padding-left: 1rem;
+}
+.tour-file,
+.tour-folder-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  overflow-wrap: anywhere;
+}
+.tour-file {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0 0.6rem;
+  border-radius: 0.4rem;
+  text-align: left;
+}
+/* Touch screens get 44px rows. */
+@media (pointer: coarse) {
+  .tour-file {
+    min-height: 2.75rem;
+  }
+}
+.tour-file {
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: 150ms;
+}
+.tour-file:hover {
+  background: var(--ui-bg-elevated);
+  color: var(--ui-text-highlighted);
+}
+.tour-file[aria-current='true'] {
+  background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-bg));
+  color: var(--ui-primary);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--ui-primary);
+}
+.tour-file:focus-visible {
+  outline-offset: -2px;
+}
+.tour-folder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.4rem 0.6rem;
+  color: var(--ui-text-muted);
+}
+.tour-generated {
+  margin-left: 1.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 100px;
+  background: var(--ui-bg-elevated);
+  font: 0.62rem var(--font-sans);
+}
+.tour-name-narrow {
+  display: none;
+}
+.tour-view {
+  min-width: 0;
+  min-height: 22rem;
+}
+.tour-view-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.9rem 1.3rem 0.6rem;
+}
+.tour-path {
+  color: var(--ui-text-highlighted);
+  font: 600 0.75rem var(--font-mono);
+}
+.tour-caption {
+  color: var(--ui-text-muted);
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+.tour-view .snippet-panel {
+  padding-bottom: 1rem;
+}
 .technology-line {
   display: flex;
   align-items: center;
@@ -605,6 +730,47 @@ html.dark .snippet-code .shiki .line.snippet-line-changed {
   }
 }
 @media (max-width: 767px) {
+  /* claude 2026-10-20: created: the tour's files become a chip row (#52) */
+  .tour-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tour-tree {
+    display: flex;
+    gap: 0.4rem;
+    overflow-x: auto;
+    padding: 0.6rem 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--ui-border);
+  }
+  .tour-tree li.is-nested {
+    padding-left: 0;
+  }
+  .tour-tree li.is-directory {
+    display: none;
+  }
+  .tour-file {
+    width: auto;
+    white-space: nowrap;
+    box-shadow: inset 0 0 0 1px var(--ui-border);
+  }
+  .tour-file[aria-current='true'] {
+    box-shadow: inset 0 0 0 2px var(--ui-primary);
+  }
+  .tour-name-wide {
+    display: none;
+  }
+  .tour-name-narrow {
+    display: inline;
+  }
+  .tour-view {
+    min-height: 0;
+  }
+  .tour-view-header {
+    padding: 0.9rem 1rem 0.6rem;
+  }
+  .tour-view .snippet-code .line {
+    padding: 0 1rem;
+  }
   .home-page {
     padding: 0 1.25rem;
   }
