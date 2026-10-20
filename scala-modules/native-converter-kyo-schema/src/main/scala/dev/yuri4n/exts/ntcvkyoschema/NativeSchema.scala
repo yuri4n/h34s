@@ -7,6 +7,7 @@ import org.getshaka.nativeconverter.{NativeConverter, ParseState}
 
 import scala.scalajs.js
 
+// claude 2026-10-20: changed: the Scaladoc names the models (ADR-0014)
 /** A `NativeConverter` derived from a Kyo `Schema`. Opt in per type with `derives Schema, NativeSchema`.
   *
   * One schema then gives the native value for h34s, JSON (kyo-schema-json) and YAML
@@ -35,6 +36,11 @@ import scala.scalajs.js
   * objects with the `@discriminator` field). The type is checked against the encoder with sample
   * values; a schema whose output the structure does not show (fluent `rename`, `drop`, `add`,
   * omit policies, other union representations) gets `unknown`, never a wrong type.
+  *
+  * Records, sealed traits and enums are named models (`WireType.Named`) after their Scala type:
+  * `h34s-scala` declares each one once, as `export type Note = ...` in `h34s-models.d.ts`, and the
+  * application imports it from `#h34s/models`. A generic instantiation such as `Page[Note]` is
+  * written out where it is used, with `Note` still named inside.
   */
 trait NativeSchema[A] extends NativeConverter[A] with WireType.Described
 

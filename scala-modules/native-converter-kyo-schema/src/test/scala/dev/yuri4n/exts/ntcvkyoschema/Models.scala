@@ -104,6 +104,14 @@ object Models:
     object Trip:
         given Schema[Trip] = Schema.derived
 
+    // claude 2026-10-20: created: a generic model, for the named-type audit (#66)
+    /** A generic model: `Page[Person]` is an instantiation, so h34s inlines it (ADR-0014). */
+    final case class Page[A](items: List[A], total: Int) derives Schema
+
+    // claude 2026-10-20: created: a recursive model, for the named-type audit (#66)
+    /** A recursive model: Kyo's structure of it never ends. */
+    final case class Tree(value: Int, children: List[Tree]) derives Schema, NativeSchema
+
     /** Keeps its own derived NativeConverter; a NativeSchema can still be built explicitly. */
     final case class Message(text: String) derives NativeConverter
     object Message:
