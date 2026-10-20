@@ -4,10 +4,11 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import test from 'node:test'
 
+import ts from 'typescript'
+
 import {
   extractMarkedFence,
   extractRegion,
-  joinRanges,
   lineDiff,
   regionNames,
   SnippetError,
@@ -144,8 +145,83 @@ test('the line diff marks the lines outside the common subsequence', () => {
   assert.deepEqual(lineDiff('same', 'same'), { left: [], right: [] })
 })
 
-test('two ranges are joined with a // ... line', () => {
-  assert.equal(joinRanges(['a: [', '  b: 1']), 'a: [\n  // ...\n  b: 1')
+// claude 2026-10-20: created: an elision becomes one indented line (#52)
+test('an elision becomes one // ... line with the #elide indent', () => {
+  const source = lines([
+    '// #region r',
+    'a: [',
+    '  b,',
+    '  // #elide',
+    '  c,',
+    '    d,',
+    '  // #end-elide',
+    '],',
+    '# #elide',
+    'e: 1',
+    '# #end-elide',
+    '// #endregion r',
+  ])
+  assert.equal(
+    extractRegion(source, 'r', 'a.ts'),
+    lines(['a: [', '  b,', '  // ...', '],', '// ...']),
+  )
+})
+
+// claude 2026-10-20: created: an unbalanced elision stops the build (#52)
+test('an open, unopened or nested elision names the file and region', () => {
+  const region = body => lines(['// #region r', ...body, '// #endregion r'])
+  assert.throws(
+    () => extractRegion(region(['a', '// #elide', 'b']), 'r', 'a.ts'),
+    (e) => {
+      assert.ok(e instanceof SnippetError)
+      assert.match(e.message, /^a\.ts: region "r" has an "#elide" line/)
+      return true
+    },
+  )
+  assert.throws(
+    () => extractRegion(region(['a', '// #end-elide']), 'r', 'b.ts'),
+    /b\.ts: region "r" has an "#end-elide" line without "#elide"/,
+  )
+  assert.throws(
+    () => extractRegion(
+      region(['// #elide', '// #elide', '// #end-elide', '// #end-elide']),
+      'r',
+      'c.ts',
+    ),
+    /c\.ts: region "r" has a nested "#elide" line/,
+  )
+})
+
+// claude 2026-10-20: created: syntax errors of a TypeScript or JS text (#52)
+/** Gives the parse errors of a text, read as TypeScript. */
+function syntaxErrors(text, name) {
+  const source = ts.createSourceFile(
+    name,
+    text,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.TS,
+  )
+  return source.parseDiagnostics.map(diagnostic =>
+    ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '))
+}
+
+// claude 2026-10-20: created: the shown nuxt.config.ts is balanced (#52)
+test('every shown TypeScript and JavaScript text parses', () => {
+  const shown = loadSnippets().files
+  for (const [id, file] of Object.entries(shown)) {
+    if (file.lang !== 'ts' && file.lang !== 'js')
+      continue
+    for (const runtime of ['kyo', 'zio']) {
+      assert.deepEqual(
+        syntaxErrors(file[runtime].text, id),
+        [],
+        `${id} (${runtime}) does not parse`,
+      )
+    }
+  }
+  assert.ok(shown['nuxt.config.ts'].kyo.text
+    .startsWith('export default defineNuxtConfig({'))
 })
 
 test('the ZIO build follows the guide rule; Kyo names kyo-h3-ext once', () => {
@@ -180,8 +256,10 @@ test('the homepage handler is the exact slice of its source file', () => {
   assert.deepEqual(snippets.greeting.zio.changed, [1, 6, 8])
 })
 
+// claude 2026-10-20: changed: elision markers count as markers (#52)
 test('no shown text holds a region, tour or annotation marker', () => {
-  const marker = /#(?:end)?region|claude \d{4}-\d{2}-\d{2}:|<!-- tour:/
+  const marker
+    = /#(?:end)?region|#(?:end-)?elide|claude \d{4}-\d{2}-\d{2}:|<!-- tour:/
   for (const [id, file] of Object.entries(loadSnippets().files)) {
     for (const runtime of ['kyo', 'zio']) {
       const { text } = file[runtime]

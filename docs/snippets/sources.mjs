@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url'
 import {
   extractMarkedFence,
   extractRegion,
-  joinRanges,
   lineDiff,
   zioBuild,
 } from './extract.mjs'
@@ -109,10 +108,7 @@ export const files = {
   'h34s.config.mjs': { lang: 'js', both: guide(adoption, 'h34s.config.mjs') },
   'nuxt.config.ts': {
     lang: 'ts',
-    both: [
-      region(nuxtConfig, 'tour-h34s-module'),
-      region(nuxtConfig, 'tour-greeting-config'),
-    ],
+    both: region(nuxtConfig, 'tour-nuxt-config'),
   },
   'package.json': { lang: 'json', both: guide(npmTooling, 'package.json') },
 }
@@ -120,19 +116,16 @@ export const files = {
 // claude 2026-10-20: created: every source that the site reads (#52)
 /** Gives every region and guide marker that the site shows, flattened. */
 export function allSources() {
-  const parts = source => (Array.isArray(source) ? source : [source])
   return [
     ...Object.values(greeting),
     ...Object.values(files).flatMap(entry =>
       [entry.both, entry.kyo, entry.zio].filter(Boolean)),
-  ].flatMap(parts)
+  ]
 }
 
 // claude 2026-10-20: created: reads one source (#52)
 /** Gives the text of a source. `read` maps a repository path to its text. */
 export function readSource(source, read) {
-  if (Array.isArray(source))
-    return joinRanges(source.map(part => readSource(part, read)))
   const text = read(source.file)
   return source.kind === 'region'
     ? extractRegion(text, source.name, source.file)
@@ -141,12 +134,11 @@ export function readSource(source, read) {
 
 // claude 2026-10-20: created: the caption that names a text's source (#52)
 export function sourceCaption(source) {
-  const first = Array.isArray(source) ? source[0] : source
-  if (first.file === adoption)
+  if (source.file === adoption)
     return 'From the adoption guide'
-  if (first.file === npmTooling)
+  if (source.file === npmTooling)
     return 'From the npm tooling guide'
-  return `From ${first.file}`
+  return `From ${source.file}`
 }
 
 // claude 2026-10-20: created: reads a file by its repository path (#52)
@@ -156,8 +148,7 @@ export function readRepositoryFile(path, root = repositoryRoot) {
 
 // claude 2026-10-20: created: one runtime's text with its source (#52)
 function variant(text, changed, source) {
-  const file = Array.isArray(source) ? source[0].file : source.file
-  return { text, changed, caption: sourceCaption(source), file }
+  return { text, changed, caption: sourceCaption(source), file: source.file }
 }
 
 // claude 2026-10-20: created: two runtimes' texts and changed lines (#52)

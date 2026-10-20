@@ -2,6 +2,8 @@
 // not read files: the callers pass the text, so the tests use plain strings.
 
 const REGION = /^\s*(?:\/\/|#|<!--)\s*#(region|endregion)\s+(\S+)/
+// claude 2026-10-20: created: a whole-line elision marker (#52)
+const ELIDE = /^(\s*)(?:\/\/|#|<!--)\s*#(elide|end-elide)(?:\s*-->)?$/
 // claude 2026-10-20: created: a whole-line change annotation (#52)
 const ANNOTATION
   = /^\s*(?:\/\/|#|<!--)\s*claude \d{4}-\d{2}-\d{2}: (?:created|changed):/
@@ -23,13 +25,14 @@ export function dedent(lines) {
   return lines.map(line => line.slice(cut))
 }
 
-// claude 2026-10-20: changed: a region's lines, without annotations (#52)
+// claude 2026-10-20: changed: a region's lines, with elisions (#52)
 /**
  * Gives the text between `// #region <name>` and `// #endregion <name>`,
  * without the marker lines of nested regions, without whole-line
  * `// claude <date>: created|changed:` annotations, and without the common
- * indentation. Throws a `SnippetError` that names the file and the region
- * when a marker is missing or repeated.
+ * indentation. Each `// #elide` to `// #end-elide` range becomes one
+ * `// ...` line. Throws a `SnippetError` that names the file and the region
+ * when a marker is missing, repeated, or unbalanced.
  */
 export function extractRegion(text, name, file) {
   const lines = text.split('\n')
@@ -49,12 +52,48 @@ export function extractRegion(text, name, file) {
     throw fail('is marked more than once')
   if (ends[0] < starts[0])
     throw fail('ends before it starts')
-  const body = lines
-    .slice(starts[0] + 1, ends[0])
-    .filter(line => !REGION.test(line) && !ANNOTATION.test(line))
+  const body = elide(
+    lines
+      .slice(starts[0] + 1, ends[0])
+      .filter(line => !REGION.test(line) && !ANNOTATION.test(line)),
+    fail,
+  )
   if (body.every(line => line.trim() === ''))
     throw fail('is empty')
   return dedent(body).join('\n')
+}
+
+// claude 2026-10-20: created: replaces each elided range by one line (#52)
+/**
+ * Replaces the lines from `// #elide` to `// #end-elide` (both included)
+ * by one `// ...` line, indented like the `#elide` line. `fail` builds the
+ * error for an elision that is not closed, not opened, or nested.
+ */
+function elide(lines, fail) {
+  const shown = []
+  let open = null
+  for (const line of lines) {
+    const marker = ELIDE.exec(line.trimEnd())
+    if (!marker) {
+      if (open === null)
+        shown.push(line)
+      continue
+    }
+    if (marker[2] === 'elide') {
+      if (open !== null)
+        throw fail('has a nested "#elide" line')
+      open = marker[1]
+    }
+    else {
+      if (open === null)
+        throw fail('has an "#end-elide" line without "#elide"')
+      shown.push(`${open}// ...`)
+      open = null
+    }
+  }
+  if (open !== null)
+    throw fail('has an "#elide" line without "#end-elide"')
+  return shown
 }
 
 // claude 2026-10-20: created: the fence after a `<!-- tour: … -->` line (#52)
@@ -113,15 +152,6 @@ export function zioBuild(kyoBuild, file) {
     )
   }
   return kyoBuild.replace('kyo-h3-ext', 'zio-h3-ext')
-}
-
-// claude 2026-10-20: created: two source ranges shown as one text (#52)
-/** Joins source ranges with a `// ...` line, indented like the next range. */
-export function joinRanges(ranges) {
-  return ranges.reduce((joined, range) => {
-    const indent = /^[ \t]*/.exec(range)[0]
-    return `${joined}\n${indent}// ...\n${range}`
-  })
 }
 
 // claude 2026-10-20: created: the lines that differ between two texts (#52)

@@ -119,8 +119,12 @@ each text and its source:
   `// #endregion <name>` in `examples/nuxt/scala/` or
   `examples/nuxt/nuxt.config.ts`. The site drops nested region markers
   and whole-line `claude <date>: created|changed:` annotations, so an
-  annotation can stay on the member that it describes. Any other comment
-  inside a region is shown.
+  annotation can stay on the member that it describes. Inside a region,
+  the lines from `// #elide` to `// #end-elide` (both whole-line
+  comments) become one `// ...` line, indented like the `#elide` line, so
+  a region can show a whole file with its middle left out. An elision
+  that is not closed, not opened, or nested stops the build. Any other
+  comment inside a region is shown.
 - A guide block: the code fence after a `<!-- tour: <file> -->` line in
   `content/1.guide/02.adoption.md` or `13.npm-tooling.md`. Only blank
   lines may stand between the marker and the fence.
