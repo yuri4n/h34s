@@ -50,5 +50,6 @@ export async function checks(): Promise<void> {
   const { data: loaded } = await useNotes()
   const list: NoteView[] | undefined = loaded.value
 
-  console.warn(message, wrong, extra, id, texts, stream, errors, missing, listed, badList, fetched, first, hello, noText, list)
+  console.warn(message, wrong, extra, id, texts, stream, errors, missing, listed, badList)
+  console.warn(fetched, first, hello, noText, list)
 }
