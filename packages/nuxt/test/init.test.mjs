@@ -1,0 +1,550 @@
+// The tests of `h34s-scala init` (ADR-0009). Every run starts from a clean temporary directory, with
+// no sbt and no package install.
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, relative, sep } from 'node:path'
+import process from 'node:process'
+// The package uses Node's runner without additional test dependencies.
+// eslint-disable-next-line test/no-import-node-test
+import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { addModule } from '../src/init/nuxt-config-edit.mjs'
+
+// claude 2026-10-20: created: the CLI, the package version and a fake token (ADR-0009)
+const cli = fileURLToPath(new URL('../src/cli.mjs', import.meta.url))
+const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+/** A value that must never reach a written file or the output. */
+const fakeToken = 'ghp_h34sInitTestTokenValue0123456789'
+
+// claude 2026-10-20: created: a clean temporary directory (ADR-0009)
+function temporary(t) {
+  // The real path: the CLI prints paths relative to its working directory (macOS /var).
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'h34s-init-')))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  return directory
+}
+
+// claude 2026-10-20: created: runs init with fake registry variables (ADR-0009)
+/** Runs `h34s-scala init <args>` in `cwd` with the two registry variables set to fake values. */
+function init(cwd, args = [], env = {}) {
+  const result = spawnSync(process.execPath, [cli, 'init', ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_PACKAGES_USER: 'octo', GITHUB_PACKAGES_TOKEN: fakeToken, ...env },
+  })
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr, output: result.stdout + result.stderr }
+}
+
+// claude 2026-10-20: created: the files of a directory (ADR-0009)
+/** Every file below `directory`: its path with `/` separators, mapped to its text. */
+function tree(directory) {
+  const files = {}
+  for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
+    const path = join(entry.parentPath, entry.name)
+    if (statSync(path).isFile())
+      files[relative(directory, path).split(sep).join('/')] = readFileSync(path, 'utf8')
+  }
+  return Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)))
+}
+
+// claude 2026-10-20: created: writes files (ADR-0009)
+function write(directory, files) {
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(directory, path)), { recursive: true })
+    writeFileSync(join(directory, path), text)
+  }
+}
+
+// claude 2026-10-20: created: a Nuxt starter (ADR-0009)
+/** A Nuxt 4 starter's package.json and nuxt.config.ts. */
+const nuxtStarter = {
+  'package.json': `${JSON.stringify({
+    name: 'shop',
+    type: 'module',
+    private: true,
+    scripts: { 'build': 'nuxt build', 'dev': 'nuxt dev', 'generate': 'nuxt generate', 'preview': 'nuxt preview', 'postinstall': 'nuxt prepare' },
+    dependencies: { 'nuxt': '^4.3.1', 'vue': '^3.5.28', 'vue-router': '^4.6.4' },
+  }, null, 2)}\n`,
+  'nuxt.config.ts': `// https://nuxt.com/docs/api/configuration/nuxt-config
+export default defineNuxtConfig({
+  compatibilityDate: '2025-07-15',
+  devtools: { enabled: true },
+  modules: [
+    '@nuxt/eslint',
+  ],
+})
+`,
+  '.gitignore': '.nuxt\nnode_modules\n',
+}
+
+// claude 2026-10-20: created: an sbt build with Scala.js (ADR-0009)
+/** An existing sbt build with Scala.js. */
+const sbtBuild = {
+  'build.sbt': 'lazy val core = project.in(file("core"))\n',
+  'project/build.properties': 'sbt.version=1.11.7\n',
+  'project/plugins.sbt': 'addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0")\n',
+}
+
+// claude 2026-10-20: created: the files of path 1 (ADR-0009)
+const path1Files = [
+  '.gitignore',
+  '.jvmopts',
+  '.npmrc',
+  'app/app.vue',
+  'build.sbt',
+  'h34s.config.mjs',
+  'nuxt.config.ts',
+  'package.json',
+  'pnpm-workspace.yaml',
+  'project/build.properties',
+  'project/plugins.sbt',
+  'scala-server/src/main/scala/myapp/Hello.scala',
+  'tsconfig.json',
+]
+
+// claude 2026-10-20: created: the files of the Nuxt app of path 3 (ADR-0009)
+/** The files of the Nuxt app that path 3 creates in web/. */
+const webFiles = [
+  'web/.gitignore',
+  'web/.npmrc',
+  'web/app/app.vue',
+  'web/h34s.config.mjs',
+  'web/nuxt.config.ts',
+  'web/package.json',
+  'web/pnpm-workspace.yaml',
+  'web/tsconfig.json',
+]
+
+// claude 2026-10-20: created: the test "never overwrites: a file that init would create is a ..." (ADR-0009)
+test('never overwrites: a file that init would create is a conflict, init exits 1 and writes nothing', (t) => {
+  const cases = [
+    // Path 1: a new project.
+    ...['package.json', 'pnpm-workspace.yaml', 'tsconfig.json', 'app/app.vue', 'scala-server/src/main/scala/myapp/Hello.scala']
+      .map(file => ({ name: `path 1, ${file}`, before: { [`my-app/${file}`]: 'kept\n' }, args: ['my-app'], conflict: `my-app/${file}` })),
+    // Path 2: an existing Nuxt app; its Hello.scala and, beside a build.sbt, the h34s.sbt.
+    { name: 'path 2, Hello.scala', before: { ...nuxtStarter, 'scala-server/src/main/scala/app/Hello.scala': 'kept\n' }, args: [], conflict: 'scala-server/src/main/scala/app/Hello.scala', cwd: 'app' },
+    { name: 'path 2, h34s.sbt', before: { ...nuxtStarter, 'build.sbt': '\n', 'h34s.sbt': 'kept\n' }, args: [], conflict: 'h34s.sbt', cwd: 'app' },
+    // Path 3: an existing sbt build.
+    ...['h34s.sbt', 'web/package.json', 'web/pnpm-workspace.yaml', 'web/tsconfig.json', 'web/app/app.vue', 'scala-server/src/main/scala/lib/Hello.scala']
+      .map(file => ({ name: `path 3, ${file}`, before: { ...sbtBuild, [file]: 'kept\n' }, args: [], conflict: file, cwd: 'lib' })),
+  ]
+  for (const item of cases) {
+    const root = temporary(t)
+    const cwd = item.cwd ? join(root, item.cwd) : root
+    write(cwd, item.before)
+    const before = tree(root)
+    const result = init(cwd, item.args)
+    assert.equal(result.status, 1, `${item.name}: exit code\n${result.output}`)
+    assert.match(result.stderr, /init stopped and wrote nothing/, item.name)
+    assert.ok(result.stderr.includes(`${item.conflict} exists; init creates it and never overwrites a file`), `${item.name}: names the conflict\n${result.stderr}`)
+    assert.deepEqual(tree(root), before, `${item.name}: nothing was written`)
+  }
+})
+
+// claude 2026-10-20: created: the test "path 1: init in an empty directory writes a minimal ..." (ADR-0009)
+test('path 1: init in an empty directory writes a minimal Nuxt app and the layout-A sbt build', (t) => {
+  const root = temporary(t)
+  const app = join(root, 'my-app')
+  mkdirSync(app)
+  const result = init(app)
+  assert.equal(result.status, 0, result.output)
+  const files = tree(app)
+  assert.deepEqual(Object.keys(files), path1Files)
+  assert.match(result.stdout, /a new project \(path 1, layout A\), with the Kyo API/)
+  for (const file of path1Files)
+    assert.ok(result.stdout.includes(`  ${file}\n`), `the summary lists ${file}`)
+  assert.equal(files['h34s.config.mjs'], `import { defineConfig } from '@yuri4n/h34s-nuxt/build'
+
+export default defineConfig({
+  modules: [{ project: 'server', output: 'server/.scala' }],
+})
+`)
+  assert.match(files['build.sbt'], /^\/\/ build\.sbt\nimport org\.scalajs\.linker\.interface\.\{ModuleKind, OutputPatterns\}\n\nlazy val server = project\.in\(file\("scala-server"\)\)/)
+  assert.ok(files['build.sbt'].includes(`libraryDependencies += "dev.yuri4n" %%% "kyo-h3-ext" % "${version}",`))
+  assert.ok(files['build.sbt'].includes('(LocalRootProject / baseDirectory).value / "server" / ".scala",'))
+  assert.ok(files['build.sbt'].includes('ThisBuild / resolvers += "h34s GitHub Packages" at'))
+  assert.ok(files['build.sbt'].includes('// server / excludeDependencies += ExclusionRule("io.github.cquiroz", "locales-full-currencies-db_sjs1_3")'), 'the locale exclusion is a commented line')
+  const manifest = JSON.parse(files['package.json'])
+  assert.equal(manifest.name, 'my-app')
+  assert.equal(manifest.dependencies.nuxt, '4.3.1')
+  assert.equal(manifest.dependencies.h3, '1.15.4')
+  assert.equal(manifest.devDependencies['@yuri4n/h34s-nuxt'], version)
+  assert.equal(manifest.scripts['scala:fast'], 'h34s-scala dev')
+  assert.match(files['nuxt.config.ts'], /modules: \['@yuri4n\/h34s-nuxt'\],/)
+  assert.match(files['nuxt.config.ts'], /preset: 'node-server',/)
+  assert.match(files['app/app.vue'], /\$fetch\('\/api\/hello'\)/)
+  assert.deepEqual(JSON.parse(files['tsconfig.json']).references.map(item => item.path), ['./.nuxt/tsconfig.app.json', './.nuxt/tsconfig.server.json', './.nuxt/tsconfig.shared.json', './.nuxt/tsconfig.node.json'])
+  assert.match(files['.gitignore'], /^server\/\.scala\/$/m)
+  assert.match(files['.gitignore'], /^target\/$/m)
+  assert.equal(files['.jvmopts'], '-Xss4m\n-Xmx4g\n')
+  assert.equal(files['project/build.properties'], '# project/build.properties\nsbt.version=1.11.7\n')
+  assert.equal(files['project/plugins.sbt'], '// project/plugins.sbt\naddSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0")\n')
+  const hello = files['scala-server/src/main/scala/myapp/Hello.scala']
+  assert.match(hello, /^package myapp\n\nimport dev\.yuri4n\.exts\.kyoh3\.\*\n/)
+  assert.ok(hello.includes('val hello: EventHandler = KHandler.define(_ => Greeting("Hello from Scala")).at(Route.get("/api/hello"))'))
+  for (const [file, text] of Object.entries(files))
+    assert.doesNotMatch(text, /#(?:end)?region|claude \d{4}-\d{2}-\d{2}:/, `${file} holds a marker`)
+  assert.match(result.stdout, /Next steps:\n {2}1\. Set GITHUB_PACKAGES_USER .* Now: GITHUB_PACKAGES_USER is set, GITHUB_PACKAGES_TOKEN is set\./)
+  assert.match(result.stdout, / {2}2\. pnpm install\n {2}3\. pnpm run scala:fast\n {2}4\. pnpm dev\n/)
+})
+
+// claude 2026-10-20: created: the test "path 1: init <directory> creates the directory, and the summary ..." (ADR-0009)
+test('path 1: init <directory> creates the directory, and the summary says to cd into it', (t) => {
+  const root = temporary(t)
+  const result = init(root, ['my-app'])
+  assert.equal(result.status, 0, result.output)
+  assert.deepEqual(Object.keys(tree(root)), path1Files.map(file => `my-app/${file}`))
+  assert.match(result.stdout, / {2}2\. cd my-app\n {2}3\. pnpm install\n/)
+})
+
+// claude 2026-10-20: created: the test "path 2: init adds layout A to a Nuxt starter, ..." (ADR-0009)
+test('path 2: init adds layout A to a Nuxt starter, merges package.json, edits nuxt.config.ts and appends to .gitignore', (t) => {
+  const root = join(temporary(t), 'shop')
+  write(root, nuxtStarter)
+  const result = init(root)
+  assert.equal(result.status, 0, result.output)
+  const files = tree(root)
+  assert.deepEqual(Object.keys(files), [
+    '.gitignore',
+    '.jvmopts',
+    '.npmrc',
+    'build.sbt',
+    'h34s.config.mjs',
+    'nuxt.config.ts',
+    'package.json',
+    'project/build.properties',
+    'project/plugins.sbt',
+    'scala-server/src/main/scala/shop/Hello.scala',
+  ])
+  assert.match(result.stdout, /an existing Nuxt app \(path 2, layout A\)/)
+  assert.equal(files['nuxt.config.ts'], nuxtStarter['nuxt.config.ts'].replace('  modules: [\n', '  modules: [\n    \'@yuri4n/h34s-nuxt\',\n'))
+  const manifest = JSON.parse(files['package.json'])
+  assert.deepEqual(manifest.scripts, {
+    'build': 'nuxt build',
+    'dev': 'nuxt dev',
+    'generate': 'nuxt generate',
+    'preview': 'nuxt preview',
+    'postinstall': 'nuxt prepare',
+    'scala:fast': 'h34s-scala dev',
+    'scala:watch': 'h34s-scala watch',
+    'scala:full': 'h34s-scala build',
+    'dev:scala': 'pnpm run scala:fast && pnpm run dev',
+  })
+  assert.equal(manifest.dependencies.h3, '1.15.4')
+  assert.equal(manifest.devDependencies['@yuri4n/h34s-nuxt'], version)
+  assert.ok(files['package.json'].startsWith('{\n  "name": "shop",\n'), 'keeps the key order and the indentation')
+  assert.ok(files['.gitignore'].startsWith(nuxtStarter['.gitignore']), 'keeps the existing lines')
+  assert.equal(files['.gitignore'].slice(nuxtStarter['.gitignore'].length), '\n# Added by h34s-scala init\n.metals/\n.bsp/\ntarget/\nproject/target/\nproject/project/\nproject/metals.sbt\nserver/.scala/\n')
+  assert.match(result.stdout, /Changed:\n {2}package\.json: adds the scripts scala:fast, scala:watch, scala:full, dev:scala; adds @yuri4n\/h34s-nuxt .* to devDependencies; adds h3 1\.15\.4 to dependencies\n/)
+  assert.match(result.stdout, / {2}nuxt\.config\.ts: adds '@yuri4n\/h34s-nuxt' to modules\n/)
+  // dev and build are the app's own scripts: init keeps them and prints the change.
+  assert.match(result.stdout, /In package\.json, set the script "dev" to "node --enable-source-maps node_modules\/nuxt\/bin\/nuxt\.mjs dev".* init keeps your "nuxt dev"\./)
+  assert.match(result.stdout, /In package\.json, set the script "build" to "pnpm run scala:full && nuxt build": a production build must link the Scala\.js first.* init keeps your "nuxt build"\./)
+  // The edits come after h34s.config.mjs exists: the module stops Nuxt without it.
+  const order = result.stdout.indexOf('h34s.config.mjs') < result.stdout.indexOf('nuxt.config.ts: adds')
+  assert.ok(order, 'h34s.config.mjs is created before the nuxt.config.ts edit')
+})
+
+// claude 2026-10-20: created: the test "path 2 beside a build.sbt: init writes h34s.sbt and leaves ..." (ADR-0009)
+test('path 2 beside a build.sbt: init writes h34s.sbt and leaves build.sbt and the project files as they are', (t) => {
+  const root = temporary(t)
+  write(root, { ...nuxtStarter, ...sbtBuild, 'project/plugins.sbt': 'addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.20.1")\n' })
+  const before = tree(root)
+  const result = init(root, ['--zio'])
+  assert.equal(result.status, 0, result.output)
+  const files = tree(root)
+  for (const file of ['build.sbt', 'project/build.properties', 'project/plugins.sbt'])
+    assert.equal(files[file], before[file], `${file} is unchanged`)
+  assert.ok(files['h34s.sbt'].startsWith('// h34s.sbt\n'))
+  assert.ok(files['h34s.sbt'].includes(`"dev.yuri4n" %%% "zio-h3-ext" % "${version}"`))
+  assert.ok(files['h34s.sbt'].includes('(LocalRootProject / baseDirectory).value / "server" / ".scala",'))
+  assert.equal(files['h34s.config.mjs'].includes('sbtRoot'), false, 'the sbt build is the app root')
+  assert.match(result.stdout, /Warnings:\n {2}- project\/plugins\.sbt uses sbt-scalajs 1\.20\.1; the h34s libraries are built with Scala\.js 1\.22\.0\./)
+})
+
+// claude 2026-10-20: created: the test "path 3: init in an sbt build creates the Nuxt ..." (ADR-0009)
+test('path 3: init in an sbt build creates the Nuxt app in web/ and an h34s.sbt next to the untouched build.sbt', (t) => {
+  const root = temporary(t)
+  const lib = join(root, 'lib')
+  write(lib, sbtBuild)
+  const result = init(lib)
+  assert.equal(result.status, 0, result.output)
+  const files = tree(lib)
+  assert.deepEqual(Object.keys(files), [
+    '.jvmopts',
+    'build.sbt',
+    'h34s.sbt',
+    'project/build.properties',
+    'project/plugins.sbt',
+    'scala-server/src/main/scala/lib/Hello.scala',
+    ...webFiles,
+  ].sort((a, b) => a.localeCompare(b)))
+  for (const file of Object.keys(sbtBuild))
+    assert.equal(files[file], sbtBuild[file], `${file} is unchanged`)
+  assert.match(result.stdout, /an existing sbt build \(path 3, layout B/)
+  assert.equal(files['web/h34s.config.mjs'], `import { defineConfig } from '@yuri4n/h34s-nuxt/build'
+
+export default defineConfig({
+  sbtRoot: '..',
+  modules: [{ project: 'server', output: 'server/.scala' }],
+})
+`)
+  assert.ok(files['h34s.sbt'].includes('(LocalRootProject / baseDirectory).value / "web" / "server" / ".scala",'))
+  assert.ok(files['h34s.sbt'].includes('ThisBuild / resolvers += "h34s GitHub Packages" at'))
+  assert.equal(JSON.parse(files['web/package.json']).name, 'lib-web')
+  assert.doesNotMatch(files['web/.gitignore'], /target\//, 'the sbt entries belong to the sbt build')
+  assert.match(files['web/.gitignore'], /^server\/\.scala\/$/m)
+  assert.match(result.stdout, / {2}2\. cd web\n/)
+})
+
+// claude 2026-10-20: created: the test "path 3: init web in the sbt build gives the ..." (ADR-0009)
+test('path 3: init web in the sbt build gives the same tree as init in it', (t) => {
+  const first = join(temporary(t), 'lib')
+  const second = join(temporary(t), 'lib')
+  write(first, sbtBuild)
+  write(second, sbtBuild)
+  assert.equal(init(first).status, 0)
+  const result = init(second, ['web'])
+  assert.equal(result.status, 0, result.output)
+  assert.match(result.stdout, /an existing sbt build \(path 3, layout B/)
+  assert.deepEqual(tree(second), tree(first))
+})
+
+// claude 2026-10-20: created: the test "path 3: a build that keeps its own resolver, .jvmopts ..." (ADR-0009)
+test('path 3: a build that keeps its own resolver, .jvmopts and plugins file gets no duplicate, and a plugins file without Scala.js gets a printed line', (t) => {
+  const root = temporary(t)
+  write(root, {
+    'build.sbt': 'ThisBuild / resolvers += "mine" at "https://maven.pkg.github.com/yuri4n/h34s"\nlazy val core = project\n',
+    'project/plugins.sbt': 'addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.14.5")\n',
+    '.jvmopts': '-Xmx2g\n',
+  })
+  const before = tree(root)
+  const result = init(root)
+  assert.equal(result.status, 0, result.output)
+  const files = tree(root)
+  for (const file of Object.keys(before))
+    assert.equal(files[file], before[file], `${file} is unchanged`)
+  assert.equal(files['h34s.sbt'].includes('ThisBuild / resolvers'), false, 'no second resolver')
+  assert.equal(files['project/build.properties'], '# project/build.properties\nsbt.version=1.11.7\n', 'a missing file is created')
+  assert.match(result.stdout, /Do these yourself:\n {2}- Add this line to project\/plugins\.sbt, which does not load Scala\.js yet:\n {6}addSbtPlugin\("org\.scala-js" % "sbt-scalajs" % "1\.22\.0"\)\n/)
+  assert.match(result.stdout, /Kept:\n {2}the h34s resolver that your sbt build already has\n {2}\.jvmopts as it is/)
+})
+
+// claude 2026-10-20: created: the test "path 3: a build that already defines the server project ..." (ADR-0009)
+test('path 3: a build that already defines the server project or uses scala-server is a conflict', (t) => {
+  const root = temporary(t)
+  write(root, { ...sbtBuild, 'build.sbt': 'lazy val server = project.in(file("scala-server"))\n' })
+  const before = tree(root)
+  const result = init(root)
+  assert.equal(result.status, 1, result.output)
+  assert.ok(result.stderr.includes('build.sbt already defines an sbt value named server'))
+  assert.ok(result.stderr.includes('build.sbt already uses the directory scala-server'))
+  assert.deepEqual(tree(root), before)
+})
+
+// claude 2026-10-20: created: the test "already set up: h34s.config.mjs stops init with exit 0 and ..." (ADR-0009)
+test('already set up: h34s.config.mjs stops init with exit 0 and changes nothing', (t) => {
+  for (const [files, args, config] of [
+    [{ 'h34s.config.mjs': 'export default {}\n' }, [], 'h34s.config.mjs'],
+    [{ ...nuxtStarter, 'h34s.config.mjs': 'export default {}\n' }, [], 'h34s.config.mjs'],
+    [{ ...sbtBuild, 'web/h34s.config.mjs': 'export default {}\n' }, [], 'web/h34s.config.mjs'],
+    // An sbt build that holds its own config, as layout A: no Nuxt app is added in web/.
+    [{ ...sbtBuild, 'h34s.config.mjs': 'export default {}\n' }, [], 'h34s.config.mjs'],
+    [{ ...sbtBuild, 'web/h34s.config.mjs': 'export default {}\n' }, ['web'], 'web/h34s.config.mjs'],
+  ]) {
+    const root = temporary(t)
+    write(root, files)
+    const result = init(root, args)
+    assert.equal(result.status, 0, result.output)
+    assert.equal(result.stdout, `[h34s] Already set up: ${config} exists. init runs once per project and changed nothing.\n`)
+    assert.deepEqual(tree(root), files)
+  }
+})
+
+// claude 2026-10-20: created: the test "a script of the same name with another value is ..." (ADR-0009)
+test('a script of the same name with another value is a conflict, and nothing is written', (t) => {
+  const root = temporary(t)
+  const manifest = JSON.parse(nuxtStarter['package.json'])
+  manifest.scripts['scala:fast'] = 'sbt fastLinkJS'
+  write(root, { ...nuxtStarter, 'package.json': `${JSON.stringify(manifest, null, 2)}\n` })
+  const before = tree(root)
+  const result = init(root)
+  assert.equal(result.status, 1, result.output)
+  assert.ok(result.stderr.includes('package.json has the script "scala:fast" set to "sbt fastLinkJS"; init would add "h34s-scala dev"'))
+  assert.deepEqual(tree(root), before)
+})
+
+// claude 2026-10-20: created: the test "the same script with the same value, a listed package ..." (ADR-0009)
+test('the same script with the same value, a listed package and h3 are kept as they are', (t) => {
+  const root = temporary(t)
+  const manifest = JSON.parse(nuxtStarter['package.json'])
+  manifest.scripts['scala:fast'] = 'h34s-scala dev'
+  manifest.scripts.dev = 'node --enable-source-maps node_modules/nuxt/bin/nuxt.mjs dev'
+  manifest.dependencies.h3 = '1.15.4'
+  manifest.devDependencies = { '@yuri4n/h34s-nuxt': '0.1.0-alpha.1' }
+  write(root, { ...nuxtStarter, 'package.json': `${JSON.stringify(manifest, null, '\t')}\n` })
+  const result = init(root)
+  assert.equal(result.status, 0, result.output)
+  const after = JSON.parse(tree(root)['package.json'])
+  assert.equal(after.devDependencies['@yuri4n/h34s-nuxt'], '0.1.0-alpha.1', 'a listed version is not changed')
+  assert.match(tree(root)['package.json'], /^\{\n\t"name"/, 'keeps tab indentation')
+  assert.match(result.stdout, /package\.json lists @yuri4n\/h34s-nuxt 0\.1\.0-alpha\.1, and the sbt build uses the Scala libraries/)
+  assert.doesNotMatch(result.stdout, /set the script "dev"/)
+})
+
+// claude 2026-10-20: created: the test "a non-empty server/.scala or an existing /api/hello route file is ..." (ADR-0009)
+test('a non-empty server/.scala or an existing /api/hello route file is a conflict', (t) => {
+  for (const file of ['server/.scala/old.js', 'server/api/hello.get.ts', 'server/api/hello.ts']) {
+    const root = temporary(t)
+    write(root, { ...nuxtStarter, [file]: 'kept\n' })
+    const before = tree(root)
+    const result = init(root)
+    assert.equal(result.status, 1, `${file}\n${result.output}`)
+    assert.match(result.stderr, file.startsWith('server/.scala') ? /server\/\.scala exists and is not empty/ : /serves GET \/api\/hello/)
+    assert.deepEqual(tree(root), before)
+  }
+})
+
+// claude 2026-10-20: created: the test "the nuxt.config edit adds the module in the safe forms" (ADR-0009)
+test('the nuxt.config edit adds the module in the safe forms', () => {
+  const name = '@yuri4n/h34s-nuxt'
+  const forms = [
+    ['export default defineNuxtConfig({\n  modules: [\n    \'@nuxt/eslint\',\n  ],\n})\n', 'export default defineNuxtConfig({\n  modules: [\n    \'@yuri4n/h34s-nuxt\',\n    \'@nuxt/eslint\',\n  ],\n})\n'],
+    ['export default defineNuxtConfig({\n  modules: [\'@nuxt/eslint\'],\n})\n', 'export default defineNuxtConfig({\n  modules: [\'@yuri4n/h34s-nuxt\', \'@nuxt/eslint\'],\n})\n'],
+    ['export default defineNuxtConfig({\n  modules: [],\n})\n', 'export default defineNuxtConfig({\n  modules: [\'@yuri4n/h34s-nuxt\'],\n})\n'],
+    ['export default defineNuxtConfig({\n  modules: [\n  ],\n})\n', 'export default defineNuxtConfig({\n  modules: [\n    \'@yuri4n/h34s-nuxt\',\n  ],\n})\n'],
+    ['export default defineNuxtConfig({\n  devtools: { enabled: true },\n})\n', 'export default defineNuxtConfig({\n  modules: [\'@yuri4n/h34s-nuxt\'],\n  devtools: { enabled: true },\n})\n'],
+    ['export default defineNuxtConfig({})\n', 'export default defineNuxtConfig({\n  modules: [\'@yuri4n/h34s-nuxt\'],\n})\n'],
+    ['export default defineNuxtConfig({ ssr: false })\n', 'export default defineNuxtConfig({ modules: [\'@yuri4n/h34s-nuxt\'], ssr: false })\n'],
+    ['export default defineNuxtConfig({\n  modules: ["@nuxt/eslint"],\n  app: { head: { title: "Shop" } },\n})\n', 'export default defineNuxtConfig({\n  modules: ["@yuri4n/h34s-nuxt", "@nuxt/eslint"],\n  app: { head: { title: "Shop" } },\n})\n'],
+    // Nitro's own modules key is not Nuxt's: the top-level modules is added.
+    ['export default defineNuxtConfig({\n  nitro: { modules: [] },\n})\n', 'export default defineNuxtConfig({\n  modules: [\'@yuri4n/h34s-nuxt\'],\n  nitro: { modules: [] },\n})\n'],
+    // A comment and a string with brackets do not change the structure.
+    ['// a [bracket] {\nexport default defineNuxtConfig({\n  /* modules: [x] */\n  css: [\'~/a[b].css\'],\n  modules: [\'@nuxt/ui\', [\'@nuxtjs/i18n\', { locales: [\'en\'] }]],\n})\n', '// a [bracket] {\nexport default defineNuxtConfig({\n  /* modules: [x] */\n  css: [\'~/a[b].css\'],\n  modules: [\'@yuri4n/h34s-nuxt\', \'@nuxt/ui\', [\'@nuxtjs/i18n\', { locales: [\'en\'] }]],\n})\n'],
+    ['export default defineNuxtConfig({\r\n  modules: [\r\n    \'@nuxt/eslint\',\r\n  ],\r\n})\r\n', 'export default defineNuxtConfig({\r\n  modules: [\r\n    \'@yuri4n/h34s-nuxt\',\r\n    \'@nuxt/eslint\',\r\n  ],\r\n})\r\n'],
+  ]
+  for (const [before, after] of forms)
+    assert.equal(addModule(before, name), after, before)
+})
+
+// claude 2026-10-20: created: the test "the nuxt.config edit gives up on the shapes it does ..." (ADR-0009)
+test('the nuxt.config edit gives up on the shapes it does not read safely', () => {
+  for (const text of [
+    'export default {\n  modules: [],\n}\n',
+    'const a = defineNuxtConfig({})\nexport default defineNuxtConfig({})\n',
+    'export default defineNuxtConfig({\n  ...base,\n})\n',
+    'export default defineNuxtConfig({\n  modules,\n})\n',
+    'export default defineNuxtConfig({\n  modules: list,\n})\n',
+    'export default defineNuxtConfig({\n  modules: [],\n  \'modules\': [],\n})\n',
+    'export default defineNuxtConfig({\n  app: { baseURL: `/${base}` },\n})\n',
+    'export default defineNuxtConfig({\n  vite: { include: [/\\.vue$/] },\n})\n',
+    'export default defineNuxtConfig(config)\n',
+    'export default defineNuxtConfig({\n  modules: [\n',
+    'export default defineNuxtConfig({\n  title: \'open\n})\n',
+  ]) {
+    assert.equal(addModule(text, '@yuri4n/h34s-nuxt'), null, text)
+  }
+})
+
+// claude 2026-10-20: created: the test "path 2: a nuxt.config that the edit does not read ..." (ADR-0009)
+test('path 2: a nuxt.config that the edit does not read gets the printed line and stays unchanged', (t) => {
+  const root = temporary(t)
+  const config = 'import base from \'./base\'\nexport default defineNuxtConfig({\n  ...base,\n})\n'
+  write(root, { ...nuxtStarter, 'nuxt.config.ts': config })
+  const result = init(root)
+  assert.equal(result.status, 0, result.output)
+  assert.equal(tree(root)['nuxt.config.ts'], config)
+  assert.match(result.stdout, /Do these yourself:\n(?: {2}- .*\n)* {2}- Add '@yuri4n\/h34s-nuxt' to the modules in nuxt\.config\.ts\. .*\n {6}modules: \['@yuri4n\/h34s-nuxt'\],\n/)
+})
+
+// claude 2026-10-20: created: the test "--zio writes the ZIO handler and depends on zio-h3-ext" (ADR-0009)
+test('--zio writes the ZIO handler and depends on zio-h3-ext', (t) => {
+  const root = temporary(t)
+  const result = init(root, ['my-app', '--zio'])
+  assert.equal(result.status, 0, result.output)
+  const files = tree(join(root, 'my-app'))
+  assert.match(result.stdout, /with the ZIO API/)
+  assert.ok(files['build.sbt'].includes(`"dev.yuri4n" %%% "zio-h3-ext" % "${version}"`))
+  assert.equal(files['build.sbt'].includes('kyo-h3-ext'), false)
+  const hello = files['scala-server/src/main/scala/myapp/Hello.scala']
+  assert.match(hello, /^import dev\.yuri4n\.exts\.zioh3\.\*$/m)
+  assert.ok(hello.includes('val hello: EventHandler = ZHandler.define(_ => ZIO.succeed(Greeting("Hello from Scala"))).at(Route.get("/api/hello"))'))
+})
+
+// claude 2026-10-20: created: the test "the pinned versions are the package's own version" (ADR-0009)
+test('the pinned versions are the package\'s own version', (t) => {
+  const root = temporary(t)
+  assert.equal(init(root, ['kyo']).status, 0)
+  assert.equal(init(root, ['zio', '--zio']).status, 0)
+  for (const [app, artifact] of [['kyo', 'kyo-h3-ext'], ['zio', 'zio-h3-ext']]) {
+    const files = tree(join(root, app))
+    assert.equal(JSON.parse(files['package.json']).devDependencies['@yuri4n/h34s-nuxt'], version)
+    assert.deepEqual([...files['build.sbt'].matchAll(/"dev\.yuri4n" %%% "([\w-]+)" % "([^"]+)"/g)].map(match => [match[1], match[2]]), [[artifact, version]])
+  }
+})
+
+// claude 2026-10-20: created: the test "no token value reaches a written file or the output; ..." (ADR-0009)
+test('no token value reaches a written file or the output; the files name the environment variables', (t) => {
+  const root = temporary(t)
+  write(join(root, 'nuxt'), nuxtStarter)
+  write(join(root, 'nuxt'), { '.npmrc': `//npm.pkg.github.com/:_authToken=${fakeToken}\n` })
+  write(join(root, 'sbt'), sbtBuild)
+  const runs = [init(root, ['new']), init(join(root, 'nuxt')), init(join(root, 'sbt'))]
+  for (const result of runs) {
+    assert.equal(result.status, 0, result.output)
+    assert.equal(result.output.includes(fakeToken), false, 'the output holds the token')
+  }
+  const files = tree(root)
+  const holders = Object.entries(files).filter(([, text]) => text.includes(fakeToken)).map(([file]) => file)
+  assert.deepEqual(holders, ['nuxt/.npmrc'], 'only the file that held it before')
+  assert.match(runs[1].stdout, /the existing \/\/npm\.pkg\.github\.com\/:_authToken line in \.npmrc \(not shown\)/)
+  for (const npmrc of ['new/.npmrc', 'sbt/web/.npmrc'])
+    assert.equal(files[npmrc], '@yuri4n:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=${GITHUB_PACKAGES_TOKEN}\n')
+  assert.equal(files['nuxt/.npmrc'], `//npm.pkg.github.com/:_authToken=${fakeToken}\n\n# h34s packages from GitHub Packages; the token comes from the environment\n@yuri4n:registry=https://npm.pkg.github.com\n`)
+  for (const sbt of ['new/build.sbt', 'nuxt/build.sbt', 'sbt/h34s.sbt']) {
+    assert.ok(files[sbt].includes('user <- sys.env.get("GITHUB_PACKAGES_USER")'), sbt)
+    assert.ok(files[sbt].includes('token <- sys.env.get("GITHUB_PACKAGES_TOKEN")'), sbt)
+  }
+})
+
+// claude 2026-10-20: created: the test ".npmrc: a different registry for the @yuri4n scope is a ..." (ADR-0009)
+test('.npmrc: a different registry for the @yuri4n scope is a conflict', (t) => {
+  const root = temporary(t)
+  write(root, { ...nuxtStarter, '.npmrc': '@yuri4n:registry=https://registry.npmjs.org\n' })
+  const before = tree(root)
+  const result = init(root)
+  assert.equal(result.status, 1, result.output)
+  assert.match(result.stderr, /\.npmrc maps @yuri4n:registry to another registry/)
+  assert.deepEqual(tree(root), before)
+})
+
+// claude 2026-10-20: created: the test "--dry-run prints the plan and writes nothing" (ADR-0009)
+test('--dry-run prints the plan and writes nothing', (t) => {
+  const root = temporary(t)
+  write(root, nuxtStarter)
+  const before = tree(root)
+  const result = init(root, ['--dry-run'])
+  assert.equal(result.status, 0, result.output)
+  assert.match(result.stdout, /Would create:\n {2}h34s\.config\.mjs\n/)
+  assert.match(result.stdout, /Would change:\n {2}package\.json: /)
+  assert.match(result.stdout, /\[h34s\] Dry run: nothing was written\.\n$/)
+  assert.deepEqual(tree(root), before)
+})
+
+// claude 2026-10-20: created: the test "init rejects an unknown option and a second directory" (ADR-0009)
+test('init rejects an unknown option and a second directory', (t) => {
+  const root = temporary(t)
+  for (const args of [['--yes'], ['a', 'b']]) {
+    const result = init(root, args)
+    assert.equal(result.status, 1, args.join(' '))
+    assert.match(result.stderr, /Usage: h34s-scala init \[directory\] \[--zio\] \[--dry-run\]/)
+  }
+  assert.deepEqual(tree(root), {})
+  const help = init(root, ['--help'])
+  assert.equal(help.status, 0)
+  assert.match(help.stdout, /^Usage: h34s-scala init/)
+  const top = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' })
+  assert.match(top.stdout, /^ {7}h34s-scala init \[directory\] \[--zio\] \[--dry-run\]$/m, 'the CLI help names init')
+})
