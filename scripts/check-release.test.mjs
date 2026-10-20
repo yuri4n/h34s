@@ -16,6 +16,7 @@ function camel(directory) {
   return directory.replace(/-(\w)/g, (_, letter) => letter.toUpperCase())
 }
 
+// claude 2026-10-20: changed: the fixture uses the flattened scala-modules/<module> paths (#23)
 /**
  * A repository with version.sbt, a build.sbt that lists the release modules, and one POM per
  * module. `extra` maps a module directory to additional POM dependencies.
@@ -26,10 +27,10 @@ function fixture(t, { version = '0.2.0', extra = {}, modules = releaseModules, l
   writeFileSync(join(root, 'version.sbt'), `ThisBuild / version := "${version}"\n`)
   const ids = modules.map(([directory]) => `"${camel(directory)}"`).join(', ')
   const projects = modules.map(([directory, artifact]) =>
-    `lazy val ${camel(directory)}: Project = (project in file("scala-modules/exts/${directory}"))\n  .settings(name := "${artifact}")\n`)
+    `lazy val ${camel(directory)}: Project = (project in file("scala-modules/${directory}"))\n  .settings(name := "${artifact}")\n`)
   writeFileSync(join(root, 'build.sbt'), `lazy val releaseModules = Seq(\n  ${ids},\n)\n${projects.join('\n')}`)
   for (const [directory, artifact] of releaseModules) {
-    const path = join(root, `scala-modules/exts/${directory}/target/scala-${scalaVersion}/${artifact}_sjs1_3-${version}.pom`)
+    const path = join(root, `scala-modules/${directory}/target/scala-${scalaVersion}/${artifact}_sjs1_3-${version}.pom`)
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, `<project><groupId>dev.yuri4n</groupId><artifactId>${artifact}_sjs1_3</artifactId><version>${version}</version><dependencies>${scalaLibrary(library)}${extra[directory] ?? ''}</dependencies></project>`)
   }

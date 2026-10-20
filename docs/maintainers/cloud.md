@@ -37,7 +37,7 @@ GitHub does not need an entry. Git and `gh` reach GitHub through a separate GitH
 
    As root, the script installs into `/opt/h34s-tools`. As another user, it installs into `~/.local/share/h34s-tools` and uses `sudo -n` for `apt-get`. Set `H34S_TOOLS_DIR` to choose another directory. Its path may contain only letters, digits, and `. _ / + -`, because the sbt runner evaluates it.
 3. The hook appends four lines to the file in `CLAUDE_ENV_FILE`: `JAVA_HOME`; a `PATH` line that puts the Java 25, Node 24, and sbt directories in front of the session's `PATH`; `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`; and `COURSIER_REPOSITORIES` for scalafix (see [What the setup changes](#what-the-setup-changes)). Claude Code runs that file before every Bash command, so `java`, `sbt`, `node`, and `pnpm` resolve to the right versions. The hook skips lines that the file already has.
-4. The hook installs the repository's npm packages with the toolchain it just exported: `pnpm install --frozen-lockfile --ignore-scripts` for the workspace, and `npm ci --ignore-scripts` in each `scala-modules/exts/*/test-js` directory whose `node_modules` is older than its `package-lock.json`. The Scala.js test suites load h3 and unstorage from those fixture directories through Node. pnpm's own check skips a satisfied workspace. If an install fails, the hook names every failed command in its context line, and the toolchain is still exported.
+4. The hook installs the repository's npm packages with the toolchain it just exported: `pnpm install --frozen-lockfile --ignore-scripts` for the workspace, and `npm ci --ignore-scripts` in each `scala-modules/*/test-js` directory whose `node_modules` is older than its `package-lock.json`. The Scala.js test suites load h3 and unstorage from those fixture directories through Node. pnpm's own check skips a satisfied workspace. If an install fails, the hook names every failed command in its context line, and the toolchain is still exported. <!-- claude 2026-10-20: changed: the fixtures sit in scala-modules/*/test-js (#23) -->
 5. The hook prints one line of context for Claude: the toolchain is ready, whether the packages are installed, and that sbt and scalafix read Maven Central through a mirror.
 
 On a fresh VM, the toolchain install takes about 15 seconds, and the package installs about 12 seconds more (measured in the [verification record](#verification-record)). When every tool and package is present, the hook takes about 2 seconds, most of it pnpm's check, and changes nothing that git tracks; pnpm rewrites its own bookkeeping files under `node_modules` on every run. If the setup fails, the hook still exits with status 0 and writes no variables, so the session starts without the toolchain. Its JSON output carries a warning for you, `h34s cloud setup failed`, and a note that tells Claude to rerun the script.
@@ -53,9 +53,11 @@ node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
 
 Run the sbt command in the background; see [Work within the session's limits](#work-within-the-sessions-limits). If the hook's context line says that an install failed, run that install yourself and read its error:
 
+<!-- claude 2026-10-20: changed: the fixtures sit in scala-modules/*/test-js (#23) -->
+
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
-for fixture in scala-modules/exts/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
+for fixture in scala-modules/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
 ```
 
 Without the fixtures, the Scala.js test runner compiles and links, then fails in Node with `Error: Cannot find module 'h3'`.

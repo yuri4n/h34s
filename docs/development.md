@@ -141,8 +141,10 @@ This build entry point does not establish complete application packaging or a te
 
 Run the library and example tests, link both applications, and run the tooling tests:
 
+<!-- claude 2026-10-20: changed: the fixtures sit in scala-modules/*/test-js (#23) -->
+
 ```sh
-for fixture in scala-modules/exts/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
+for fixture in scala-modules/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
 sbt 'h3Ext/test' 'kyoH3Ext/test' 'kyoNuxtHubExt/test' 'nativeConverterKyoSchemaExt/test' \
   'zioH3Ext/test' 'zioNuxtHubExt/test' 'nativeConverterZIOSchemaExt/test' 'nuxtsvr/test'
 pnpm run scala:fast

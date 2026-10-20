@@ -70,11 +70,12 @@ The guides live in [`docs/`](docs/README.md), under `docs/content/`. The [docume
 
 ## What is here
 
-<!-- claude 2026-10-20: changed: the guides' new paths under docs/content/ (issue #25) -->
+<!-- claude 2026-10-20: changed: the guides' new paths under docs/content/ (issue #25); the libraries in scala-modules/ (#23) and the zio-migrations example in examples/ (#24) -->
 
-- `scala-modules/exts/`: the libraries. `h3` (effect-free native layer), `kyo-h3` (the Kyo core), `zio-h3` (the ZIO adapter), the Kyo and ZIO schema bridges, the ZIO converters, and the Kyo and ZIO storage modules. `zio-migrations` is an unpublished experiment.
+- `scala-modules/`: the libraries. `h3` (effect-free native layer), `kyo-h3` (the Kyo core), `zio-h3` (the ZIO adapter), the Kyo and ZIO schema bridges, the ZIO converters, and the Kyo and ZIO storage modules.
 - `packages/nuxt/`: the npm package `@yuri4n/h34s-nuxt`: build CLI (linking, route manifests and TypeScript declarations), Nuxt module (route registration), development loading, source maps and the Nitro plugin.
 - `examples/nuxt/`: an optional demo application. `scala/kyo/` has the Kyo greeting; `scala/zio/` has the ZIO stream and the Skunk Notes example. It is a reference, not a template.
+- `examples/zio-migrations/`: an unpublished example that derives Skunk codecs and PostgreSQL DDL from ZIO Schema. It is not a supported API.
 - `docs/`: the guides and reference pages (`docs/content/`), the documentation site that renders them (a separate Nuxt app), and notes for maintainers.
 - `scripts/`: release, consumer and smoke checks.
 

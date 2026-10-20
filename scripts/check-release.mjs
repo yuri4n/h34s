@@ -9,8 +9,9 @@ const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** Every release module builds with this Scala version (see build.sbt). */
 export const scalaVersion = '3.9.0'
 
+// claude 2026-10-20: changed: the directories sit directly under scala-modules (#23)
 /**
- * The published library set: [directory under scala-modules/exts, artifact name, kind].
+ * The published library set: [directory under scala-modules, artifact name, kind].
  * The kind says which effect runtime the artifact may bring to a consumer:
  * - `native`: no effect runtime (h3 bindings and shared values).
  * - `kyo`: Kyo only. A Kyo-only application never resolves ZIO.
@@ -47,7 +48,7 @@ export function buildReleaseModules(root = repository) {
     assert(start >= 0, `build.sbt: release module ${id} has no project definition`)
     const next = build.indexOf('lazy val ', start + 1)
     const project = build.slice(start, next < 0 ? undefined : next)
-    const directory = project.match(/file\("scala-modules\/exts\/([^"]+)"\)/)?.[1]
+    const directory = project.match(/file\("scala-modules\/([^"]+)"\)/)?.[1] // claude 2026-10-20: changed: the flattened path (#23)
     const artifact = project.match(/name\s*:=\s*"([^"]+)"/)?.[1]
     assert(directory && artifact, `build.sbt: cannot read the directory and name of ${id}`)
     return [directory, artifact]
@@ -110,7 +111,7 @@ export function checkRelease(root = repository, environment = process.env, { all
   for (const [directory, artifact, kind] of releaseModules) {
     const path = resolve(
       root,
-      `scala-modules/exts/${directory}/target/scala-${scalaVersion}/${artifact}_sjs1_3-${version}.pom`,
+      `scala-modules/${directory}/target/scala-${scalaVersion}/${artifact}_sjs1_3-${version}.pom`, // claude 2026-10-20: changed: the flattened path (#23)
     )
     const pom = readFileSync(path, 'utf8')
     const metadata = pom.split('<dependencies>')[0]

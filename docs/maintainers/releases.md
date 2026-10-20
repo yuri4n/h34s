@@ -12,10 +12,12 @@ The Scala workflow checks the development integration, ZIO/Kyo handlers, optiona
 
 Run the same core checks from a clean checkout with the [toolchain](../content/2.reference/2.releases.md#toolchain) of the Releases page:
 
+<!-- claude 2026-10-20: changed: the fixtures sit in scala-modules/*/test-js (#23) -->
+
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
 node --test scripts/*.test.mjs packages/nuxt/test/*.test.mjs
-for fixture in scala-modules/exts/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
+for fixture in scala-modules/*/test-js; do npm ci --prefix "$fixture" --ignore-scripts; done
 sbt 'h3Ext/test' 'kyoH3Ext/test' 'kyoNuxtHubExt/test' 'nativeConverterKyoSchemaExt/test' \
   'zioH3Ext/test' 'zioNuxtHubExt/test' 'nativeConverterZIOSchemaExt/test' \
   'nativeConverterZIOJsonExt/compile' 'zioMigrationsExt/compile' 'nuxtsvr/test'

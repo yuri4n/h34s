@@ -33,7 +33,8 @@ failed=""
 if ! pnpm install --frozen-lockfile --ignore-scripts >&2; then
   failed="pnpm install --frozen-lockfile --ignore-scripts"
 fi
-for fixture in scala-modules/exts/*/test-js; do
+# claude 2026-10-20: changed: the fixtures sit in scala-modules/*/test-js (#23)
+for fixture in scala-modules/*/test-js; do
   # Without a match, the glob stays literal; a fixture whose marker is newer than its lockfile is current.
   if [ ! -d "$fixture" ] || [ "$fixture/node_modules/.package-lock.json" -nt "$fixture/package-lock.json" ]; then
     continue
