@@ -42,6 +42,7 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
 
     // claude 2026-10-20: created: the typed event of the server-sent event tests and what a caller saw (ADR-0007)
     final case class Tick(remaining: Int) derives NativeConverter
+    final case class Countdown(remaining: Int) derives NativeConverter
     final case class TicksSeen(remaining: List[Int], times: List[Double], headAt: Double, producedAtHead: Int) derives NativeConverter
 
     /** An event as text, for the callers' JSON bodies: `type|id|data`. */
@@ -373,6 +374,22 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
           seen.headAt < seen.times.head,
           seen.times.zip(seen.times.tail).forall((earlier, later) => later - earlier >= 150),
         )
+      },
+      // claude 2026-10-20: created: the streaming guide's caller example (docs/content/1.guide/09.streaming.md, "Read the events in a handler"); docs/test checks that they are equal (ADR-0007)
+      test("the guide's events example: a handler reads the countdown's typed events with $fetch.events") {
+        val app       = NitroLocal.App()
+        val countdown = ZStream(3, 2, 1, 0).map(remaining => ServerEvent.json(Countdown(remaining), event = Some("tick")))
+        app.route("/api/zio/countdown", ZHandler.define(_ => Response.sendEvents(countdown)))
+        // #region zio-events
+        val total: EventHandler = ZHandler.define: _ =>
+            for
+              ticks <- ZHandler.$fetch.events[Countdown]("/api/zio/countdown")
+              sum   <- ticks.runFold(0)(_ + _.remaining)
+            yield sum
+        // #endregion zio-events
+        app.route("/api/total", total)
+        for data <- ok[Int](app, "/api/total")
+        yield assertTrue(data == 6)
       },
       // claude 2026-10-20: created: a JavaScript route with h3's createEventStream read by the untyped $fetch.events (ADR-0007; the content-type path of ADR-0005, Q2)
       test("a JavaScript route with h3's createEventStream: the untyped $fetch.events reads its events by the content type") {

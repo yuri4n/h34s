@@ -150,8 +150,9 @@ object HandlerTestSpec extends ZIOSpecDefault:
         )
       },
       // claude 2026-10-20: created: ZHandler.test collects the frames of sendEvents, with the event-stream head (ADR-0007)
-      // The testing guide's sendEvents example (docs/content/1.guide/10.testing.md): keep them equal.
+      // The testing guide shows this region (docs/content/1.guide/10.testing.md): docs/test checks that they are equal.
       test("the guide's sendEvents example: the body holds the frames, and the head has the event-stream headers") {
+        // #region zio-test-events
         val handler: Request => ZIO[HandlerEnv, Throwable, Sent] = _ =>
           Response.sendEvents(ZStream(ServerEvent.json(Greeting("hi"), event = Some("greeting")), ServerEvent("bye")))
 
@@ -163,6 +164,7 @@ object HandlerTestSpec extends ZIOSpecDefault:
           response.header("x-accel-buffering").contains("no"),
           response.header("connection").contains("keep-alive"),
         )
+        // #endregion zio-test-events
       },
       // claude 2026-10-20: created: $fetch.events reads a fake event stream by its content type, Plain or Streamed, and asks for text/event-stream (ADR-0007)
       test("$fetch.events decodes a fake event stream, Plain or Streamed, by its content type and sends accept: text/event-stream") {

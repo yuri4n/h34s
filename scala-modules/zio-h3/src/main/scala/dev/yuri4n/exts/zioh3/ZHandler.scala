@@ -96,7 +96,6 @@ object ZHandler:
       *     h34s route with the default options answers `{"data": ...}`, so model the envelope, for
       *     example `final case class GreetingData(data: Greeting)`. The typed route call (issue
       *     #46) will remove the envelope for you, because only the route knows its options.
-      *
       *   - **Server-sent events.** `events[E]` reads a `text/event-stream` response as a `ZStream`
       *     of `E`, each event's `data` decoded as JSON; `events(request)` gives the `ServerEvent`
       *     values themselves.

@@ -650,6 +650,7 @@ class NitroLocalFetchSuite extends FunSuite:
 
     // claude 2026-10-20: created: the typed event of the server-sent event tests (ADR-0007)
     final case class Tick(remaining: Int) derives NativeConverter
+    final case class Countdown(remaining: Int) derives NativeConverter
     final case class TicksSeen(remaining: List[Int], times: List[Double], headAt: Double, producedAtHead: Int) derives NativeConverter
 
     /** An event as text, for the callers' JSON bodies: `type|id|data`. */
@@ -696,6 +697,22 @@ class NitroLocalFetchSuite extends FunSuite:
         assert(headAt < times.head, s"head after $headAt ms, events at $times ms")
         assert(times.zip(times.tail).forall((earlier, later) => later - earlier >= 150), s"each event as it is sent: $times ms")
       }
+    }
+
+    // claude 2026-10-20: created: the streaming guide's caller example (docs/content/1.guide/09.streaming.md, "Read the events in a handler"); docs/test checks that they are equal (ADR-0007)
+    test("the guide's events example: a handler reads the countdown's typed events with $fetch.events") {
+      val app = NitroLocal.App()
+      val countdown = Stream.init(3 to 0 by -1).map(remaining => ServerEvent.json(Countdown(remaining), event = Some("tick")))
+      app.route("/api/kyo/countdown", KHandler.define(_ => Response.sendEvents(countdown)))
+      // #region kyo-events
+      val total: EventHandler = KHandler.define: _ =>
+          for
+            ticks <- KHandler.$fetch.events[Countdown]("/api/kyo/countdown")
+            seen  <- ticks.run
+          yield seen.map(_.remaining).sum
+      // #endregion kyo-events
+      app.route("/api/total", total)
+      TestDeadline(app.fetch("/api/total").flatMap(body)).map(data => assertEquals(data.asInstanceOf[Int], 6))
     }
 
     // claude 2026-10-20: created: a JavaScript route with h3's createEventStream read by the untyped $fetch.events (ADR-0007; the content-type path of ADR-0005, Q2)

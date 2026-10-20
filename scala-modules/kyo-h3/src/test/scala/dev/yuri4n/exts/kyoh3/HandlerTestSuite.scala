@@ -152,13 +152,15 @@ class HandlerTestSuite extends FunSuite:
     }
 
     // claude 2026-10-20: created: KHandler.test collects the frames of sendEvents, with the event-stream head (ADR-0007)
-    // The testing guide's sendEvents example (docs/content/1.guide/10.testing.md): keep them equal.
+    // The testing guide shows this region (docs/content/1.guide/10.testing.md): docs/test checks that they are equal.
     test("the guide's sendEvents example: the body holds the frames, and the head has the event-stream headers") {
+      // #region kyo-test-events
       val handler: Request => Sent < HandlerEffects = _ =>
         Response.sendEvents(Stream.init(Seq(ServerEvent.json(Greeting("hi"), event = Some("greeting")), ServerEvent("bye"))))
 
       val program = KHandler.test(handler)(Request.fake())
       // the body of the result: TestResponse.Body.Streamed(List("event: greeting\ndata: {\"message\":\"hi\"}\n\n", "data: bye\n\n"))
+      // #endregion kyo-test-events
       response(program).map { result =>
         assertEquals(result.body, TestResponse.Body.Streamed(List("event: greeting\ndata: {\"message\":\"hi\"}\n\n", "data: bye\n\n")))
         assertEquals(result.header("content-type"), Some("text/event-stream"))
