@@ -9,5 +9,11 @@ export default yuri4n({
     '.vercel/**',
     'vendor/**',
     'pnpm-lock.yaml',
+    // claude 2026-10-20: created: GitHub-only maintainer files, outside the
+    // site's content collection and never formatted for it (issue #25)
+    'design/**',
+    'maintainers/**',
+    'development.md',
+    'baseline.md',
   ],
 })
