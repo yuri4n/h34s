@@ -92,12 +92,13 @@ From the implementing pull request (the issue does not list these):
 
 ## Follow-ups
 
-<!-- claude 2026-10-20: created: follow-ups -->
+<!-- claude 2026-10-20: changed: follow-ups, each with its issue -->
 
-- Open the follow-up issue for auto-imported model types (decision 3'), and link it here.
-- TypeScript generics for generic models (decision 5').
+- Auto-imported model types, so the UI uses a model with no import line (decision 3'): [#67](https://github.com/yuri4n/h34s/issues/67).
+- TypeScript generics for generic models (decision 5'): [#68](https://github.com/yuri4n/h34s/issues/68).
 - Request-body models with the typed route registry ([#46](https://github.com/yuri4n/h34s/issues/46), decision 6).
-- Recursive Kyo models: refer to the model by name where the structure repeats, and stop the bridge's sample check there.
+- scala-ts as a first-class opt-in, in the future, for models that no route returns; the generator stays the source of truth for route types (see option 1'): [#70](https://github.com/yuri4n/h34s/issues/70).
+- Recursive Kyo models, typed `unknown` today (a known gap). Refer to the model by name where the structure repeats, and stop the bridge's sample check there: [#72](https://github.com/yuri4n/h34s/issues/72).
 - A ZIO generic used with one type argument: find a way to tell it from a plain record.
-- Run `scripts/check-route-types.mjs` in CI.
+- Run `scripts/check-route-types.mjs` in CI: [#73](https://github.com/yuri4n/h34s/issues/73).
 - Comment on issue #66 with the pull request and close it.
