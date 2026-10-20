@@ -1,6 +1,6 @@
 package dev.yuri4n.exts.kyoh3
 
-import dev.yuri4n.exts.h3.internal.BodyDecoding
+import dev.yuri4n.exts.h3.internal.{BodyDecoding, H3}
 import kyo.{Abort, Async, Frame, Scope, Stream, Sync, `<`}
 import org.getshaka.nativeconverter.NativeConverter
 
@@ -94,10 +94,19 @@ object FetchBody:
 sealed trait FetchResponse:
     def status: Int
 
-    /** Lower-case names; repeated values joined with `", "`. */
+    // claude 2026-10-20: changed: set-cookie values are joined too (ADR-0005, Q14)
+    /** Lower-case names; repeated values joined with `", "`, `set-cookie` included. */
     def headers: Map[String, String]
 
+    /** A header by case-insensitive name; repeated values joined with `", "`. */
     def header(name: String): Option[String] = headers.get(name.toLowerCase)
+
+    // claude 2026-10-20: created: every value of a header, set-cookie apart (ADR-0005, Q14)
+    /** Every value of a header by case-insensitive name, like `Request.headerValues`. Each
+      * `set-cookie` value is its own entry. The Fetch API combines every other repeated header
+      * into one value before h34s sees it, so such a header gives one entry with the joined text.
+      */
+    def headerValues(name: String): List[String] = FetchResponse.valuesOf(headers, name)
 
     def ok: Boolean = status >= 200 && status <= 299
 
@@ -106,8 +115,13 @@ object FetchResponse:
         /** Decodes the body as JSON with the `NativeConverter`. */
         def as[A: NativeConverter](using Frame): A < Abort[FetchError] = decode[A](status, text)
 
-    /** Read `body` once. Its elements are the decoded UTF-8 text of each chunk the server sent. */
-    final case class Streamed(status: Int, headers: Map[String, String], body: Stream[String, Async & Scope])
+    // claude 2026-10-20: changed: the body fails with a typed FetchError (ADR-0005, Q14)
+    /** Read `body` once. Its elements are the decoded UTF-8 text of each chunk the server sent.
+      * When the body breaks before its end (the callee's stream failed after its head, or the
+      * connection closed), the read fails with `FetchError.BodyFailed`; handle it with
+      * `Abort.run[FetchError]` or `Abort.recover`.
+      */
+    final case class Streamed(status: Int, headers: Map[String, String], body: Stream[String, Async & Scope & Abort[FetchError]])
         extends FetchResponse
 
     // claude 2026-10-20: changed: the marker or a stream content type, and nothing else (ADR-0005, Q2 option B)
@@ -124,6 +138,18 @@ object FetchResponse:
         headers.get("content-type").exists(contentType => streamTypes.exists(contentType.toLowerCase.startsWith))
 
     val streamTypes: List[String] = List("text/event-stream", "application/x-ndjson")
+
+    // claude 2026-10-20: created: headerValues over the joined headers, shared with the ZIO adapter (ADR-0005, Q14)
+    /** The values of one header. `set-cookie` is split as Nitro splits it (h3's
+      * `splitCookiesString`, which keeps the comma of an `Expires` date); every other header is one
+      * value.
+      */
+    private[exts] def valuesOf(headers: Map[String, String], name: String): List[String] =
+      val key = name.toLowerCase
+      headers.get(key) match
+          case None                              => Nil
+          case Some(value) if key == "set-cookie" => H3.splitCookiesString(value).toList
+          case Some(value)                       => List(value)
 
     /** Strict JSON, then the converter. Reasons never quote the body: converter messages contain
       * the values they reject.
@@ -159,4 +185,12 @@ object FetchError:
 
     /** The request did not produce a response (for example a network error for an absolute URL). */
     final case class Failed(reason: String) extends FetchError(s"Server-side $$fetch failed: $reason")
+
+    // claude 2026-10-20: created: a body that breaks after the head (ADR-0005, Q14)
+    /** The head arrived with `status`, but the body broke before its end: the callee's stream
+      * failed after its head, or the connection closed. `reason` is h34s' own text and never quotes
+      * the callee's error; the server log has the cause.
+      */
+    final case class BodyFailed(status: Int, reason: String)
+        extends FetchError(s"Server-side $$fetch lost the body of a $status response: $reason")
 end FetchError

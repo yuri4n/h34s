@@ -1,5 +1,6 @@
 package dev.yuri4n.exts.kyoh3
 
+import dev.yuri4n.exts.kyoh3.internal.NitroFetch
 import kyo.*
 import munit.FunSuite
 import org.getshaka.nativeconverter.NativeConverter
@@ -38,8 +39,9 @@ class NitroLocalFetchSuite extends FunSuite:
         case _: FetchResponse.Plain    => "plain"
         case _: FetchResponse.Streamed => "streamed"
 
+    // claude 2026-10-20: changed: a streamed body may fail with a typed FetchError (ADR-0005, Q14)
     /** The body text of every chunk, with the time since `start` when each arrived. */
-    private def read(response: FetchResponse, start: Double)(using Frame): Chunk[(String, Double)] < (Async & Scope) =
+    private def read(response: FetchResponse, start: Double)(using Frame): Chunk[(String, Double)] < (Async & Scope & Abort[FetchError]) =
       response match
           case FetchResponse.Plain(_, _, text)    => Chunk((text, js.Date.now() - start))
           case FetchResponse.Streamed(_, _, body) => body.map(text => Sync.defer((text, js.Date.now() - start))).run
@@ -434,6 +436,188 @@ class NitroLocalFetchSuite extends FunSuite:
       )
       TestDeadline(app.fetch("/api/caller").flatMap(body)).map { data =>
         assertEquals(data.asInstanceOf[String], "404 Status(404, {\"errors\":[{\"message\":\"No such note\"}]})")
+      }
+    }
+
+    // claude 2026-10-20: created: the app.baseURL prefix as a pure function, compared with ufo's withBase, which Nuxt's $fetch uses (ADR-0005, decision 1)
+    test("app.baseURL: an in-process path gets the base once, with one slash at the join, as ufo's withBase does") {
+      val ufo = NitroLocal.requireFromNitro("ufo")
+      val cases = List(
+        ("/api/x", "/", "/api/x"),
+        ("/api/x", "", "/api/x"),
+        ("/api/x", "/app/", "/app/api/x"),
+        ("/api/x", "/app", "/app/api/x"),
+        ("/api/x?q=1", "/app/", "/app/api/x?q=1"),
+        ("/api/x", "/a/b/", "/a/b/api/x"),
+        ("/app/api/x", "/app/", "/app/api/x"),
+        ("/app", "/app/", "/app"),
+        ("/app?q=1", "/app/", "/app?q=1"),
+        ("/apple", "/app/", "/app/apple"),
+      )
+      for (path, base, expected) <- cases do
+          assertEquals(NitroFetch.withBase(path, base), expected, s"withBase($path, $base)")
+          assertEquals(ufo.withBase(path, base).asInstanceOf[String], expected, s"ufo withBase($path, $base)")
+      // Two choices of h34s where ufo differs: a base with several trailing slashes keeps one slash at
+      // the join, and a base without a leading slash gets one, so the path stays in-process.
+      assertEquals(NitroFetch.withBase("/api/x", "/app//"), "/app/api/x")
+      assertEquals(NitroFetch.withBase("/api/x", "app/"), "/app/api/x")
+    }
+
+    // claude 2026-10-20: created: Nitro mounts its routes under app.baseURL; an in-process $fetch reaches them (ADR-0005, decision 1)
+    test("app.baseURL: an in-process $fetch reaches a route under a non-root base; a path that carries the base is not prefixed again") {
+      val app = NitroLocal.App(baseURL = "/app/")
+      app.route("/api/greeting", KHandler.define(_ => Greeting("hi")))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          for
+            short <- KHandler.$fetch.get[GreetingData]("/api/greeting")
+            full <- KHandler.$fetch.raw("/app/api/greeting")
+          yield s"${short.data.message} ${full.status}"
+        },
+      )
+      TestDeadline(NitroLocal.withBaseURL("/app/")(app.fetch("/app/api/caller").flatMap(body))).map { data =>
+        assertEquals(data.asInstanceOf[String], "hi 200")
+      }
+    }
+
+    // claude 2026-10-20: created: the in-process call passes only _platform and waitUntil (ADR-0005, decision 1)
+    test("an in-process call passes only the caller's _platform and waitUntil: the callee cannot read the caller's other context entries") {
+      final case class Context(unenv: List[String], context: List[String], platform: String, waitUntil: String, session: Option[String])
+          derives NativeConverter
+      final case class ContextData(data: Context) derives NativeConverter
+      val app = NitroLocal.App()
+      // An authentication middleware of the caller's app puts the user's session into its context.
+      app.onRequest(event => if event.path.asInstanceOf[String] == "/api/caller" then event.context.session = "secret-session")
+      app.routeNative(
+        "/api/context",
+        event => {
+          val unenv   = event.node.req.__unenv__
+          val keys    = (value: js.Dynamic) => js.Object.keys(value.asInstanceOf[js.Object]).toList.sorted
+          val context = event.context
+          js.Dynamic.literal(
+            data = js.Dynamic.literal(
+              unenv = js.Array(keys(unenv)*),
+              context = js.Array(keys(context)*),
+              platform = context.edge,
+              waitUntil = js.typeOf(context.waitUntil),
+              session = if js.isUndefined(unenv.session) then context.session else unenv.session,
+            ),
+          )
+        },
+      )
+      app.route("/api/caller", KHandler.define(_ => KHandler.$fetch.get[ContextData]("/api/context").map(_.data)))
+      val waitUntil: js.Function1[js.Any, Unit] = _ => ()
+      val outer = js.Dynamic.literal(context = js.Dynamic.literal(_platform = js.Dynamic.literal(edge = "edge-1"), waitUntil = waitUntil))
+      TestDeadline(app.fetch("/api/caller", outer).flatMap(body)).map { data =>
+        println(s"[fetch] the callee saw ${js.JSON.stringify(data)}")
+        assertEquals(list(data.unenv).map(_.toString), List("_platform", "waitUntil"))
+        assert(!list(data.context).map(_.toString).contains("session"), js.JSON.stringify(data))
+        assert(js.isUndefined(data.session) || data.session == null, js.JSON.stringify(data))
+        assertEquals(data.platform.asInstanceOf[String], "edge-1", "Nitro spreads _platform into the callee's context")
+        assertEquals(data.waitUntil.asInstanceOf[String], "function")
+      }
+    }
+
+    // claude 2026-10-20: created: a callee stream that fails after its head is a typed FetchError.BodyFailed (ADR-0005, Q14)
+    test("a callee stream that fails after its head: the caller's read fails with a typed FetchError.BodyFailed, not a panic") {
+      val app = NitroLocal.App()
+      val failing = Stream.init(Seq("one\n")).concat(Stream[String, Abort[Exception]](Abort.fail(Exception("private detail of the callee"))))
+      app.route("/api/failing", KHandler.define(_ => Response.status(Status.Accepted).andThen(Response.sendStream(failing))))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          def outcome(result: Result[FetchError, Any]): String = result.fold(
+            _ => "ended",
+            {
+              case FetchError.BodyFailed(status, reason) => s"BodyFailed($status, $reason)"
+              case other                                 => other.toString
+            },
+            panic => s"panic $panic",
+          )
+          for
+            raw <- KHandler.$fetch.raw("/api/failing")
+            read <- raw match
+                case FetchResponse.Streamed(status, _, body) =>
+                  var seen = Vector.empty[String]
+                  Abort.run[FetchError](body.foreach(text => Sync.defer { seen = seen :+ text }))
+                    .map(result => s"$status ${seen.mkString.trim} ${outcome(result)}")
+                case other => Kyo.lift(s"unexpected ${kindOf(other)}")
+            text <- Abort.run[FetchError](KHandler.$fetch.text("/api/failing"))
+          yield s"$read | ${outcome(text)}"
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(response => body(response).map(data => (response.status, data)))).map { (status, data) =>
+        val reason = "the body ended with an error before its end"
+        assertEquals(status.asInstanceOf[Int], 200, "the caller handled the Abort")
+        assertEquals(data.asInstanceOf[String], s"202 one BodyFailed(202, $reason) | BodyFailed(202, $reason)")
+        assert(!data.asInstanceOf[String].contains("private detail"))
+      }
+    }
+
+    // claude 2026-10-20: created: headerValues keeps every set-cookie value; headers joins them (ADR-0005, Q14)
+    test("headerValues keeps each set-cookie of the callee apart, in-process and over HTTP; headers joins them") {
+      final case class Cookies(kind: String, values: List[String], joined: String, tags: List[String]) derives NativeConverter
+      final case class Pair(local: Cookies, network: Cookies) derives NativeConverter
+      def cookies(kind: String, response: FetchResponse): Cookies =
+        Cookies(kind, response.headerValues("Set-Cookie"), response.header("set-cookie").getOrElse(""), response.headerValues("x-tag"))
+      val app = NitroLocal.App()
+      app.route(
+        "/api/cookies",
+        KHandler.define { _ =>
+          Response.cookie(SetCookie("a", "1")).andThen(Response.cookie(SetCookie("b", "2", maxAge = Some(60))))
+            .andThen(Response.appendHeader("x-tag", "one")).andThen(Response.appendHeader("x-tag", "two"))
+        },
+      )
+      TestDeadline(app.listen().flatMap { server =>
+        app.route(
+          "/api/caller",
+          KHandler.define { _ =>
+            for
+              local <- KHandler.$fetch.raw("/api/cookies")
+              network <- KHandler.$fetch.raw(server.url("/api/cookies"))
+            yield Pair(cookies("local", local), cookies("network", network))
+          },
+        )
+        app.fetch("/api/caller").flatMap(body).transformWith(result => server.close().flatMap(_ => Future.fromTry(result)))
+      }).map { data =>
+        for seen <- List(data.local, data.network) do
+            val values = list(seen.values).map(_.toString)
+            assertEquals(values.size, 2, js.JSON.stringify(seen))
+            assert(values.head.startsWith("a=1;") && values(1).startsWith("b=2;"), js.JSON.stringify(seen))
+            assertEquals(seen.joined.asInstanceOf[String], values.mkString(", "))
+            assertEquals(list(seen.tags).map(_.toString), List("one, two"), "the Fetch API joins other repeated headers")
+      }
+    }
+
+    // claude 2026-10-20: created: headerValues on a fake response: set-cookie is split as Nitro splits it, the comma of an Expires date stays (ADR-0005, Q14)
+    test("headerValues splits a joined set-cookie as Nitro does, keeping the comma of an Expires date; other headers are one value") {
+      val response = FetchResponse.Plain(
+        200,
+        Map("set-cookie" -> "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/, b=2", "vary" -> "accept, origin"),
+        "",
+      )
+      assertEquals(response.headerValues("Set-Cookie"), List("a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/", "b=2"))
+      assertEquals(response.headerValues("vary"), List("accept, origin"))
+      assertEquals(response.headerValues("x-missing"), Nil)
+    }
+
+    // claude 2026-10-20: created: the untyped verbs decode the JSON as it arrives, envelope included (ADR-0005, Q15)
+    test("get[A] decodes the JSON as it arrives: a model of the { data: ... } envelope sees the value, a bare model does not") {
+      final case class MaybeGreeting(message: Option[String]) derives NativeConverter
+      val app = NitroLocal.App()
+      app.route("/api/greeting", KHandler.define(_ => Greeting("hi")))
+      app.route(
+        "/api/caller",
+        KHandler.define { _ =>
+          for
+            enveloped <- KHandler.$fetch.get[GreetingData]("/api/greeting")
+            bare <- KHandler.$fetch.get[MaybeGreeting]("/api/greeting")
+          yield s"${enveloped.data.message} ${bare.message}"
+        },
+      )
+      TestDeadline(app.fetch("/api/caller").flatMap(body)).map { data =>
+        assertEquals(data.asInstanceOf[String], "hi None", "get keeps the envelope: the bare model finds no message at the top")
       }
     }
 end NitroLocalFetchSuite
