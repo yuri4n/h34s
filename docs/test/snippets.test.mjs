@@ -1,5 +1,6 @@
 // claude 2026-10-20: created: tests of the shown code's extraction (#52)
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
@@ -154,4 +155,15 @@ test('every selectable tree entry has a file, and every file is listed', () => {
   assert.deepEqual([...ids].sort(), Object.keys(files).sort())
   assert.ok(tree.some(entry => entry.path === 'server/.scala/'
     && entry.generated))
+})
+
+test('the homepage and the tour hold no hand-typed code', async () => {
+  const app = new URL('../app/', import.meta.url)
+  const handTyped
+    = /@JSExportTopLevel|syntax-(?:keyword|type|string)|Env\.use|defineConfig/
+  for (const name of ['pages/index.vue']) {
+    const source = await readFile(new URL(name, app), 'utf8')
+    assert.ok(source.includes('virtual:h34s-snippets'), `${name} reads it`)
+    assert.ok(!handTyped.test(source), `${name} holds hand-typed code`)
+  }
 })

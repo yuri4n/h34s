@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { greeting } from 'virtual:h34s-snippets'
+
 definePageMeta({ layout: 'default' })
 useSeoMeta({
   title: 'Scala handlers for Nuxt',
@@ -6,26 +8,31 @@ useSeoMeta({
     'Write Nuxt server routes as plain Scala.js functions. h34s runs them on a Kyo core, with a first-class ZIO adapter. Your services stay in your app.',
 })
 
-const example = `@JSExportTopLevel("default", "kyo-greeting-post")
-val personalizedGreeting: EventHandler = AppHandler
-  .define: request =>
-    for
-      input    <- request.body.json[GreetingRequest]
-      greeting <- Env.use[Greetings](_.greet(input.name))
-    yield greeting
-  .at(Route.post("/api/kyo/greeting"))`
+// claude 2026-10-20: changed: the handler comes from the example sources at
+// build time, in both runtimes (#52)
+const runtime = useRuntimeChoice()
+const active = computed(() => greeting[runtime.value])
+/** The route of the shown handler, read from its `.at(Route.post(...))`. */
+const route = computed(() => {
+  const [, method = '', path = ''] =
+    /Route\.(\w+)\("([^"]+)"\)/.exec(active.value.text) ?? []
+  return { method: method.toUpperCase(), path }
+})
 const copied = ref(false)
 const copyError = ref('')
 
 async function copyExample() {
   try {
-    await navigator.clipboard.writeText(example)
+    await navigator.clipboard.writeText(active.value.text)
     copied.value = true
     copyError.value = ''
   } catch {
     copyError.value = 'Select the code to copy it manually.'
   }
 }
+watch(runtime, () => {
+  copied.value = false
+})
 
 const paths = [
   {
@@ -138,43 +145,46 @@ const guides = [
         </p>
       </div>
 
+      <!-- claude 2026-10-20: changed: a Kyo | ZIO switch over the example's own code (#52) -->
       <div class="code-scene">
         <div class="code-card">
           <div class="code-card-header">
-            <span
+            <span id="hero-file"
               ><span class="scala-file-mark" aria-hidden="true">≡</span>
               Handlers.scala</span
             >
-            <button
-              class="copy-code"
-              type="button"
-              :aria-label="copied ? 'Code copied' : 'Copy handler code'"
-              @click="copyExample"
-            >
-              <UIcon
-                :name="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-                aria-hidden="true"
-              />
-            </button>
+            <div class="code-card-tools">
+              <RuntimeSwitch id-base="hero" label="Handler runtime" />
+              <button
+                class="copy-code"
+                type="button"
+                :aria-label="
+                  copied
+                    ? 'Code copied'
+                    : `Copy the ${runtime === 'kyo' ? 'Kyo' : 'ZIO'} handler`
+                "
+                @click="copyExample"
+              >
+                <UIcon
+                  :name="copied ? 'i-lucide-check' : 'i-lucide-copy'"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
           </div>
-          <div class="code-comment">// Your application handler</div>
-          <pre
-            class="hero-code"
-          ><code><span class="syntax-annotation">@JSExportTopLevel</span>(<span class="syntax-string">"default"</span>, <span class="syntax-string">"kyo-greeting-post"</span>)
-<span class="syntax-keyword">val</span> personalizedGreeting: <span class="syntax-type">EventHandler</span> = <span class="syntax-type">AppHandler</span>
-  .define: request =>
-    <span class="syntax-keyword">for</span>
-      input    &lt;- request.body.json[<span class="syntax-type">GreetingRequest</span>]
-      greeting &lt;- <span class="syntax-type">Env</span>.use[<span class="syntax-type">Greetings</span>](_.greet(input.name))
-    <span class="syntax-keyword">yield</span> greeting
-  .at(<span class="syntax-type">Route</span>.post(<span class="syntax-string">"/api/kyo/greeting"</span>))</code></pre>
+          <p class="code-comment">Your application handler</p>
+          <SnippetPanels
+            id-base="hero"
+            :variants="greeting"
+            label-id="hero-file"
+          />
           <div class="code-scope">
             <UIcon name="i-lucide-layers" aria-hidden="true" /> Define
             AppHandler to provide your services
           </div>
           <div class="response-example">
             <div class="response-label">
-              <span>POST</span> /api/kyo/greeting
+              <span>{{ route.method }}</span> {{ route.path }}
               <span class="response-shape">response shape</span>
             </div>
             <pre><code>{ "data": { "message": "Hello, Scala!" } }</code></pre>
@@ -187,6 +197,12 @@ const guides = [
           <span class="caption-rule" /> AppHandler, Greetings and
           GreetingRequest are your application code.
         </div>
+        <NuxtLink
+          class="text-link tour-link"
+          to="/guide/adoption#_1-start-a-new-project"
+          >Tour the whole project
+          <UIcon name="i-lucide-arrow-right" aria-hidden="true"
+        /></NuxtLink>
       </div>
     </section>
 
