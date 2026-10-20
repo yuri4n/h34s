@@ -221,10 +221,10 @@ object HandlerBoundarySpec extends ZIOSpecDefault:
         val unrenderable = Call()
         val interrupted = Call()
         val streaming = Call()
-        // claude 2026-10-20: changed: the stream is sent with ZHandler.sendStream after the failure (ADR-0004)
+        // claude 2026-10-20: changed: the stream is sent with Response.sendStream after the failure (ADR-0004)
         val failsBeforeStream = ZHandler.define(_ =>
           ZIO.acquireRelease(ZIO.unit)(_ => ZIO.die(new Exception("stream handler cleanup defect"))) *>
-            ZIO.fail(Rejected("Invalid name")) *> ZHandler.sendStream(zio.stream.ZStream.empty),
+            ZIO.fail(Rejected("Invalid name")) *> Response.sendStream(zio.stream.ZStream.empty),
         )
         for
           captured <- consoleErrors(

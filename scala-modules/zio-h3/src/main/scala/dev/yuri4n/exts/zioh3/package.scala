@@ -8,10 +8,11 @@ import zio.{Scope, ZIO, ZState}
 import scala.util.control.NoStackTrace
 
 // claude 2026-10-19: changed: HandlerTransport, the per-request transport that ZHandler.sendStream writes through
+// claude 2026-10-20: changed: the stream operation is Response.sendStream (ADR-0004, Q8)
 /** What h34s supplies to every ZIO handler: the response head as `ZState` (status, headers and
   * cookies, written once after the handler finishes), the request `Scope` (resources that live
-  * until the response is complete, also while `ZHandler.sendStream` sends a stream) and the
-  * `HandlerTransport` behind `ZHandler.sendStream`. A test that calls a handler function directly
+  * until the response is complete, also while `Response.sendStream` sends a stream) and the
+  * `HandlerTransport` behind `Response.sendStream`. A test that calls a handler function directly
   * provides `HandlerTransport.detached`.
   */
 type HandlerEnv = ZState[ResponseHead] & Scope & HandlerTransport

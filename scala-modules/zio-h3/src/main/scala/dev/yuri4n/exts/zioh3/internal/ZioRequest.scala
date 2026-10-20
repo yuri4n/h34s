@@ -14,7 +14,7 @@ import zio.{Exit, Runtime, UIO, Unsafe, ZEnvironment, ZIO}
   * request's `HandlerTransport`:
   *
   *   - the fiber closes the request scope itself after the program; a failed close is logged and
-  *     does not change the program's Exit, as in Kyo. A stream sent with `ZHandler.sendStream` has
+  *     does not change the program's Exit, as in Kyo. A stream sent with `Response.sendStream` has
   *     ended or was cancelled by then, because the program waits for it;
   *   - interruption (client disconnect): the Kyo finalizer interrupts the fiber and waits until the
   *     request scope is closed, so ZIO finalizers finish before the core settles the response; a

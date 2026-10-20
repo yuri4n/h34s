@@ -15,7 +15,7 @@ import scala.scalajs.js
 object StreamSpec extends ZIOSpecDefault:
     // claude 2026-10-19: changed: readers come from ZStreamSource directly (the ZStream givens are gone)
     /** Encodes with the adapter's internal stream encoding, so the bridge is tested with any element
-      * type (`ZHandler.sendStream` sends only `ZStream[Any, E, String]`; letters use its encoding).
+      * type (`Response.sendStream` sends only `ZStream[Any, E, String]`; letters use its encoding).
       */
     private def reader[E <: Throwable, A: NativeConverter](stream: ZStream[Any, E, A]): UIO[js.Dynamic] =
       readerWith(stream, summon[NativeConverter[A]].toNative(_))
