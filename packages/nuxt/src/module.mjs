@@ -161,7 +161,6 @@ function key(handlers) {
   return JSON.stringify(handlers.map(identity).sort())
 }
 
-/** The Nitro handlers of the linked routes. A missing manifest is reported, not fatal. */
 // claude 2026-10-20: created: the error hint that names init with this package's version (ADR-0009, decision 11)
 /**
  * Adds the init command to the error of a missing `h34s.config.mjs`. A custom `configFile` keeps
@@ -176,6 +175,7 @@ function initHint(error, root, configFile = 'h34s.config.mjs') {
   )
 }
 
+/** The Nitro handlers of the linked routes. A missing manifest is reported, not fatal. */
 function readMounts(root, config) {
   const { handlers, missing } = readRoutes({ root, config })
   for (const output of missing) {
