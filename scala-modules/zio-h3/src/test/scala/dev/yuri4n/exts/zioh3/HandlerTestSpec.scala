@@ -164,5 +164,23 @@ object HandlerTestSpec extends ZIOSpecDefault:
           response.header("connection").contains("keep-alive"),
         )
       },
+      // claude 2026-10-20: created: $fetch.events reads a fake event stream by its content type, Plain or Streamed, and asks for text/event-stream (ADR-0007)
+      test("$fetch.events decodes a fake event stream, Plain or Streamed, by its content type and sends accept: text/event-stream") {
+        val eventStream = Map("content-type" -> "text/event-stream")
+        val fetch = Fetch.fake(Map(
+          "/api/plain"    -> FetchResponse.Plain(200, eventStream, "data: {\"message\":\"one\"}\n\n"),
+          "/api/streamed" -> FetchResponse.Streamed(200, eventStream, ZStream("data: {\"message\":", "\"two\"}\n", "\n")),
+        ))
+        val handler = (_: Request) =>
+          for
+            plain <- ZHandler.$fetch.events[Greeting]("/api/plain").flatMap(_.runCollect)
+            streamed <- ZHandler.$fetch.events[Greeting]("/api/streamed", headers = Seq("Accept" -> "text/event-stream;q=1")).flatMap(_.runCollect)
+          yield (plain ++ streamed).map(_.message).mkString(",")
+        for response <- ZHandler.test(handler)(Request.fake(), fetch)
+        yield assertTrue(
+          response.body == TestResponse.Body.Value("one,two"),
+          fetch.requests.map(_.headers) == List(Seq("accept" -> "text/event-stream"), Seq("Accept" -> "text/event-stream;q=1")),
+        )
+      },
     ) @@ TestAspect.timeout(30.seconds)
 end HandlerTestSpec
