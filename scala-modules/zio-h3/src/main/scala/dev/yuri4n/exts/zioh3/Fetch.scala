@@ -76,8 +76,11 @@ sealed trait FetchResponse:
     def header(name: String): Option[String] = headers.get(name.toLowerCase)
 
     /** Every value of a header by case-insensitive name, like `Request.headerValues`. Each
-      * `set-cookie` value is its own entry. The Fetch API combines every other repeated header
-      * into one value before h34s sees it, so such a header gives one entry with the joined text.
+      * `set-cookie` value is its own entry: h34s splits the joined values as Nitro's
+      * `normalizeFetchResponse` does, with h3's `splitCookiesString`. The split is exact for cookie
+      * values that follow RFC 6265, which have no commas; a value with `", name="` in it is split
+      * there. The Fetch API combines every other repeated header into one value before h34s sees
+      * it, so such a header gives one entry with the joined text.
       */
     def headerValues(name: String): List[String] = kyoh3.FetchResponse.valuesOf(headers, name)
 

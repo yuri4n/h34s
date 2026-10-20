@@ -536,7 +536,6 @@ class NitroLocalFetchSuite extends FunSuite:
       val waitUntil: js.Function1[js.Any, Unit] = _ => ()
       val outer = js.Dynamic.literal(context = js.Dynamic.literal(_platform = js.Dynamic.literal(edge = "edge-1"), waitUntil = waitUntil))
       TestDeadline(app.fetch("/api/caller", outer).flatMap(body)).map { data =>
-        println(s"[fetch] the callee saw ${js.JSON.stringify(data)}")
         assertEquals(list(data.unenv).map(_.toString), List("_platform", "waitUntil"))
         assert(!list(data.context).map(_.toString).contains("session"), js.JSON.stringify(data))
         assert(js.isUndefined(data.session) || data.session == null, js.JSON.stringify(data))

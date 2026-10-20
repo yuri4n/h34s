@@ -177,7 +177,7 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
         yield assertTrue(data == "hi 200")
       },
       test("an in-process call passes only the caller's _platform and waitUntil: the callee cannot read the caller's other context entries") {
-        final case class Context(unenv: List[String], context: List[String], platform: String, session: Option[String])
+        final case class Context(unenv: List[String], context: List[String], platform: String, waitUntil: String, session: Option[String])
             derives NativeConverter
         final case class ContextData(data: Context) derives NativeConverter
         val app = NitroLocal.App()
@@ -192,6 +192,7 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
                 unenv = js.Array(keys(unenv)*),
                 context = js.Array(keys(event.context)*),
                 platform = event.context.edge,
+                waitUntil = js.typeOf(event.context.waitUntil),
                 session = if js.isUndefined(unenv.session) then event.context.session else unenv.session,
               ),
             )
@@ -206,6 +207,7 @@ object NitroLocalFetchSpec extends ZIOSpecDefault:
           !seen.context.contains("session"),
           seen.session.isEmpty,
           seen.platform == "edge-1",
+          seen.waitUntil == "function",
         )
       },
       test("a callee stream that fails after its head: the ZStream fails with a typed FetchError.BodyFailed; text fails the same way") {

@@ -8,7 +8,6 @@ import scala.scalajs.js
 import scala.util.control.NonFatal
 
 // claude 2026-10-19: created: the default Fetch, over Nitro's event.fetch (fetchWithEvent over localFetch), captured at request start
-// claude 2026-10-20: changed: an in-process path gets the app.baseURL prefix and a minimal context (ADR-0005, decision 1)
 /** The server-side `$fetch` of one request: Nitro's `event.fetch` for in-process paths, and the
   * global `fetch` for absolute URLs.
   *

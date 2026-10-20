@@ -46,8 +46,7 @@ object ZHandler:
     def failWith(status: Int, msg: String, msgs: String*): IO[ErrorResponse, Nothing] =
       ZIO.fail(ErrorResponse(NonEmptyList(msg, msgs*), status))
 
-    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10); after sendStream, the head at the call
-    // claude 2026-10-20: changed: the fetch parameter, in the shape of KHandler.test (ADR-0005 gap 6, ADR-0006)
+    // claude 2026-10-20: created: the public test helper (ADR-0006, Q10); after sendStream, the head at the call; the fetch parameter, in the shape of KHandler.test (ADR-0005 gap 6)
     /** Runs `handler` for `request` without h3, Nitro or a server, and gives the head that the
       * program set and its body: the returned value, or the elements that it sent with
       * `Response.sendStream`. After `sendStream`, the head is the one at the call, as on the wire: a
