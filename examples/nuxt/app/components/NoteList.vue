@@ -1,10 +1,12 @@
 <script setup lang="ts">
+// claude 2026-10-20: created: the notes prop, typed with the generated NoteView (ADR-0014)
 import type { NoteView } from '#h34s/models'
 
 defineProps<{ notes: NoteView[] }>()
 </script>
 
 <template>
+  <!-- claude 2026-10-20: created: the note list and its empty state (ADR-0014) -->
   <p v-if="notes.length === 0" class="text-muted-foreground text-sm">
     No notes yet.
   </p>

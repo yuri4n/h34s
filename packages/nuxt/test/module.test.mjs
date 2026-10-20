@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path' // claude 2026-10-20: changed: relative for the models alias test
+import { join, relative, sep } from 'node:path' // claude 2026-10-20: changed: relative and sep for the models alias test
 import { setTimeout as delay } from 'node:timers/promises'
 // The package uses Node's runner without additional test dependencies.
 // eslint-disable-next-line test/no-import-node-test
@@ -365,7 +365,6 @@ test('scalaPrerender: \'stub\' reports requests that reached the stub after prer
   assert.equal(warnings.length, 5, 'the stub logged each request') // claude 2026-10-19: created: three more requests above
 })
 
-// claude 2026-10-19: created: an unknown scalaPrerender value fails before any hook is registered
 // claude 2026-10-20: created: the #h34s/models alias for several outputs, and an application alias that wins (ADR-0014)
 test('maps #h34s/models to a build declaration that re-exports the models of every output', async (t) => {
   const buildDir = join(tmpdir(), 'h34s-build-dir')
@@ -378,8 +377,8 @@ test('maps #h34s/models to a build declaration that re-exports the models of eve
   assert.equal(template.write, true)
   const lines = template.getContents().split('\n').filter(line => line.startsWith('export'))
   assert.deepEqual(lines, [
-    `export type * from '${relative(join(buildDir, 'h34s'), join(root, 'server/.scala/h34s-models'))}'`,
-    `export type * from '${relative(join(buildDir, 'h34s'), join(root, 'server/.scala-kyo/h34s-models'))}'`,
+    `export type * from '${relative(join(buildDir, 'h34s'), join(root, 'server/.scala/h34s-models')).split(sep).join('/')}'`,
+    `export type * from '${relative(join(buildDir, 'h34s'), join(root, 'server/.scala-kyo/h34s-models')).split(sep).join('/')}'`,
   ])
   const own = { alias: { '#h34s/models': '/mine' }, build: { templates: [] } }
   await setup(t, undefined, own)
@@ -398,6 +397,7 @@ test('maps #h34s/models to the models file of the only output', async (t) => {
   assert.deepEqual(options.build.templates, [])
 })
 
+// claude 2026-10-19: created: an unknown scalaPrerender value fails before any hook is registered
 test('rejects an unknown scalaPrerender value with a TypeError before registering hooks', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'h34s-nuxt-'))
   t.after(() => rm(root, { recursive: true, force: true }))

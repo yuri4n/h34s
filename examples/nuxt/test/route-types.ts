@@ -1,5 +1,6 @@
 // Type checks of the generated route declarations, run by `scripts/check-route-types.mjs` after
 // linking. Each `@ts-expect-error` must stay an error: the types are precise, not `any`.
+// claude 2026-10-20: created: the models of the routes (ADR-0014)
 import type { Greeting, NoteView } from '#h34s/models'
 import type listNotes from '../server/.scala/notes-get.js'
 import type { ErrorBody } from '../server/.scala/notes-post'
@@ -41,6 +42,7 @@ export async function checks(): Promise<void> {
   // @ts-expect-error ids are numbers
   const badList: ListBody = { data: [{ id: '1', text: 'a' }] }
 
+  // claude 2026-10-20: created: the models from #h34s/models and the useNotes composable (ADR-0014)
   // The models from `#h34s/models` are the types that the routes return.
   const fetched: NoteView[] = notes.data
   const first: NoteView = created.data

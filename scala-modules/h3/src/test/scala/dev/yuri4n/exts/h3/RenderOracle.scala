@@ -8,6 +8,7 @@ package dev.yuri4n.exts.h3
 
 import dev.yuri4n.exts.h3.WireType.*
 
+// claude 2026-10-20: created: the oracle of the inline rendering (ADR-0014)
 object RenderOracle:
     private val identifier = "^[A-Za-z_$][A-Za-z0-9_$]*$".r
 

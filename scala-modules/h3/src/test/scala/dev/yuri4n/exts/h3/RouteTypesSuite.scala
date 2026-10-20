@@ -143,6 +143,7 @@ class RouteTypesSuite extends FunSuite:
 
     // ---- Named models (ADR-0014) ----
 
+    // claude 2026-10-20: created: the Note fixture of the named-model tests (ADR-0014)
     private val noteFields = WireType.ObjectOf(List(WireField("id", WireType.NumberValue), WireField("text", WireType.StringValue)))
     private val note       = WireType.Named("Note", noteFields, Some("app.Note"))
 
@@ -227,10 +228,12 @@ class RouteTypesSuite extends FunSuite:
 
     // ---- The inline rendering against its oracle (RenderOracle, commit 5f894e9) ----
 
+    // claude 2026-10-20: created: the field names, model names and texts of the generator (ADR-0014)
     private val names  = List("id", "text", "full-name", "", "say \"hi\"", "a b", "_x", "$y")
     private val models = List("Note", "Board", "Tree", "Record", "my-model")
     private val texts  = List("", "a", "say \"hi\"\n", "\u2028", "\u0000", "naïve")
 
+    // claude 2026-10-20: created: the generator of random wire types (ADR-0014)
     /** A random wire type; `named` also puts `Named` at random places. Explicit, seeded generators. */
     private def wire(random: Random, depth: Int, named: Boolean): WireType =
       def pick[A](values: List[A]): A = values(random.nextInt(values.size))
@@ -249,6 +252,7 @@ class RouteTypesSuite extends FunSuite:
           case 9 => WireType.OneOf(List.fill(random.nextInt(4))(wire(random, depth - 1, named)))
           case _ => WireType.Named(pick(models), wire(random, depth - 1, named), pick(List(None, Some("a.Note"), Some("b.Note"))))
 
+    // claude 2026-10-20: created: a type without its names, for the oracle (ADR-0014)
     /** The type without its names: what the oracle, which has no `Named`, can render. */
     private def plain(wire: WireType): WireType = wire match
         case WireType.Named(_, target, _) => plain(target)
@@ -258,9 +262,11 @@ class RouteTypesSuite extends FunSuite:
         case WireType.OneOf(members)      => WireType.OneOf(members.map(plain))
         case other                        => other
 
+    // claude 2026-10-20: created: the record's success type of a wire type (ADR-0014)
     private def success(options: HandlerOptions, wire: WireType): String =
       internal.RouteTypes.success(options.success, internal.BodyShape.Value(() => wire))
 
+    // claude 2026-10-20: created: the options of a raw success body (ADR-0014)
     private val raw = HandlerOptions(success = SuccessEnvelope.Raw)
 
     // claude 2026-10-20: created: the oracle property of the inline rendering without names (ADR-0014)

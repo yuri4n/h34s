@@ -61,6 +61,7 @@ object NativeSchemaSpec extends ZIOSpecDefault:
     given Schema[Hidden] = DeriveSchema.gen[Hidden]
     given Schema[NestedDefault] = DeriveSchema.gen[NestedDefault]
 
+    // claude 2026-10-20: created: a generic record and a sealed trait for the named-model tests (ADR-0014)
     /** A generic record: ZIO's `TypeId` of `Page[Pair]` has no type arguments. */
     final case class Page[A](items: List[A], total: Int)
     sealed trait Shape
