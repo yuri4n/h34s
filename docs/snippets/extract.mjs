@@ -55,10 +55,11 @@ export function extractRegion(text, name, file) {
 
 // claude 2026-10-20: created: the fence after a `<!-- tour: … -->` line (#52)
 /**
- * Gives the body of the code fence on the line after `<!-- tour: <name> -->`
- * in a Markdown file, without the fence's indentation. Throws a
- * `SnippetError` when the marker is missing, repeated, or not followed by a
- * fence.
+ * Gives the body of the first code fence after `<!-- tour: <name> -->` in
+ * a Markdown file, without the fence's indentation. Only blank lines may
+ * stand between the marker and the fence (the Markdown formatter puts one
+ * there). Throws a `SnippetError` when the marker is missing, repeated, or
+ * not followed by a fence.
  */
 export function extractMarkedFence(markdown, name, file) {
   const lines = markdown.split('\n')
@@ -72,12 +73,15 @@ export function extractMarkedFence(markdown, name, file) {
     throw fail('not found')
   if (found.length > 1)
     throw fail('is used more than once')
-  const open = /^([ \t]*)(`{3,}|~{3,})/.exec(lines[found[0] + 1] ?? '')
+  let start = found[0] + 1
+  while (start < lines.length && lines[start].trim() === '')
+    start++
+  const open = /^([ \t]*)(`{3,}|~{3,})/.exec(lines[start] ?? '')
   if (!open)
-    throw fail('is not on the line just before a code fence')
+    throw fail('is not followed by a code fence')
   const [, indent, fence] = open
   const body = []
-  for (const line of lines.slice(found[0] + 2)) {
+  for (const line of lines.slice(start + 1)) {
     const close = /^[ \t]*(`{3,}|~{3,})\s*$/.exec(line)
     const closes = close
       && close[1][0] === fence[0]

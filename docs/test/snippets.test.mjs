@@ -81,9 +81,17 @@ test('a marked fence gives its body without the fence indentation', () => {
     () => extractMarkedFence(markdown, 'build.sbt', 'guide.md'),
     /guide\.md: marker "<!-- tour: build.sbt -->" not found/,
   )
+  assert.equal(
+    extractMarkedFence('<!-- tour: x -->\n\n```js\na\n```', 'x', 'g.md'),
+    'a',
+  )
   assert.throws(
-    () => extractMarkedFence('<!-- tour: x -->\n\n```js\na\n```', 'x', 'g.md'),
-    /g\.md: marker .* is not on the line just before a code fence/,
+    () => extractMarkedFence(
+      '<!-- tour: x -->\ntext\n```js\na\n```',
+      'x',
+      'g.md',
+    ),
+    /g\.md: marker .* is not followed by a code fence/,
   )
 })
 
