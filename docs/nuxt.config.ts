@@ -98,9 +98,11 @@ export default defineNuxtConfig({
       'Define models and services, wire them in an optional user-defined '
       + 'AppHandler, and mount handler exports with one-line route files. '
       + 'Schemas, databases (kyo-sql, Skunk) and storage are optional choices.',
+      // claude 2026-10-20: changed: route generation is on main, not planned
       'examples/nuxt contains an optional demo; website contains this separate '
-      + 'documentation app. Route generation, Nix, and deployable application '
-      + 'packaging remain planned.',
+      + 'documentation app. Routes declared in Scala with typed $fetch are on '
+      + 'main for the next release; Nix and deployable application packaging '
+      + 'remain planned.',
     ],
   },
   mcp: { name: 'h34s documentation' },

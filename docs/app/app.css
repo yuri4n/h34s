@@ -491,14 +491,10 @@ body {
   line-height: 1.8;
   margin-bottom: 1rem;
 }
-.home-review-note {
-  padding: 1.1rem 0 1.6rem;
-  color: var(--ui-text-muted);
-  font-size: 0.63rem;
-}
-.home-review-note .ai-slop {
-  display: inline-block;
-  margin-right: 0.3rem;
+/* claude 2026-10-20: changed: the space that the removed AI stamp note kept
+   above the footer (its padding) */
+.home-page > .status-section:last-child {
+  margin-bottom: 2.7rem;
 }
 
 @media (min-width: 1024px) and (max-width: 1199px) {

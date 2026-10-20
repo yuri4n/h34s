@@ -1,10 +1,23 @@
-# h34s documentation website
+# h34s documentation
 
-AI-assisted draft. Human review pending.
+<!-- claude 2026-10-20: changed: this folder is the documentation source and the site (issue #25); the AI sentence replaces the review stamp -->
 
-This directory contains the documentation site, separate from the
-Scala.js/Nuxt demo in `examples/nuxt/` and the reusable libraries in
-`scala-modules/exts/`. The site is a Nuxt application built on the shared
+This folder holds the h34s documentation and the site that renders it.
+GitHub and the site show the same files: the guides and reference pages
+under `content/` are the only copy. This documentation is written with AI
+assistance under the maintainer's direction, and errors are tracked as
+[issues](https://github.com/yuri4n/h34s/issues).
+
+- `content/` holds the guides (`1.guide/`) and the reference pages
+  (`2.reference/`). The site publishes them.
+- `development.md`, `baseline.md`, `design/` and `maintainers/` are for
+  the people who work on h34s. They are outside the site's content
+  collection, so only GitHub shows them.
+- `app/`, `nuxt.config.ts`, `remark/`, `test/` and `vendor/` are the site.
+
+The site is separate from the Scala.js/Nuxt demo in `examples/nuxt/` and
+the reusable libraries in `scala-modules/exts/`. It is a Nuxt application
+built on the shared
 [`@yuri4n/nuxt-docs` layer](https://github.com/yuri4n/yuri4nized-nuxt/tree/v0.1.0/layers/docs).
 The repository is `yuri4nized-nuxt`; its packages use the `yuri4n.dev` name.
 The Git submodule pins v0.1.0; Docus is pinned to 5.13.0 by the layer.
@@ -15,7 +28,7 @@ Use Node 24 (at least 24.15) and pnpm 10.34.4. From the repository root:
 
 ```sh
 git submodule update --init --recursive
-pnpm --dir website install --frozen-lockfile
+pnpm --dir docs install --frozen-lockfile
 pnpm docs:dev
 ```
 
@@ -23,17 +36,21 @@ The docs listen on port 3001. They need no Java, sbt, Scala linking, or
 PostgreSQL. The repository workspace for library tooling and the demo
 has its own lockfile and installation;
 `pnpm install` at the repository root does not install the docs.
-The website declares its own Vue and Vue Router versions. Its Nuxt
+The site declares its own Vue and Vue Router versions. Its Nuxt
 TypeScript project explicitly includes the nested shared layer, so a
 clean build does not depend on the example app's generated configuration.
 
+<!-- claude 2026-10-20: changed: the guides are the pages now; frontmatter and file names -->
+
 Edit pages under `content/1.guide` and `content/2.reference`. Guide pages
-use two-digit prefixes (`01.` to `13.`) because Nuxt Content sorts pages
-by their file name as text. Docus provides
+use two-digit prefixes (`01.` to `14.`) because Nuxt Content sorts pages
+by their file name as text. Give each page a `title` and a `description`
+in its frontmatter: the site uses them for the page header, the
+navigation, search engines and `/llms.txt`. Keep the page's `#` heading
+for GitHub; the site drops it (see [Links](#links)). Docus provides
 navigation, local search, code highlighting, edit links, and the mobile
 menu. The landing page and theme live under `app/`. Keep source snippets
-consistent with the Scala examples in `examples/nuxt/scala/` and with the
-guides in `docs/`. Write setup
+consistent with the Scala examples in `examples/nuxt/scala/`. Write setup
 as instructions to application authors: define models and services,
 provide their dependencies, and mount handler exports. Identify
 `AppHandler` as an optional application helper, not a library export.
@@ -111,34 +128,40 @@ The CI runner defaults the build's Node heap limit to 4 GiB for
 prerendering. It preserves other `NODE_OPTIONS` flags and explicit heap
 limits.
 
-## Publish after review
+## Deployment
 
-The website and Scala packages have separate release requirements.
+<!-- claude 2026-10-20: changed: the site is deployed; production, previews and the root-directory rule -->
+
+The site is live. The Vercel project `h34s` (team `yurian-solo`) builds
+it with its Git integration, the only publisher; GitHub Actions only
+check it:
+
+- Every push to `main` deploys production, at <https://h34s.yuri4n.dev/>.
+  Merging a pull request publishes its documentation changes.
+- Every pull request gets a preview deployment, and the Vercel bot links
+  it on the pull request.
+- The project's Root Directory is `docs`, this folder. If you move or
+  rename this folder, change the Root Directory in the same step.
+  Otherwise every production and preview build fails, and production
+  keeps serving the last successful deployment.
+- `vercel.json` runs `pnpm run build`. Vercel installs with
+  `pnpm install --frozen-lockfile` on Node 24, after checkout initializes
+  the pinned public submodule.
+
+The site and the Scala packages have separate release requirements.
 Building this site does not establish that h34s artifacts or the example
-application are production ready. Nothing in this change deploys a site.
+application are production ready. Source and edit links require access
+to the private repository. `github.branch` in `app/app.config.ts` targets
+`main`.
 
-For a future Vercel project:
-
-1. Review the content and repository visibility policy. h34s is currently
-   private, while a public docs deployment would expose its documentation
-   and examples. Source/edit links require repository access.
-2. Choose `website` as the project Root Directory, Nuxt as the framework,
-   Node 24, and `pnpm install --frozen-lockfile` as the install command.
-   Ensure checkout initializes the pinned public submodule before install.
-3. Use the single Vercel Git integration as the publisher. Keep GitHub
-   Actions as checks only. `vercel.json` runs `pnpm run build`.
-4. Set `NUXT_SITE_URL` to the agreed absolute production URL. Vercel's
-   production URL is a fallback; local builds use the layer's localhost
-   fallback. Check canonical and `/llms.txt` links on the preview.
-5. Check that source and edit links resolve to the reviewed documentation.
-   `github.branch` in `app/app.config.ts` targets `main`.
-6. Check preview routes, search, mobile navigation, light/dark themes,
-   `/llms-full.txt`, and the absence of the assistant before publishing.
+Before you merge a change to the site itself, check its preview: routes,
+search, mobile navigation, light and dark themes, `/llms.txt`,
+`/llms-full.txt`, and the absence of the assistant.
 
 To reproduce the CI output locally without deploying:
 
 ```sh
-cd website
+cd docs
 NITRO_PRESET=vercel VERCEL_OIDC_TOKEN=ci-assistant-check pnpm ci
 ```
 

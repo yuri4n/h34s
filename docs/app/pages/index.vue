@@ -272,10 +272,12 @@ const guides = [
         <h2 id="status-title">A working foundation.<br />A clear direction.</h2>
       </div>
       <div class="status-description">
+        <!-- claude 2026-10-20: changed: route generation is on main; the page's AI stamp is gone (issue #25) -->
         <p>
           0.1.0-alpha.1 has the older API. 0.2.0-alpha.1 moves the core to Kyo,
           adds a ZIO adapter, Scala configuration, shared resources and one
-          schema per model. Route generation and packaging remain planned.
+          schema per model. Routes declared in Scala are on main for the next
+          release; packaging remains planned.
         </p>
         <NuxtLink class="text-link" to="/reference/releases"
           >What works today
@@ -283,9 +285,5 @@ const guides = [
         /></NuxtLink>
       </div>
     </section>
-    <p class="home-review-note">
-      <span class="ai-slop">AI SLOP</span> Written with AI assistance. Human
-      review pending.
-    </p>
   </div>
 </template>

@@ -109,7 +109,9 @@ h3-ext                                 native layer, no effect library
 - Not published: `zio-migrations-ext` (an experiment that still compiles on 3.9.0 and stays in the `exts` aggregate), the examples and the aggregates.
 - Two checks enforce the direction. `scripts/check-release.mjs` reads the generated POMs: a Kyo artifact must not depend on ZIO, `h3-ext` must not depend on any effect runtime, a ZIO converter must not depend on Kyo, and only schema bridges may depend on a schema library. `scripts/check-consumers.mjs` builds four fresh consumers (Kyo, ZIO, Kyo Schema, ZIO Schema), serves real h3 requests through a preemptive router as Nitro does, and fails when a Kyo consumer resolves any `dev.zio` artifact.
 
-[Architecture](../architecture.md) has the full table of what each module offers.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+[Architecture](../content/2.reference/1.architecture.md) has the full table of what each module offers.
 
 ## 3. Layers
 
@@ -261,7 +263,9 @@ The `@yuri4n/h34s-nuxt` module registers `runtime/h34s.mjs` (`runtime/developmen
 - Encoding goes straight to native JavaScript values. There is no JSON text round trip, and tests replace `JSON.stringify` and `JSON.parse` with throwing functions to prove it.
 - Wire shapes match the JSON library: the Kyo bridge output equals `JSON.parse(Json.encode(x))` for records, options, enums, sealed traits and the other tested shapes.
 
-[Schema](../schema.md) documents the user-facing rules.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+[Schema](../content/1.guide/07.schema.md) documents the user-facing rules.
 
 ## 7. The ZIO bridge
 
@@ -291,7 +295,9 @@ Both break the disconnect rule, so they are not used on request paths. The oppos
 - **Needs a real socket.** A stream over Nitro's in-process local fetch (for example a server-side `$fetch` to your own route) is rejected before any stream resource is acquired: an opaque 500.
 - A disconnect interrupts the producer and waits for its cleanup, then releases the request scope.
 
-[Streaming](../streaming.md) has the user guide.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+[Streaming](../content/1.guide/09.streaming.md) has the user guide.
 
 ## 9. Implementation deviations
 
@@ -393,9 +399,11 @@ Each item says what differs from the first plan and why. Superseded items are fo
 
 ### 9.12 Examples
 
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
 - **ZIO example** *(dev. 33, D-17, F1, AD-12)*. A Skunk pool (`Session.Builder.pooled(4)`, explicit `Network.forAsync`) lives in a `ZShared` layer. Each request takes one pooled session for its request scope on first use (memoized in the request scope), so input validation runs before a database session is needed. Settings come from `runtimeConfig.database` (`NUXT_DATABASE_*`, the password a `Secret`, empty means none). Models are split: `NoteRow` (private SQL row), `Note` (domain), `NoteView` (wire). `server/plugins/skunk-node-crypto.ts` sets `globalThis.require` because Skunk's SCRAM code calls `require('crypto')` from ES module output.
 - **Kyo example** *(D-17, AD-7)*. It reads `runtimeConfig.greeting` with `RuntimeConfig.load` inside a `Shared`, and `GreetingRequest` validates "not blank, at most 80 characters" in its schema.
-- **Build heap.** The example links a Kyo and a ZIO application, and the scripts pass `--max-old-space-size=8192`. Measured on 2026-10-19 ([#30](https://github.com/yuri4n/h34s/issues/30)): Nitro 2.13.1 bundles the linked Scala.js and its source maps twice in one process, once for the prerendered Nuxt Content route and once for the server. Without the prerendered route, without server source maps, or with one application, the build passed with a 4096 MiB heap limit (peak RSS 3.4 to 4.5 GiB); with all three it needs more than 4 GiB (6144 MiB passed once). The maintainer delegated the remedy. The decision: an opt-in option of the Nuxt module, `scalaPrerender: 'stub'`, which resolves every import of a configured Scala.js output to one stub in Nitro's prerender Rollup build only (`nitro:init`, then `prerender:init`, then `rollup:before`). The stub's exports are h3 handlers that answer 501, so the option is opt-in (they throw an error class with h3's `__h3_error__` marker, so h3 and Nitro treat the 501 as a handled error and keep its message): a page that calls a Scala.js route while Nuxt prerenders it gets that 501. A page that catches it, as `useFetch` does, still prerenders with status 200, so Nitro's check of failed routes passes. The stub therefore logs each request and records it in a process-global list (Nitro imports the prerender bundle into the build process); the module opens the list at `prerender:init` and, at `prerender:done`, stops the build with the list when `prerender.failOnError` is on (Nuxt's default) or warns otherwise. Nitro 2.13.1 calls `prerender:done` before its own check of failed routes, so when that check is about to stop the build, the module logs the list as an error and lets Nitro throw with its summary. `scripts/check-npm-nuxt.mjs` checks the option in a real build of the packed module. The default, `'bundle'`, keeps the earlier behavior. The example uses `'stub'`: its build then passed with a 4096 MiB heap limit (peak RSS 4.05 and 4.07 GiB in two builds). With an equivalent temporary hook, it ran out of memory at Node's 2240 MiB default on a 15.7 GiB cloud VM. See [compatibility](../compatibility.md#heap-measurement-2026-10-19). <!-- claude 2026-10-19: changed: the measured cause of the build heap, the scalaPrerender decision, the request report and the real-build check (review F1, F2, F3); the handled 501 and Nitro's own failure (second review F1, F2) -->
+- **Build heap.** The example links a Kyo and a ZIO application, and the scripts pass `--max-old-space-size=8192`. Measured on 2026-10-19 ([#30](https://github.com/yuri4n/h34s/issues/30)): Nitro 2.13.1 bundles the linked Scala.js and its source maps twice in one process, once for the prerendered Nuxt Content route and once for the server. Without the prerendered route, without server source maps, or with one application, the build passed with a 4096 MiB heap limit (peak RSS 3.4 to 4.5 GiB); with all three it needs more than 4 GiB (6144 MiB passed once). The maintainer delegated the remedy. The decision: an opt-in option of the Nuxt module, `scalaPrerender: 'stub'`, which resolves every import of a configured Scala.js output to one stub in Nitro's prerender Rollup build only (`nitro:init`, then `prerender:init`, then `rollup:before`). The stub's exports are h3 handlers that answer 501, so the option is opt-in (they throw an error class with h3's `__h3_error__` marker, so h3 and Nitro treat the 501 as a handled error and keep its message): a page that calls a Scala.js route while Nuxt prerenders it gets that 501. A page that catches it, as `useFetch` does, still prerenders with status 200, so Nitro's check of failed routes passes. The stub therefore logs each request and records it in a process-global list (Nitro imports the prerender bundle into the build process); the module opens the list at `prerender:init` and, at `prerender:done`, stops the build with the list when `prerender.failOnError` is on (Nuxt's default) or warns otherwise. Nitro 2.13.1 calls `prerender:done` before its own check of failed routes, so when that check is about to stop the build, the module logs the list as an error and lets Nitro throw with its summary. `scripts/check-npm-nuxt.mjs` checks the option in a real build of the packed module. The default, `'bundle'`, keeps the earlier behavior. The example uses `'stub'`: its build then passed with a 4096 MiB heap limit (peak RSS 4.05 and 4.07 GiB in two builds). With an equivalent temporary hook, it ran out of memory at Node's 2240 MiB default on a 15.7 GiB cloud VM. See [compatibility](../content/2.reference/3.compatibility.md#heap-measurement-2026-10-19). <!-- claude 2026-10-19: changed: the measured cause of the build heap, the scalaPrerender decision, the request report and the real-build check (review F1, F2, F3); the handled 501 and Nitro's own failure (second review F1, F2) -->
 
 ## 10. Review findings and their outcome
 

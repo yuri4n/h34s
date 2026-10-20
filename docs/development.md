@@ -1,10 +1,16 @@
 # Develop the Nuxt/Scala.js example
 
-Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate `website/` app serves the documentation. To use h34s in your own Nuxt project, follow [adoption.md](adoption.md).
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
 
-The demo builds the h34s libraries from this repository's sources (version `0.2.0-alpha.1` in `version.sbt`), not from published packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [releases.md](releases.md) for the published private Maven coordinates.
+Run the optional integration demo in `examples/nuxt/` to explore both effect APIs. Its Scala application sources live in `examples/nuxt/scala/zio/` and `examples/nuxt/scala/kyo/`. The separate `website/` app serves the documentation. To use h34s in your own Nuxt project, follow [adoption guide](content/1.guide/02.adoption.md).
 
-The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications install the published package that matches their Scala libraries: [`0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1), or [`0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) for the older API. The [npm tooling guide](npm-tooling.md) explains how to configure the same integration without copying scripts.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+The demo builds the h34s libraries from this repository's sources (version `0.2.0-alpha.1` in `version.sbt`), not from published packages. Node runs the Scala.js handlers inside Nitro; Java and sbt are build-time tools. The application itself is excluded from library publication. See [Releases](content/2.reference/2.releases.md) for the published private Maven coordinates.
+
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+The example consumes the local `@yuri4n/h34s-nuxt` package for build orchestration and Nuxt development integration. External applications install the published package that matches their Scala libraries: [`0.2.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.2.0-alpha.1), or [`0.1.0-alpha.1`](https://github.com/yuri4n/h34s/releases/tag/npm-v0.1.0-alpha.1) for the older API. The [npm tooling guide](content/1.guide/13.npm-tooling.md) explains how to configure the same integration without copying scripts.
 
 ## Prerequisites
 
@@ -28,13 +34,19 @@ Link with `pnpm run scala:fast`, as above. Linking with sbt alone (`nuxtsvr/fast
 
 Development loads the linked Scala.js ES modules directly in Node. Nitro watches both output directories and replaces its worker after relinking, keeping Node’s module cache fresh. This avoids the large Rollup graphs that exhausted an 8 GB heap during bundled watch rebuilds. The current `pnpm dev` script enables Node source maps automatically and needs no heap override. The application pins `h3` as a direct runtime dependency for the linked modules.
 
-Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. It streams its body, and streamed bodies are sent as they are. Value bodies use the default envelope instead: `/api/kyo/greeting` answers `{"data":{"message":"Hello, Kyo!"}}`. `pnpm run scala:fast` links both applications and prints `[h34s] 5 routes in ...`: the Scala handlers declare their routes with `.at(Route...)`, and the demo has no `server/api` route files. Scala source changes need another `pnpm run scala:fast`; Nuxt watches the linked JavaScript and the route manifests. For continuous Scala linking, use `pnpm run scala:watch` in another terminal; it collects the routes again after each link. See [routes and typed `$fetch`](routes.md). The root scripts pass `examples/nuxt/h34s.build.config.mjs` to the CLI. That wrapper uses the demo's `h34s.config.mjs` and resolves its output paths from the repository root.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
 
-Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](debugging.md) for error details, stack traces, and attaching a Node debugger.
+Make a direct HTTP request to `/api/test`; the response should be `abc`. This route needs no database. It streams its body, and streamed bodies are sent as they are. Value bodies use the default envelope instead: `/api/kyo/greeting` answers `{"data":{"message":"Hello, Kyo!"}}`. `pnpm run scala:fast` links both applications and prints `[h34s] 5 routes in ...`: the Scala handlers declare their routes with `.at(Route...)`, and the demo has no `server/api` route files. Scala source changes need another `pnpm run scala:fast`; Nuxt watches the linked JavaScript and the route manifests. For continuous Scala linking, use `pnpm run scala:watch` in another terminal; it collects the routes again after each link. See [routes and typed `$fetch`](content/1.guide/02.routes.md). The root scripts pass `examples/nuxt/h34s.build.config.mjs` to the CLI. That wrapper uses the demo's `h34s.config.mjs` and resolves its output paths from the repository root.
+
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+Nuxt development mode also enables detailed Scala error responses and maps Node stack traces back to `.scala` files. See the [debugging guide](content/1.guide/12.debugging.md) for error details, stack traces, and attaching a Node debugger.
 
 An earlier cloud environment used an ignored `examples/nuxt/.nuxtrc` to select Node's native SQLite connector for Nuxt Content and disable remote font providers. Those settings addressed that environment's SQLite addon startup and network limitations. They do not affect the Scala database layer. The production build without the native SQLite connector or font settings in `.nuxtrc` passed in a cloud session on 2026-10-19. <!-- claude 2026-10-19: changed: cloud build verified -->
 
-The independent [Kyo example](kyo.md) adds GET and POST `/api/kyo/greeting`. Its compiled output lives in `examples/nuxt/server/.scala-kyo`; link both applications before starting this combined Nuxt demonstration. In your own Kyo-only application, depend on `kyo-h3-ext`; you do not need the ZIO example or its database integration.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+The independent [Kyo example](content/1.guide/03.kyo.md) adds GET and POST `/api/kyo/greeting`. Its compiled output lives in `examples/nuxt/server/.scala-kyo`; link both applications before starting this combined Nuxt demonstration. In your own Kyo-only application, depend on `kyo-h3-ext`; you do not need the ZIO example or its database integration.
 
 ## 2. Run the model and database example
 
@@ -70,7 +82,9 @@ POST returns status 201 with `{"data":{"id":1,"text":"My first note"}}` for a ne
 
 Blank text returns status 422 with `{"errors":[{"message":"must have at least 1 character","path":"text"}]}`. A body of the wrong shape, for example `{"text":42}`, returns 422 with one generic entry, `Request body does not match the expected shape`. Text that is not valid JSON returns 400. The entries never repeat the input.
 
-`notes/Notes.scala` defines the application model, the request model, the service, and the Skunk implementation. Each model has one ZIO Schema and derives its native converter from it (`derives Schema, NativeSchema`). The `CreateNote` schema trims the text and checks its length, so the handler reads the body with `request.body.json[CreateNote]` and repeats none of those rules. See [schema.md](schema.md) for supported schema forms; plain `derives NativeConverter` models need no schema dependency.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+`notes/Notes.scala` defines the application model, the request model, the service, and the Skunk implementation. Each model has one ZIO Schema and derives its native converter from it (`derives Schema, NativeSchema`). The `CreateNote` schema trims the text and checks its length, so the handler reads the body with `request.body.json[CreateNote]` and repeats none of those rules. See [schema guide](content/1.guide/07.schema.md) for supported schema forms; plain `derives NativeConverter` models need no schema dependency.
 
 The database pool is an application-scoped resource. `resources/SessionPool.scala` builds a Skunk pool (at most four sessions) from the startup runtime config, and the example's `app/AppHandler.scala` wraps it in `ZShared.layer`. The first request that needs it builds the pool; every later request reuses it. A Notes request takes at most one pooled session for its request scope, on first use (after the body was validated), and returns it when the response is complete. Nitro's `close` hook releases the pool. The Node server runs that hook on `SIGTERM` and `SIGINT`. These files belong to the example: write your own `AppHandler` and resource layers in your application.
 
@@ -90,7 +104,9 @@ pnpm build
 
 This runs `pnpm run scala:full` before the demo's Nuxt production build. The packaged `h34s-scala build` step reads `examples/nuxt/h34s.build.config.mjs`, clears previous output from both `examples/nuxt/server/.scala` and `examples/nuxt/server/.scala-kyo`, runs `nuxtsvr/fullLinkJS` and `kyoExample/fullLinkJS`, then loads both outputs to collect their routes and write the route manifests and `.d.ts` declarations. A failed link, or an output without handlers, stops the build before Nuxt can package stale development code. Use `pnpm run scala:full` to run that step on its own. Nuxt writes the deployable output to `examples/nuxt/.output/`.
 
-The example's `build` and `generate` scripts run Nuxt with an 8 GiB Node heap (`node --max-old-space-size=8192`). Keep that option for this example. The example also sets the Nuxt module option `scalaPrerender: 'stub'`, which keeps the linked Scala.js out of Nitro's prerender bundle; see [npm tooling](npm-tooling.md#keep-scalajs-out-of-the-prerender-bundle). With the stub, the build passed with a 4096 MiB heap limit. Without it, the build needs more than 4 GiB: with a 4096 MiB heap limit, it runs out of memory in "Building Nuxt Nitro server", with `FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory`, and a 6144 MiB limit passed in one run. Node's default heap limit depends on the machine: about 4 GiB on the maintainer's 16 GB Mac, and 2240 MiB on a 15.7 GiB Claude Code cloud VM. There, with `NODE_OPTIONS` unset and without the scripts' heap option, the build without the stub runs out of memory while it builds the prerender bundle. A build with an equivalent temporary hook in place of the option ran out of memory later, while it built the server output. 8 GiB keeps a margin. The 2026-10-19 cloud session's environment set `NODE_OPTIONS=--max-old-space-size=8192` (not this repository's hook), so a build there without the scripts' option still had an 8 GiB heap. <!-- claude 2026-10-19: changed: the measured cause of the 8 GiB heap and the scalaPrerender option (issue #30); the 2240 MiB run used a temporary hook (review F3) -->
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+The example's `build` and `generate` scripts run Nuxt with an 8 GiB Node heap (`node --max-old-space-size=8192`). Keep that option for this example. The example also sets the Nuxt module option `scalaPrerender: 'stub'`, which keeps the linked Scala.js out of Nitro's prerender bundle; see [npm tooling](content/1.guide/13.npm-tooling.md#keep-scalajs-out-of-the-prerender-bundle). With the stub, the build passed with a 4096 MiB heap limit. Without it, the build needs more than 4 GiB: with a 4096 MiB heap limit, it runs out of memory in "Building Nuxt Nitro server", with `FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory`, and a 6144 MiB limit passed in one run. Node's default heap limit depends on the machine: about 4 GiB on the maintainer's 16 GB Mac, and 2240 MiB on a 15.7 GiB Claude Code cloud VM. There, with `NODE_OPTIONS` unset and without the scripts' heap option, the build without the stub runs out of memory while it builds the prerender bundle. A build with an equivalent temporary hook in place of the option ran out of memory later, while it built the server output. 8 GiB keeps a margin. The 2026-10-19 cloud session's environment set `NODE_OPTIONS=--max-old-space-size=8192` (not this repository's hook), so a build there without the scripts' option still had an 8 GiB heap. <!-- claude 2026-10-19: changed: the measured cause of the 8 GiB heap and the scalaPrerender option (issue #30); the 2240 MiB run used a temporary hook (review F3) -->
 
 <!-- claude 2026-10-19: created: the measured cause and its trade-offs (issue #30) -->
 The cause is the size of the linked Scala.js, which Rollup processes twice in one Node process:
@@ -98,7 +114,9 @@ The cause is the size of the linked Scala.js, which Rollup processes twice in on
 1. **Prerendering.** The example prerenders one route, Nuxt Content's `/__nuxt_content/focuses/sql_dump.txt`. For it, Nitro 2.13.1 builds a second, complete server bundle (the `nitro-prerender` preset) and imports that bundle into the build process. That step took 47 to 59 seconds for one small file across the baseline runs. With `scalaPrerender: 'stub'`, this bundle gets the stub instead of the linked Scala.js, and the step took 3.6 to 3.9 seconds in three builds. <!-- claude 2026-10-19: created: the step with the stub; a third build (review F7) -->
 2. **The server build.** Nitro then bundles the server again for the `node-server` preset.
 
-Both bundles take in about 16.5 MB of linked JavaScript (11.1 MB for the ZIO application, 5.5 MB for Kyo) and, by default, its 13.2 MB of Scala.js source maps. Removing any one of three things let the build pass with a 4096 MiB heap limit (peak RSS 3.4 to 4.5 GiB): the prerendered route, the server source maps (`sourcemap.server=false`), or one of the two Scala.js applications. The full locale database made no difference: it is on the ZIO application's classpath, but excluding it did not change the linked output (same name, size and time stamp), so the linker does not include it. The [compatibility matrix](compatibility.md#heap-measurement-2026-10-19) has the measurements.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+Both bundles take in about 16.5 MB of linked JavaScript (11.1 MB for the ZIO application, 5.5 MB for Kyo) and, by default, its 13.2 MB of Scala.js source maps. Removing any one of three things let the build pass with a 4096 MiB heap limit (peak RSS 3.4 to 4.5 GiB): the prerendered route, the server source maps (`sourcemap.server=false`), or one of the two Scala.js applications. The full locale database made no difference: it is on the ZIO application's classpath, but excluding it did not change the linked output (same name, size and time stamp), so the linker does not include it. The [compatibility matrix](content/2.reference/3.compatibility.md#heap-measurement-2026-10-19) has the measurements.
 
 The example keeps all three: the Nuxt Content route, the server source maps for Scala stack traces in Node, and both applications. It sets `scalaPrerender: 'stub'` instead, because its one prerendered route runs no Scala.js code. On 2026-10-19, with the stub and a 4096 MiB heap limit, the example's `nuxt build` at commit `ae4c502` passed in 1 minute 18 seconds with a peak RSS of 4.07 GiB. The prerendered `sql_dump.txt` had the same SHA-256 as in a build without the stub, and no request reached the stub. On the built server, `smoke.mjs` with PostgreSQL, the `SIGTERM` session check and `kyo-smoke.mjs` passed. <!-- claude 2026-10-19: created: the example's stub and its measurement on the final build (review F3) -->
 
@@ -115,7 +133,9 @@ node .output/server/index.mjs
 
 It listens on port 3000; set `NITRO_PORT` and `NITRO_HOST` (or `PORT` and `HOST`) to change that. The production server does not read `.env`. Pass `NUXT_DATABASE_*` in its environment. To include error causes and stack text in its 500 responses while you investigate a problem, start it with `NUXT_H34S_DEBUG=true`; keep that off on any server the public can reach. On `SIGTERM` or `SIGINT`, Nitro runs its `close` hook, which releases the shared database pool, and then exits.
 
-This build entry point does not establish complete application packaging or a tested Nix deployment. The [release checks](releases.md#validate-and-publish-a-release) validate reusable library artifacts separately from packaging the example application.
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+This build entry point does not establish complete application packaging or a tested Nix deployment. The [release checks](maintainers/releases.md#validate-and-publish-a-release) validate reusable library artifacts separately from packaging the example application.
 
 ## Checks
 
@@ -186,4 +206,6 @@ On 2026-10-19, in a Claude Code cloud session (Ubuntu 24.04.5, x86_64, 4 vCPUs, 
 - The PostgreSQL log showed `connection authenticated: identity="h34s" method=scram-sha-256` for the bundle's connection: Skunk's SCRAM login works in the production bundle with the `skunk-node-crypto.ts` plugin.
 - After eight parallel `GET /api/notes` requests, `pg_stat_activity` held 4 sessions of the user `h34s` (the pool's maximum). After `SIGTERM`, the server exited with status 0, PostgreSQL logged 4 disconnections, and `pg_stat_activity` held 0 sessions of that user.
 
-The kyo-sql code from the database guide ran against the same PostgreSQL; see [Run the kyo-sql tests](database.md#run-the-kyo-sql-tests).
+<!-- claude 2026-10-20: changed: links to the guides' new paths under docs/content/ (issue #25) -->
+
+The kyo-sql code from the database guide ran against the same PostgreSQL; see [Run the kyo-sql tests](content/1.guide/08.database.md#run-the-kyo-sql-tests).
