@@ -134,17 +134,27 @@ private[kyoh3] object RequestRuntime:
       else
           new js.Promise[js.Any]((resolve, _) =>
             // claude 2026-10-19: changed: one HandlerTransport per request; a socketless stream settles the h3 promise early
-            val transport  = new HandlerTransport(event, options, () => resolve(js.undefined))
+            // claude 2026-10-20: changed: the transport can end the connection after a failure without reporting a disconnect (ADR-0004)
+            val transport  = new HandlerTransport(
+              event,
+              options,
+              () => resolve(js.undefined),
+              () =>
+                lifecycle.unlisten()
+                event.node.res.destroy(),
+            )
             val supervised = new Supervised[Completion](work(transport, program))
             lifecycle.setInterrupt(() => supervised.interrupt())
             supervised.onComplete { result =>
+              val clientLeft = lifecycle.closedByClient
               lifecycle.unlisten()
               val response =
                 try
                     // The transport owns a sent response: write nothing more, but log a failure
-                    // that happened after it (for example a second sendStream).
+                    // that happened after it (for example a second sendStream). A client that
+                    // disconnected interrupted the program: that is not a failure to log.
                     if transport.sent then
-                        afterSent(result)
+                        if !clientLeft then afterSent(result)
                         lifecycle.claim()
                     else if lifecycle.disconnected then lifecycle.claim()
                     else render(event, lifecycle, options, result)

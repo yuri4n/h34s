@@ -15,6 +15,8 @@ final class HandlerTransport private[exts] (
     private[exts] val event: H3Event,
     private[exts] val options: HandlerOptions,
     settle: () => Unit,
+    // claude 2026-10-20: created: ends the connection after a failure without reporting a disconnect (ADR-0004)
+    abandonConnection: () => Unit = () => (),
 ):
     import HandlerTransport.State
 
@@ -38,6 +40,13 @@ final class HandlerTransport private[exts] (
     private[exts] def settleEarly(): Unit = settle()
 
     private[exts] def sent: Boolean = state == State.Sent
+
+    // claude 2026-10-20: created: ends a connection whose head is out, after a failure (ADR-0004, Q1)
+    /** Ends the connection so that the client cannot take a partial body for a complete one. The
+      * request stops listening for a disconnect first, so ending the connection does not interrupt
+      * the program: the program still sees the failure and can roll back.
+      */
+    private[exts] def abandon(): Unit = abandonConnection()
 end HandlerTransport
 
 object HandlerTransport:
@@ -52,9 +61,10 @@ object HandlerTransport:
         /** The core writes the response after the program. */
         case Open
 
-        /** `sendStream` runs; nothing reached the client yet. */
+        // claude 2026-10-20: changed: the head leaves at the call, so Streaming ends when the head is written (ADR-0004, Q1)
+        /** `sendStream` runs and has not written the head yet; nothing reached the client. */
         case Streaming
 
-        /** The transport owns the response; the core writes nothing more. */
+        /** The head is out: the transport owns the response, and the core writes nothing more. */
         case Sent
 end HandlerTransport

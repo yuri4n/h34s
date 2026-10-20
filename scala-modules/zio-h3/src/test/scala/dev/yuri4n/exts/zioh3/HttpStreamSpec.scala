@@ -12,16 +12,20 @@ import scala.scalajs.js
 object HttpStreamSpec extends ZIOSpecDefault:
     def spec = suite("ZStream response bodies over h3")(
       // Z13, C12
-      test("writes the head before the first chunk, then every chunk, and ends the response") {
+      // claude 2026-10-20: changed: the head is written and flushed at the call, before the first element (ADR-0004, Q1)
+      test("writes and flushes the head at the call, before the first element, then every chunk, and ends the response") {
         val call = Call("/stream")
+        var flushedBeforeProduction: Option[(Int, List[String], Int)] = None
+        val stream = ZStream.fromZIO(ZIO.succeed { flushedBeforeProduction = call.response.headAtFlush; "a" }) ++ ZStream("b", "c")
         val handler = ZHandler.define { _ =>
-          Response.status(Status.Accepted) *> Response.header("content-type", "text/plain") *> ZHandler.sendStream(ZStream("a", "b", "c"))
+          Response.status(Status.Accepted) *> Response.header("content-type", "text/plain") *> ZHandler.sendStream(stream)
         }
         for body <- call.invoke(handler)
         yield assertTrue(
           js.isUndefined(body),
           // claude 2026-10-19: changed: the core's send adds the x-h34s-stream marker to the head
-          call.response.headAtFirstWrite.contains(202 -> List("content-type", "x-h34s-stream")),
+          call.response.headAtFlush.contains((202, List("content-type", "x-h34s-stream"), 0)),
+          flushedBeforeProduction == call.response.headAtFlush,
           call.response.chunks.toList == List("a", "b", "c"),
           call.response.ended, !call.response.hasListener, call.handled,
         )
@@ -99,19 +103,21 @@ object HttpStreamSpec extends ZIOSpecDefault:
         for body <- call.invoke(ZHandler.define(_ => ZHandler.sendStream(stream)))
         yield assertTrue(js.isUndefined(body), call.response.destroyed, call.response.chunks.toList == List("prefix"), !call.response.hasListener)
       },
-      test("a failure before the first chunk is rendered with the failure rule") {
+      // claude 2026-10-20: changed: the head leaves at the call, so a failure before the first element can only end the stream (ADR-0004, Q1)
+      test("a failure before the first element ends the stream: the status stays and the connection is closed") {
         val call = Call("/stream")
         val handler = ZHandler.define { _ =>
-          Response.status(Status.Accepted) *> Response.header("x-discarded", "1") *>
+          Response.status(Status.Accepted) *> Response.header("x-sent", "1") *>
             ZHandler.sendStream(ZStream.fail(HttpError.conflict("Busy")): ZStream[Any, HttpError, String])
         }
         for body <- call.invoke(handler)
         yield assertTrue(
-          call.response.status == 409, wire(body) == errors("Busy"),
-          call.response.header("x-discarded").isEmpty, call.response.chunks.isEmpty,
+          js.isUndefined(body), call.response.status == 202, call.response.header("x-sent").contains("1"),
+          call.response.chunks.isEmpty, call.response.destroyed, !call.response.ended,
         )
       },
-      test("a SafeError thrown inside a stream is a defect, not an approved error; a null element too") {
+      // claude 2026-10-20: changed: the head leaves at the call; the client sees no error data, only an ended connection (ADR-0004, Q1)
+      test("a SafeError thrown inside a stream never reaches the client; a null element ends the stream too") {
         final case class Approved(message: String) extends SafeError:
           override def status: Int = 409
         val thrown = Call("/stream")
@@ -120,8 +126,8 @@ object HttpStreamSpec extends ZIOSpecDefault:
           thrownBody <- thrown.invoke(ZHandler.define(_ => ZHandler.sendStream(ZStream("x").map[String](_ => throw Approved("private detail")))))
           nullBody <- nullElement.invoke(ZHandler.define(_ => ZHandler.sendStream(ZStream[String](null))))
         yield assertTrue(
-          thrown.response.status == 500, wire(thrownBody) == opaque, thrown.response.chunks.isEmpty,
-          nullElement.response.status == 500, wire(nullBody) == opaque,
+          js.isUndefined(thrownBody), thrown.response.status == 200, thrown.response.chunks.isEmpty, thrown.response.destroyed,
+          js.isUndefined(nullBody), nullElement.response.chunks.isEmpty, nullElement.response.destroyed,
         )
       },
       test("a stream without a content type is sent as text/plain with nosniff") {

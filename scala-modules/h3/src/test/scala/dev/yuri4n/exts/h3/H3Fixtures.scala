@@ -49,6 +49,9 @@ private[exts] object H3Fixtures:
         val firstWrite = scala.concurrent.Promise[Unit]()
         /** Status and header names when the first chunk was written. */
         var headAtFirstWrite: Option[(Int, List[String])] = None
+        // claude 2026-10-20: created: records Node's flushHeaders, which sendStream calls at the call (ADR-0004, Q1)
+        /** Status, header names and the number of chunks already written when the head was flushed. */
+        var headAtFlush: Option[(Int, List[String], Int)] = None
 
         val native: js.Dynamic = js.Dynamic.literal(
           statusCode = 200, statusMessage = "OK", headersSent = false,
@@ -88,6 +91,12 @@ private[exts] object H3Fixtures:
           firstWrite.trySuccess(())
           true
         }): js.Function1[js.Any, Boolean])
+        // claude 2026-10-20: created: Node's flushHeaders: the head leaves before any chunk (ADR-0004, Q1)
+        native.updateDynamic("flushHeaders")((() => {
+          if headAtFlush.isEmpty then headAtFlush = Some((status, headerNames, chunks.size))
+          native.headersSent = true
+          ()
+        }): js.Function0[Unit])
         native.updateDynamic("end")(((_: js.Any) => {
           writes += 1
           ended = true

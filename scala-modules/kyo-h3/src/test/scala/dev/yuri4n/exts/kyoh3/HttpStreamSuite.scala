@@ -15,17 +15,23 @@ class HttpStreamSuite extends FunSuite:
     override val munitTimeout: FiniteDuration = 60.seconds
 
     // Z13, C12
-    test("writes the head before the first chunk, then every chunk, and ends the response") {
+    // claude 2026-10-20: changed: the head is written and flushed at the call, before the first element (ADR-0004, Q1)
+    test("writes and flushes the head at the call, before the first element, then every chunk, and ends the response") {
       val call = Call("/stream")
+      var flushedBeforeProduction: Option[(Int, List[String], Int)] = None
+      val stream = Stream[String, Async] {
+        Sync.defer { flushedBeforeProduction = call.response.headAtFlush }.andThen(Emit.value(Chunk("a", "b", "c")))
+      }
       val handler = KHandler.define { _ =>
         Response.status(Status.Accepted)
           .andThen(Response.header("content-type", "text/plain"))
-          .andThen(Response.sendStream(Stream.init(Seq("a", "b", "c"))))
+          .andThen(Response.sendStream(stream))
       }
       call.invoke(handler).map { body =>
         assert(js.isUndefined(body))
         // claude 2026-10-19: changed: sendStream adds the x-h34s-stream marker to the head
-        assertEquals(call.response.headAtFirstWrite, Some(202 -> List("content-type", "x-h34s-stream")))
+        assertEquals(call.response.headAtFlush, Some((202, List("content-type", "x-h34s-stream"), 0)))
+        assertEquals(flushedBeforeProduction, call.response.headAtFlush, "the head left before the first element was produced")
         assertEquals(call.response.chunks.toList, List("a", "b", "c"))
         assert(call.response.ended)
         assert(!call.response.hasListener)
@@ -116,21 +122,26 @@ class HttpStreamSuite extends FunSuite:
       }
     }
 
-    test("a failure before the first chunk is rendered with the failure rule") {
+    // claude 2026-10-20: changed: the head leaves at the call, so a failure before the first element can only end the stream (ADR-0004, Q1)
+    test("a failure before the first element ends the stream: the status stays and the connection is closed") {
       val call = Call("/stream")
       val stream = Stream[String, Abort[HttpError]](Abort.fail(HttpError.conflict("Busy")))
       val handler = KHandler.define { _ =>
-        Response.status(Status.Accepted).andThen(Response.header("x-discarded", "1")).andThen(Response.sendStream(stream))
+        Response.status(Status.Accepted).andThen(Response.header("x-sent", "1")).andThen(Response.sendStream(stream))
       }
-      call.invoke(handler).map { body =>
-        assertEquals(call.response.status, 409)
-        assertEquals(json(body), errors("Busy"))
-        assertEquals(call.response.header("x-discarded"), None)
+      consoleErrors(call.invoke(handler)).map { (body, logged) =>
+        assert(js.isUndefined(body))
+        assertEquals(call.response.status, 202)
+        assertEquals(call.response.header("x-sent"), Some("1"))
         assertEquals(call.response.chunks.toList, Nil)
+        assert(call.response.destroyed, "the connection is closed")
+        assert(!call.response.ended, "the response is not ended like a complete one")
+        assert(logged.exists(_.contains("Busy")), logged.toString)
       }
     }
 
-    test("a SafeError thrown inside a stream is a defect, not an approved error; a null element too") {
+    // claude 2026-10-20: changed: the head leaves at the call; the client sees no error data, only an ended connection (ADR-0004, Q1)
+    test("a SafeError thrown inside a stream never reaches the client; a null element ends the stream too") {
       final case class Approved(message: String) extends SafeError:
         override def status: Int = 409
       val thrown = Call("/stream")
@@ -139,14 +150,17 @@ class HttpStreamSuite extends FunSuite:
         thrownBody <- thrown.invoke(KHandler.define(_ => Response.sendStream(Stream.init(Seq("x")).map(_ => (throw Approved("private detail")): String))))
         nullBody <- nullElement.invoke(KHandler.define(_ => Response.sendStream(Stream.init(Seq[String](null)))))
       yield
-        assertEquals(thrown.response.status, 500)
-        assertOpaque(thrownBody)
+        assert(js.isUndefined(thrownBody))
+        assertEquals(thrown.response.status, 200)
         assertEquals(thrown.response.chunks.toList, Nil)
-        assertEquals(nullElement.response.status, 500)
-        assertOpaque(nullBody)
+        assert(thrown.response.destroyed)
+        assert(js.isUndefined(nullBody))
+        assertEquals(nullElement.response.chunks.toList, Nil)
+        assert(nullElement.response.destroyed)
     }
 
-    test("a failed write before anything was sent is a 500 without the success head, with the write error") {
+    // claude 2026-10-20: changed: the head leaves at the call, so a failed write closes the connection; the log names the write error (ADR-0004, Q1)
+    test("a failed write closes the connection, and the log names the write error, not the producer's interruption") {
       val call = Call("/stream", development = true)
       call.response.native.updateDynamic("write")(((_: js.Any) =>
         throw js.JavaScriptException(js.Dynamic.newInstance(js.Dynamic.global.TypeError)("the response rejected the chunk"))
@@ -154,16 +168,17 @@ class HttpStreamSuite extends FunSuite:
       val handler = KHandler.define { _ =>
         Response.status(Status.Accepted)
           .andThen(Response.cookie(SetCookie("session", "abc")))
-          .andThen(Response.header("x-success", "1"))
           .andThen(Response.sendStream(Stream.init(Seq("a"))))
       }
-      call.invoke(handler).map { body =>
-        assertEquals(call.response.status, 500)
-        assertEquals(call.response.header("set-cookie"), None)
-        assertEquals(call.response.header("x-success"), None)
-        val cause = body.asInstanceOf[js.Dynamic].errors.asInstanceOf[js.Array[js.Dynamic]](0).debug.cause.asInstanceOf[String]
-        assert(cause.contains("the response rejected the chunk"), cause)
-        assert(!cause.contains("Interrupted"), cause)
+      consoleErrors(call.invoke(handler)).map { (body, logged) =>
+        assert(js.isUndefined(body))
+        assertEquals(call.response.status, 202)
+        assert(call.response.header("set-cookie").exists(_.startsWith("session=abc")))
+        assert(call.response.destroyed)
+        val failure = logged.filter(_.contains("Unhandled h34s handler failure"))
+        assertEquals(failure.size, 1, logged.toString)
+        assert(failure.head.contains("the response rejected the chunk"), failure.head)
+        assert(!failure.head.contains("Interrupted"), failure.head)
       }
     }
 

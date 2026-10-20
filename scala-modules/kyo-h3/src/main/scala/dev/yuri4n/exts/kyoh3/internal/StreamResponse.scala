@@ -4,9 +4,10 @@ import dev.yuri4n.exts.h3.internal.{H3, H3Event, Nitro}
 import dev.yuri4n.exts.h3.{ResponseHead, Sent}
 import dev.yuri4n.exts.kyoh3.HandlerTransport
 import dev.yuri4n.exts.kyoh3.ResponseBody.StreamEffects
-import kyo.{Abort, AllowUnsafe, Async, Channel, Chunk, Closed, Fiber, Frame, Result, Scope, Stream, Sync, `<`}
+import kyo.{Abort, AllowUnsafe, Async, Channel, Chunk, Closed, Fiber, Frame, Kyo, Result, Scope, Stream, Sync, `<`}
 
 import scala.scalajs.js
+import scala.util.control.NonFatal
 
 /** Kyo streams as pull-driven Web `ReadableStream`s, and their delivery through h3.
   *
@@ -22,19 +23,20 @@ private[exts] object StreamResponse:
     val marker: String = "x-h34s-stream"
 
     // claude 2026-10-19: changed: send takes the request's HandlerTransport and the program's head, returns Sent, and supports a socketless response (Nitro local fetch) instead of rejecting it
+    // claude 2026-10-20: changed: the head is written at the call on every transport (ADR-0004, Q1)
     /** Sends a stream through h3 and gives the `Sent` proof. Runs inside the handler program, so the
       * request scope stays open until the stream ends or is cancelled.
       *
-      * With a Node socket, the head is written just before the first chunk (or before an empty
-      * stream closes), so a failure before that still uses the failure rule: the success head is
-      * cleared and the failure is raised for the core to render. A failure after the head destroys
-      * the socket and is logged; the response then belongs to the transport.
+      * The head is written when `send` is called, on every transport: with a Node socket it is also
+      * flushed, so the client has the status and the headers before the first element. A failure
+      * that happens before the head is written (an invalid head) clears it and fails the call, so
+      * the core answers with the failure rule. After the head, the status is fixed: a failure can
+      * only end the response.
       *
-      * Without a socket (Nitro's in-process local fetch, node-mock-http), the head is written before
-      * h3's `sendStream`, because the local fetch copies status and headers when the h3 handler
-      * promise settles. That promise is settled at once; the program then waits until the caller has
-      * read the stream to its end or cancelled it. Chunks are UTF-8 bytes, because a Web `Response`
-      * accepts only `Uint8Array` chunks.
+      * Without a socket (Nitro's in-process local fetch, node-mock-http), the local fetch copies status
+      * and headers when the h3 handler promise settles. That promise is settled at once; the program
+      * then waits until the caller has read the stream to its end or cancelled it. Chunks are UTF-8
+      * bytes, because a Web `Response` accepts only `Uint8Array` chunks.
       */
     def send(transport: HandlerTransport, head: ResponseHead, chunks: Stream[js.Any, StreamEffects])(using
         Frame,
@@ -55,48 +57,36 @@ private[exts] object StreamResponse:
       }
 
     // claude 2026-10-19: changed: the former send body (lazy head, request-scope cancel, failure split), now ending in Sent
+    // claude 2026-10-20: changed: the head is written and flushed at the call; a failure after it ends the connection (ADR-0004, Q1)
     private def throughSocket(transport: HandlerTransport, streamHead: ResponseHead, chunks: Stream[js.Any, StreamEffects])(using
         Frame,
         AllowUnsafe,
     ): Sent < (Async & Abort[Throwable] & Scope) =
-      val event   = transport.event
-      var applied = false
-      val bridge  = new Bridge(
-        chunks,
-        () =>
-          applied = true
-          Rendering.writeHead(event, streamHead),
-        bytes = false,
-        afterCancel = None,
-      )
-      // Registered in the request scope: a disconnect or failure cancels the producer and waits for
-      // its finalizers before the request scope continues closing.
-      Scope.ensure(bridge.cancelAndAwait).andThen(
-        Abort.run[Throwable](Interop.await(H3.sendStream(event, bridge.readable))).map(_.foldError(
-          _ => Sync.defer(sentBy(transport)),
-          // The Web stream only carries a Throwable; the producer's own result says whether it was
-          // an explicit failure or a defect. When the writer side failed (the pipe cancelled the
-          // stream), the producer only saw an interrupt: report the write error.
-          error =>
-            val failure: Result.Error[Throwable] =
-              bridge.producerError.filter(_ => !bridge.cancelledByConsumer).getOrElse(Result.Panic(error.failureOrPanic))
-            Sync.defer {
-              if headersSent(event) then
-                  // The client already has a status and part of the body: end the connection so
-                  // the response cannot look complete.
-                  event.node.res.destroy()
-                  Rendering.logDefect(Rendering.describe(failure.failureOrPanic))
-                  val sent: Sent < Abort[Throwable] = sentBy(transport)
-                  sent
-              else
-                  // The head may be applied already (before the first chunk) but not sent: the
-                  // failure response must not carry success-only headers or cookies.
-                  if applied then Rendering.clearHead(event, streamHead)
-                  transport.state = HandlerTransport.State.Open
-                  Abort.error(failure)
-            }
-          ,
-        )),
+      val event  = transport.event
+      val bridge = new Bridge(chunks, bytes = false, afterCancel = None)
+      commit(transport, streamHead, flush = true).andThen(
+        // Registered in the request scope: a disconnect or failure cancels the producer and waits for
+        // its finalizers before the request scope continues closing.
+        Scope.ensure(bridge.cancelAndAwait).andThen(
+          Abort.run[Throwable](Interop.await(H3.sendStream(event, bridge.readable))).map(_.foldError(
+            _ => Sync.defer(sentBy(transport)),
+            // The Web stream only carries a Throwable; the producer's own result says whether it was
+            // an explicit failure or a defect. When the writer side failed (the pipe cancelled the
+            // stream), the producer only saw an interrupt: report the write error.
+            error =>
+              val failure: Result.Error[Throwable] =
+                bridge.producerError.filter(_ => !bridge.cancelledByConsumer).getOrElse(Result.Panic(error.failureOrPanic))
+              Sync.defer {
+                // The client has the head and maybe some elements: end the connection so that the
+                // response cannot look complete.
+                transport.abandon()
+                Rendering.logDefect(Rendering.describe(failure.failureOrPanic))
+                val sent: Sent < Abort[Throwable] = sentBy(transport)
+                sent
+              }
+            ,
+          )),
+        ),
       )
     end throughSocket
 
@@ -106,15 +96,12 @@ private[exts] object StreamResponse:
         AllowUnsafe,
     ): Sent < (Async & Abort[Throwable] & Scope) =
       val event  = transport.event
-      val bridge = new Bridge(chunks, () => (), bytes = true, afterCancel = Some(() => transport.finished))
-      Sync.defer(Rendering.writeHead(event, streamHead)).andThen(
+      val bridge = new Bridge(chunks, bytes = true, afterCancel = Some(() => transport.finished))
+      commit(transport, streamHead, flush = false).andThen(
         Scope.ensure(bridge.cancelAndAwait).andThen(
           Abort.run[Throwable](Interop.await(H3.sendStream(event, bridge.readable))).map(_.foldError(
             _ =>
-              Sync.defer {
-                transport.state = HandlerTransport.State.Sent
-                transport.settleEarly()
-              }.andThen(bridge.completion).map { result =>
+              Sync.defer(transport.settleEarly()).andThen(bridge.completion).map { result =>
                 Sync.defer {
                   // The caller has the head already: a stream failure can only end its reads.
                   result.foldError(_ => (), error => if !bridge.cancelledByConsumer then Rendering.logDefect(Rendering.describe(error.failureOrPanic)))
@@ -122,6 +109,7 @@ private[exts] object StreamResponse:
                 }
               },
             error =>
+              // h3 rejected the stream before it reached the caller.
               Sync.defer {
                 Rendering.clearHead(event, streamHead)
                 transport.state = HandlerTransport.State.Open
@@ -132,6 +120,35 @@ private[exts] object StreamResponse:
       )
     end socketless
 
+    // claude 2026-10-20: created: writes the head at the call, and flushes it over a socket (ADR-0004, Q1)
+    /** Writes the head. With `flush`, also sends it to the client at once (Node's `flushHeaders`).
+      *
+      * The transport owns the response from here on. If the head cannot be written, it is cleared and
+      * the call fails before anything reached the client, so the core answers with the failure rule.
+      */
+    private def commit(transport: HandlerTransport, head: ResponseHead, flush: Boolean)(using
+        Frame,
+    ): Unit < (Sync & Abort[Throwable]) =
+      Sync.defer {
+        val event    = transport.event
+        val response = event.node.res.asInstanceOf[js.Dynamic]
+        try
+            Rendering.writeHead(event, head)
+            if flush && Nitro.isFunction(response.flushHeaders) then response.flushHeaders()
+            transport.state = HandlerTransport.State.Sent
+            None
+        catch
+            case NonFatal(error) =>
+              if headersSent(event) then
+                  // Part of the head may have left: end the connection.
+                  transport.abandon()
+                  transport.state = HandlerTransport.State.Sent
+              else
+                  Rendering.clearHead(event, head)
+                  transport.state = HandlerTransport.State.Open
+              Some(error)
+      }.map(_.fold(Kyo.unit)(error => Abort.panic(error)))
+
     private def sentBy(transport: HandlerTransport): Sent =
       transport.state = HandlerTransport.State.Sent
       new Sent(transport)
@@ -140,16 +157,14 @@ private[exts] object StreamResponse:
       Nitro.isTrue(event.node.res.asInstanceOf[js.Dynamic].headersSent)
 
     /** A Web `ReadableStream` over a Kyo stream, for callers that consume it directly. */
-    def readable(chunks: Stream[js.Any, StreamEffects], beforeFirstChunk: () => Unit = () => ())(using
-        Frame,
-    ): js.Any =
+    def readable(chunks: Stream[js.Any, StreamEffects])(using Frame): js.Any =
       import AllowUnsafe.embrace.danger
-      new Bridge(chunks, beforeFirstChunk, bytes = false, afterCancel = None).readable
+      new Bridge(chunks, bytes = false, afterCancel = None).readable
 
     // claude 2026-10-19: changed: bytes (UTF-8 chunks for Web consumers) and afterCancel (a socketless cancel waits for the request)
+    // claude 2026-10-20: changed: no beforeFirstChunk hook: the head is written at the call (ADR-0004, Q1)
     private final class Bridge(
         chunks: Stream[js.Any, StreamEffects],
-        beforeFirstChunk: () => Unit,
         bytes: Boolean,
         afterCancel: Option[() => js.Promise[Unit]],
     )(using
@@ -158,7 +173,6 @@ private[exts] object StreamResponse:
     ):
         private val requests   = Channel.Unsafe.init[Unit](1).safe
         private val deliveries = Channel.Unsafe.init[Chunk[js.Any]](1).safe
-        private var committed  = false
         private var cancelled  = false
         private lazy val encoder = js.Dynamic.newInstance(js.Dynamic.global.TextEncoder)()
         var producerError: Option[Result.Error[Throwable]] = None
@@ -178,18 +192,11 @@ private[exts] object StreamResponse:
           ()
         }
 
-        private def commit(): Unit =
-          if !committed then
-              committed = true
-              beforeFirstChunk()
-
         private def pull(controller: js.Dynamic): Unit < Async =
           Abort.run[Closed](requests.put(()).andThen(deliveries.take)).map {
             case Result.Success(chunk) =>
               Sync.defer {
-                if !cancelled then
-                    commit()
-                    chunk.foreach(value => controller.enqueue(encode(value)))
+                if !cancelled then chunk.foreach(value => controller.enqueue(encode(value)))
               }
             case _                     =>
               producer.await.map { result =>
@@ -197,7 +204,6 @@ private[exts] object StreamResponse:
                   if !cancelled then
                       result.foldError(
                         _ =>
-                          commit()
                           controller.close()
                           ()
                         ,

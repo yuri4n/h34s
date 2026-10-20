@@ -157,27 +157,40 @@ class NitroLocalFetchSuite extends FunSuite:
       }
     }
 
-    test("(b) the same streamed route over real HTTP: the head leaves with the first chunk") {
+    // claude 2026-10-20: changed: sendStream flushes the head at the call, so the head arrives before the first element over a socket too (ADR-0004, Q1)
+    test("(b) the same streamed route over real HTTP: the head arrives before the first element") {
+      var produced = 0
       val app = NitroLocal.App()
       val stream = Stream[String, Async] {
-        def step(text: String) = Async.sleep(200.millis).andThen(Emit.value(Chunk(text)))
+        def step(text: String) = Async.sleep(200.millis).andThen(Sync.defer { produced += 1 }).andThen(Emit.value(Chunk(text)))
         step("1\n").andThen(step("2\n"))
       }
       app.route("/api/stream", KHandler.define(_ => Response.sendStream(stream)))
       TestDeadline(app.listen().flatMap { server =>
         val start = js.Date.now()
         js.Dynamic.global.fetch(server.url("/api/stream")).asInstanceOf[js.Promise[js.Dynamic]].toFuture.flatMap { response =>
-          val headAt = js.Date.now() - start
-          response.text().asInstanceOf[js.Promise[String]].toFuture.map { text =>
-            (headAt, js.Date.now() - start, text, response.headers.get("transfer-encoding"), response.headers.get("x-h34s-stream"))
+          val headAt         = js.Date.now() - start
+          val producedAtHead = produced
+          val reader         = response.body.getReader()
+          val decoder        = js.Dynamic.newInstance(js.Dynamic.global.TextDecoder)()
+          def readAll(acc: List[(String, Double)]): Future[List[(String, Double)]] =
+            reader.read().asInstanceOf[js.Promise[js.Dynamic]].toFuture.flatMap { step =>
+              if step.done.asInstanceOf[Boolean] then Future.successful(acc.reverse)
+              else readAll((decoder.decode(step.value).asInstanceOf[String], js.Date.now() - start) :: acc)
+            }
+          readAll(Nil).map { chunks =>
+            (headAt, producedAtHead, chunks, response.headers.get("transfer-encoding"), response.headers.get("x-h34s-stream"))
           }
         }.transformWith(result => server.close().flatMap(_ => Future.fromTry(result)))
-      }).map { (headAt, endAt, text, transferEncoding, marker) =>
-        assertEquals(text, "1\n2\n")
+      }).map { (headAt, producedAtHead, chunks, transferEncoding, marker) =>
+        val times = chunks.map(_._2)
+        assertEquals(chunks.map(_._1).mkString, "1\n2\n")
         assertEquals(transferEncoding.asInstanceOf[String], "chunked")
         assertEquals(marker.asInstanceOf[String], "1")
-        assert(headAt >= 150, s"head after $headAt ms")
-        println(s"[spike] (b) real HTTP head after ${headAt.round} ms; body ended after ${endAt.round} ms")
+        assertEquals(producedAtHead, 0, "the head arrived before the first element was produced")
+        assert(headAt < times.head, s"head after $headAt ms, chunks at $times ms")
+        assert(headAt < 150, s"head after $headAt ms; the first element takes 200 ms")
+        println(s"[send-stream] (b) real HTTP head after ${headAt.round} ms; chunks at ${times.map(_.round)} ms")
       }
     }
 

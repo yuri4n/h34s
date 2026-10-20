@@ -17,6 +17,10 @@ private[exts] final class RequestLifecycle(event: H3Event):
 
     def disconnected: Boolean = interrupted || isClosed
 
+    // claude 2026-10-20: created: a close that the client caused, not one that h34s caused after unlisten (ADR-0004)
+    /** The client disconnected while the request listened, which interrupted the program. */
+    def closedByClient: Boolean = interrupted
+
     private def isClosed: Boolean =
       def flag(name: String): Boolean = Nitro.isTrue(response.selectDynamic(name))
       flag("destroyed") || flag("closed") || flag("writableEnded")

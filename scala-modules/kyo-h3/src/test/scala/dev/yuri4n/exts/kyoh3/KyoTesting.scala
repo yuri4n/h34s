@@ -60,6 +60,25 @@ private[exts] object KyoTesting:
     def detached[A](program: A < HandlerEffects)(using Frame): A < (Async & Scope & Abort[Throwable] & Var[ResponseHead]) =
       Env.run(Fetch.unavailable)(Env.run(HandlerTransport.detached)(program))
 
+    // claude 2026-10-20: created: captures console.error lines (the core's defect log) while `body` runs
+    /** The `console.error` lines written while `body` runs. munit runs the tests of a suite one at a
+      * time, so one capture is active at a time.
+      */
+    def consoleErrors[A](body: => Future[A]): Future[(A, List[String])] =
+      val console  = js.Dynamic.global.console
+      val original = console.error
+      val lines    = scala.collection.mutable.ListBuffer.empty[String]
+      val capture: js.Function2[js.Any, js.Any, Unit] =
+        (first, second) => lines += List(first, second).filterNot(js.isUndefined).map(String.valueOf).mkString(" ")
+      console.error = capture
+      val running =
+        try body
+        catch case error: Throwable => Future.failed(error)
+      running.transform { outcome =>
+        console.error = original
+        outcome.map(value => (value, lines.toList))
+      }
+
     def nextTurn: Future[Unit] =
       val completed = Promise[Unit]()
       js.timers.setTimeout(0) { completed.success(()); () }

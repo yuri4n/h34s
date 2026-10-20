@@ -50,14 +50,20 @@ object Response:
       }(_.redirect(location, status))
 
     // claude 2026-10-19: created: sendStream, the way to stream (decision 1); its Sent value is the handler's result
+    // claude 2026-10-20: changed: the head is written at the call (ADR-0004, Q1)
     /** Sends the head set so far and then `stream`, and gives `Sent`. Make it the handler's last
       * step: return its `Sent` as the body.
       *
-      * Each string is written as UTF-8 text, as is. The head gets `text/plain; charset=utf-8` unless
-      * you set a content type, and the `x-h34s-stream` marker. The request scope stays open until the
-      * stream ends or the client cancels it; a disconnect interrupts the stream's producer and waits
-      * for its finalizers. A failure before anything reached the client fails this step, and the core
-      * answers with the failure rule; after that, the failure is logged and the response is ended.
+      * The head is written when you call `sendStream`; over a Node socket it is also flushed, so the
+      * client has the status and the headers before the first element. After the call the status is
+      * fixed, so validate input and acquire resources first. The head gets
+      * `text/plain; charset=utf-8` unless you set a content type, and the `x-h34s-stream` marker.
+      * Each string is written as UTF-8 text, as is.
+      *
+      * The request scope stays open until the stream ends or the client cancels it; a disconnect
+      * interrupts the stream's producer and waits for its finalizers. A failure of the stream can
+      * only end the response: the core logs it and closes the connection, so the client cannot take
+      * the partial body for a complete one.
       *
       * The stream may use at most `Async & Abort[Throwable] & Scope`: it runs in its own fiber.
       */
